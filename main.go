@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/avatar31/wireforge/internal/compiler"
 	"github.com/avatar31/wireforge/internal/schema"
 )
 
@@ -45,6 +46,13 @@ func run(inputFile, outputDir, packageName string) error {
 	if len(s.Messages) == 0 {
 		return fmt.Errorf("no message schemas found in %s", inputFile)
 	}
+
+	cs, err := compiler.Compile(s, packageName)
+	if err != nil {
+		return fmt.Errorf("compile: %w", err)
+	}
+
+	fmt.Printf("Compiled Schema: %+v", cs)
 
 	return nil
 }
