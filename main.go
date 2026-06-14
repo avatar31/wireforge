@@ -21,6 +21,7 @@ func main() {
 		Long: "wireforge takes an OpenAPI YAML specification and produces a fully self-contained\n" +
 			"Go file and matching C files (.h and .c) with proper memory alignment, big-endian\n" +
 			"wire format serialization, and comprehensive safety checks.",
+		SilenceUsage: true, // Don't show usage on error
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(inputFile, outputDir, packageName)
 		},
@@ -38,6 +39,7 @@ func main() {
 }
 
 func run(inputFile, outputDir, packageName string) error {
+	fmt.Printf("Parsing file: %s\n", inputFile)
 	s, err := schema.ParseFile(inputFile)
 	if err != nil {
 		return fmt.Errorf("parse: %w", err)
@@ -47,11 +49,7 @@ func run(inputFile, outputDir, packageName string) error {
 		return fmt.Errorf("no message schemas found in %s", inputFile)
 	}
 
-	cs, err := compiler.Compile(s, packageName)
-	if err != nil {
-		return fmt.Errorf("compile: %w", err)
-	}
-
+	cs := compiler.Compile(s, packageName)
 	fmt.Printf("Compiled Schema: %+v", cs)
 
 	return nil

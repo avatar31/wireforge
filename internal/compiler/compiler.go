@@ -1,7 +1,7 @@
 package compiler
 
 import (
-	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -40,30 +40,64 @@ type CompiledField struct {
 }
 
 // Compile takes a parsed schema and computes memory layouts with alignment.
-func Compile(s *schema.Schema, packageName string) (*CompiledSchema, error) {
+func Compile(s *schema.Schema, packageName string) *CompiledSchema {
 	cs := &CompiledSchema{
 		PackageName: packageName,
 		Messages:    make([]*CompiledMessage, 0, len(s.Messages)),
 	}
 
 	for _, msg := range s.Messages {
-		cm, err := compileMessage(msg)
-		if err != nil {
-			return nil, fmt.Errorf("compiling message %q: %w", msg.Name, err)
-		}
-		cs.Messages = append(cs.Messages, cm)
+		cs.Messages = append(cs.Messages, CompileMessage(msg))
 	}
 
-	return cs, nil
+	return cs
 }
 
-func compileMessage(msg *schema.Message) (*CompiledMessage, error) {
+// CompileMessage computes the memory layout for a single message, including offsets, padding, and alignment.
+// It automatically optimizes the field order by sorting them by alignment requirement in descending order
+// to minimize internal padding gaps before computing the final offsets.
+// Then returns a CompiledMessage with all fields properly aligned and sized.
+//
+// For Example:
+//
+//	Input Message Fields (from schema):
+//	- key: string       (Size: 4, Align: 4) -> uint32 length prefix
+//	- count: int32      (Size: 4, Align: 4)
+//	- offset: uint64    (Size: 8, Align: 8)
+//	- isEOF: bool       (Size: 1, Align: 1)
+//
+//	Optimized Field Layout (Sorted by Alignment Descending):
+//	Field Name | Offset | Size | Alignment | Padding Before
+//	--------------------------------------------------------
+//	offset     | 0      | 8    | 8         | 0
+//	key        | 8      | 4    | 4         | 0
+//	count      | 12     | 4    | 4         | 0
+//	isEOF      | 16     | 1    | 1         | 0
+//	--------------------------------------------------------
+//	Total Fixed Size: 24 bytes (17 bytes data + 7 bytes trailing padding)
+//	Struct Alignment: 8 bytes
+func CompileMessage(msg *schema.Message) *CompiledMessage {
 	cm := &CompiledMessage{Name: msg.Name}
 
-	offset := 0
-	maxAlign := 1
+	optimizedFields := make([]*schema.Field, len(msg.Fields))
+	copy(optimizedFields, msg.Fields)
 
-	for _, field := range msg.Fields {
+	// Sort fields by Alignment descending.
+	// If alignments are equal, use Size descending as a stable tie-breaker.
+	sort.SliceStable(optimizedFields, func(i, j int) bool {
+		alignI := optimizedFields[i].Type.Alignment()
+		alignJ := optimizedFields[j].Type.Alignment()
+		if alignI == alignJ {
+			return optimizedFields[i].Type.Size() > optimizedFields[j].Type.Size()
+		}
+		return alignI > alignJ
+	})
+
+	offset := 0
+	maxAlign := 4 // Minimum message size is 4 bytes
+
+	// Process the optimally ordered fields
+	for _, field := range optimizedFields {
 		cf := &CompiledField{
 			Name:        field.Name,
 			GoName:      toGoName(field.Name),
@@ -80,6 +114,7 @@ func compileMessage(msg *schema.Message) (*CompiledMessage, error) {
 			maxAlign = align
 		}
 
+		// Calculate padding needed before this field to satisfy alignment
 		padding := (align - (offset % align)) % align
 		cf.PaddingBefore = padding
 		cf.Offset = offset + padding
@@ -105,7 +140,7 @@ func compileMessage(msg *schema.Message) (*CompiledMessage, error) {
 	cm.TotalFixedSize = offset
 	cm.StructAlignment = maxAlign
 
-	return cm, nil
+	return cm
 }
 
 func toGoName(name string) string {
