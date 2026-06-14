@@ -8,7 +8,6 @@ type Schema struct {
 // Message represents a single struct/message type.
 type Message struct {
 	Name       string
-	TypeID     uint16
 	Fields     []*Field
 	Properties map[string]*Field
 }
@@ -19,6 +18,7 @@ type Field struct {
 	Description string
 	Type        FieldType
 	Format      string
+	Nested      *Message
 	IsVariable  bool
 }
 
@@ -39,6 +39,7 @@ const (
 	FieldTypeBool
 	FieldTypeString
 	FieldTypeBytes
+	FieldTypeObject
 )
 
 // Size returns the fixed byte size of the field type.

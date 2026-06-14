@@ -1,0 +1,48 @@
+openapi: "3.0.0"
+info:
+  version: "1.0.0"
+  title: DotFS FSAL Message Schemas
+paths: {}
+components:
+  schemas:
+    ReadRequestMsg:
+      type: object
+      properties:
+        msgType:
+          description: Message type identifier
+          type: string
+        Request:
+          description: Read request payload
+          type: object
+          properties:
+            key:
+              description: Key to look up
+              type: string
+            count:
+              description: Number of bytes to read
+              type: integer
+            offset:
+              description: Offset to read from
+              type: integer
+              format: uint64
+    ReadResponseMsg:
+      type: object
+      properties:
+        msgType:
+          description: Message type identifier
+          type: string
+        Response:
+          description: Read response payload
+          type: object
+          properties:
+            key:
+              description: Key that was read
+              type: string
+            data:
+              description: Data that was read
+              type: string
+              format: binary
+            bytesRead:
+              description: Number of bytes read
+              type: integer
+              format: int64

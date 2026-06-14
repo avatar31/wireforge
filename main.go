@@ -42,7 +42,9 @@ func run(inputFile, outputDir, packageName string) error {
 		return fmt.Errorf("parse: %w", err)
 	}
 
-	fmt.Printf("Parsed schema: %+v", s)
+	if len(s.Messages) == 0 {
+		return fmt.Errorf("no message schemas found in %s", inputFile)
+	}
 
 	return nil
 }

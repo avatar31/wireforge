@@ -9,6 +9,10 @@ import (
 )
 
 // ParseFile reads and parses an OpenAPI YAML file, extracting message schemas.
+// Unsupported Types:
+// - array
+// - object
+// - null
 func ParseFile(path string) (*Schema, error) {
 	ctx := context.Background()
 	loader := openapi3.NewLoader()
@@ -27,9 +31,6 @@ func ParseFile(path string) (*Schema, error) {
 		Messages: make([]*Message, 0),
 	}
 
-	// Track an auto-incrementing TypeID since standard OpenAPI doesn't provide one
-	var currentTypeID uint16 = 1
-
 	// 2. Iterate over components.schemas
 	for schemaName, schemaRef := range doc.Components.Schemas {
 		schemaValue := schemaRef.Value
@@ -37,46 +38,83 @@ func ParseFile(path string) (*Schema, error) {
 			continue
 		}
 
+		fields, fieldList, err := parseFields(schemaValue.Properties)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse properties of schema %q: %w", schemaName, err)
+		}
+
 		message := &Message{
 			Name:       schemaName,
-			TypeID:     currentTypeID,
-			Fields:     make([]*Field, 0),
-			Properties: make(map[string]*Field),
-		}
-		currentTypeID++
-
-		// Loop through the fields/properties of the schema
-		for propName, propRef := range schemaValue.Properties {
-			propValue := propRef.Value
-			if propValue == nil {
-				continue
-			}
-
-			if propValue.Type == nil || len(*propValue.Type) == 0 {
-				return nil, fmt.Errorf("property %q in schema %q has no type defined", propName, schemaName)
-			}
-
-			ft, err := resolveFieldType((*propValue.Type)[0], propValue.Format)
-			if err != nil {
-				return nil, err
-			}
-
-			field := &Field{
-				Name:        propName,
-				Description: propValue.Description,
-				Type:        ft,
-				Format:      propValue.Format,
-				IsVariable:  ft.IsVariable(),
-			}
-
-			message.Fields = append(message.Fields, field)
-			message.Properties[propName] = field
+			Fields:     fieldList,
+			Properties: fields,
 		}
 
 		resultSchema.Messages = append(resultSchema.Messages, message)
 	}
 
 	return resultSchema, nil
+}
+
+func parseFields(properties openapi3.Schemas) (map[string]*Field, []*Field, error) {
+	fields := make(map[string]*Field)
+	fieldList := make([]*Field, 0)
+
+	for propName, propRef := range properties {
+		propValue := propRef.Value
+		if propValue == nil {
+			continue
+		}
+
+		if propValue.Type == nil || len(*propValue.Type) == 0 {
+			return nil, nil, fmt.Errorf("property %q has no type defined", propName)
+		}
+
+		if propValue.Type.Includes("array") {
+			return nil, nil, fmt.Errorf("property %q has unsupported type %q", propName, *propValue.Type)
+		}
+
+		if propValue.Type.Includes("object") {
+			nestedFields, nestedFieldList, err := parseFields(propValue.Properties)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to parse nested properties of %q: %w", propName, err)
+			}
+
+			field := &Field{
+				Name:        propName,
+				Description: propValue.Description,
+				Type:        FieldTypeObject,
+				Format:      propValue.Format,
+				IsVariable:  false, // Objects are not variable, but they can contain variable fields
+				Nested: &Message{
+					Name:       propName,
+					Fields:     nestedFieldList,
+					Properties: nestedFields,
+				},
+			}
+
+			fields[propName] = field
+			fieldList = append(fieldList, field)
+			continue
+		}
+
+		ft, err := resolveFieldType((*propValue.Type)[0], propValue.Format)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		field := &Field{
+			Name:        propName,
+			Description: propValue.Description,
+			Type:        ft,
+			Format:      propValue.Format,
+			IsVariable:  ft.IsVariable(),
+		}
+
+		fields[propName] = field
+		fieldList = append(fieldList, field)
+	}
+
+	return fields, fieldList, nil
 }
 
 func resolveFieldType(typeName, format string) (FieldType, error) {
@@ -88,10 +126,7 @@ func resolveFieldType(typeName, format string) (FieldType, error) {
 	case "boolean":
 		return FieldTypeBool, nil
 	case "string":
-		if format == "binary" || format == "byte" {
-			return FieldTypeBytes, nil
-		}
-		return FieldTypeString, nil
+		return resolveStringFormat(format)
 	case "":
 		return 0, fmt.Errorf("field type is empty — every field must have a concrete type")
 	default:
@@ -130,5 +165,14 @@ func resolveNumberFormat(format string) (FieldType, error) {
 		return FieldTypeFloat64, nil
 	default:
 		return 0, fmt.Errorf("unsupported number format %q", format)
+	}
+}
+
+func resolveStringFormat(format string) (FieldType, error) {
+	switch strings.ToLower(format) {
+	case "byte", "binary":
+		return FieldTypeBytes, nil
+	default:
+		return FieldTypeString, nil
 	}
 }
