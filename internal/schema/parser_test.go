@@ -43,7 +43,7 @@ func generateSingleFieldSpec(fieldName, fieldType, format string) string {
 	}
 
 	// We use standard strings.ReplaceAll to avoid layout/tab issues entirely
-	template := `openapi: "3.0.0"
+	template := `openapi: "3.1.0"
 info:
   version: "1.0.0"
   title: Test API
@@ -52,6 +52,7 @@ components:
   schemas:
     Message:
       type: object
+      x-message-id: 1
       properties:
         [FIELD_NAME]:
           description: Auto-generated test field
@@ -96,6 +97,7 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 				msg := schema.Messages[0]
 				assert.Equal(t, "Message", msg.Name, "message name mismatch")
 
+				assert.Equal(t, msg.TypeID, uint16(1), "message type ID mismatch")
 				assert.Len(t, msg.Fields, 1, "expected exactly one field")
 				assert.Len(t, msg.Properties, 1, "expected exactly one property")
 				validateField(t, msg.Properties, "id", FieldTypeInt32)
@@ -319,6 +321,7 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 			yamlContent: wrapInOpenAPIBoilerplate(`
 Message:
   type: object
+  x-message-id: 1
   properties:
     Request:
       type: object
@@ -326,7 +329,7 @@ Message:
         key:
           type: string
 `),
-			expectErr: false,
+			expectErr:     false,
 			expectedCount: 1,
 			validateFunc: func(t *testing.T, schema *Schema) {
 				msg := schema.Messages[0]
@@ -348,6 +351,7 @@ Message:
 			yamlContent: wrapInOpenAPIBoilerplate(`
 Message:
   type: object
+  x-message-id: 1
   properties:
     Request:
       type: object
@@ -361,7 +365,7 @@ Message:
               type: string
               format: date-time
 `),
-			expectErr: false,
+			expectErr:     false,
 			expectedCount: 1,
 			validateFunc: func(t *testing.T, schema *Schema) {
 				msg := schema.Messages[0]
@@ -394,6 +398,7 @@ Message:
 			yamlContent: wrapInOpenAPIBoilerplate(`
 Message:
   type: object
+  x-message-id: 1
   properties:
     Tags:
       type: array

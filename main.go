@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/avatar31/wireforge/internal/codegen"
 	"github.com/avatar31/wireforge/internal/compiler"
 	"github.com/avatar31/wireforge/internal/schema"
 )
@@ -50,7 +52,23 @@ func run(inputFile, outputDir, packageName string) error {
 	}
 
 	cs := compiler.Compile(s, packageName)
-	fmt.Printf("Compiled Schema: %+v", cs)
+
+	goOutputDir := filepath.Join(outputDir, "go")
+	if err := os.MkdirAll(goOutputDir, 0o755); err != nil {
+		return fmt.Errorf("creating Go output dir: %w", err)
+	}
+
+	goPath := filepath.Join(goOutputDir, "messages.go")
+	goFile, err := os.Create(goPath)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", goPath, err)
+	}
+	defer goFile.Close()
+
+	if err := codegen.GenerateGo(goFile, cs); err != nil {
+		return fmt.Errorf("generating Go code: %w", err)
+	}
+	fmt.Printf("  generated: %s\n", goPath)
 
 	return nil
 }

@@ -1,7 +1,6 @@
 package compiler
 
 import (
-	"sort"
 	"strings"
 	"unicode"
 
@@ -17,6 +16,7 @@ type CompiledSchema struct {
 // CompiledMessage holds the computed memory layout for a single message type.
 type CompiledMessage struct {
 	Name            string
+	TypeID          uint16
 	Fields          []*CompiledField
 	FixedFields     []*CompiledField
 	VariableFields  []*CompiledField
@@ -70,28 +70,33 @@ func Compile(s *schema.Schema, packageName string) *CompiledSchema {
 //	Field Name | Offset | Size | Alignment | Padding Before
 //	--------------------------------------------------------
 //	offset     | 0      | 8    | 8         | 0
-//	key        | 8      | 4    | 4         | 0
-//	count      | 12     | 4    | 4         | 0
+//	count      | 8      | 4    | 4         | 0
+//	key        | 12     | 4    | 4         | 0
 //	isEOF      | 16     | 1    | 1         | 0
 //	--------------------------------------------------------
 //	Total Fixed Size: 24 bytes (17 bytes data + 7 bytes trailing padding)
 //	Struct Alignment: 8 bytes
 func CompileMessage(msg *schema.Message) *CompiledMessage {
-	cm := &CompiledMessage{Name: msg.Name}
-
-	optimizedFields := make([]*schema.Field, len(msg.Fields))
-	copy(optimizedFields, msg.Fields)
-
-	// Sort fields by Alignment descending.
-	// If alignments are equal, use Size descending as a stable tie-breaker.
-	sort.SliceStable(optimizedFields, func(i, j int) bool {
-		alignI := optimizedFields[i].Type.Alignment()
-		alignJ := optimizedFields[j].Type.Alignment()
-		if alignI == alignJ {
-			return optimizedFields[i].Type.Size() > optimizedFields[j].Type.Size()
+	cm := &CompiledMessage{Name: msg.Name, TypeID: msg.TypeID}
+	precedenceOrder := make([][]*schema.Field, schema.NumOfFieldTypes)
+	for i := range msg.Fields {
+		if precedenceOrder[msg.Fields[i].Type] == nil {
+			precedenceOrder[msg.Fields[i].Type] = []*schema.Field{}
 		}
-		return alignI > alignJ
-	})
+		precedenceOrder[msg.Fields[i].Type] = append(precedenceOrder[msg.Fields[i].Type], msg.Fields[i])
+	}
+
+	// Reconstruct the optimized field list based on precedence order
+	// This ensures the final outcome is deterministic and consistent with the defined
+	// precedence rules and code generator generates the same layout for the same schema
+	// across different runs.
+	optimizedFields := make([]*schema.Field, 0, len(msg.Fields))
+	for i := range precedenceOrder {
+		if precedenceOrder[i] == nil {
+			continue
+		}
+		optimizedFields = append(optimizedFields, precedenceOrder[i]...)
+	}
 
 	offset := 0
 	maxAlign := 4 // Minimum message size is 4 bytes

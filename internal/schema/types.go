@@ -8,6 +8,7 @@ type Schema struct {
 // Message represents a single struct/message type.
 type Message struct {
 	Name       string
+	TypeID     uint16
 	Fields     []*Field
 	Properties map[string]*Field
 }
@@ -26,20 +27,26 @@ type Field struct {
 type FieldType int
 
 const (
-	FieldTypeUint8 FieldType = iota
-	FieldTypeUint16
-	FieldTypeUint32
-	FieldTypeUint64
-	FieldTypeInt8
-	FieldTypeInt16
-	FieldTypeInt32
+	FieldTypeUint64 FieldType = iota
 	FieldTypeInt64
-	FieldTypeFloat32
 	FieldTypeFloat64
+	FieldTypeUint32
+	FieldTypeInt32
+	FieldTypeFloat32
+	FieldTypeString		// uint32 length prefix in fixed header
+	FieldTypeBytes		// uint32 length prefix in fixed header
+	FieldTypeObject		// uint32 length prefix in fixed header
+	FieldTypeArray		// uint32 length prefix in fixed header
+	FieldTypeUint16
+	FieldTypeInt16
+	FieldTypeUint8
+	FieldTypeInt8
 	FieldTypeBool
-	FieldTypeString
-	FieldTypeBytes
-	FieldTypeObject
+)
+
+const (
+	// Supported field types
+	NumOfFieldTypes = 15
 )
 
 // Size returns the fixed byte size of the field type.
@@ -53,7 +60,7 @@ func (ft FieldType) Size() int {
 		return 4
 	case FieldTypeUint64, FieldTypeInt64, FieldTypeFloat64:
 		return 8
-	case FieldTypeString, FieldTypeBytes:
+	case FieldTypeString, FieldTypeBytes, FieldTypeObject, FieldTypeArray:
 		return 4 // uint32 length prefix in fixed header
 	default:
 		return 0
@@ -71,7 +78,7 @@ func (ft FieldType) Alignment() int {
 		return 4
 	case FieldTypeUint64, FieldTypeInt64, FieldTypeFloat64:
 		return 8
-	case FieldTypeString, FieldTypeBytes:
+	case FieldTypeString, FieldTypeBytes, FieldTypeObject, FieldTypeArray:
 		return 4
 	default:
 		return 1

@@ -37,6 +37,11 @@ func ParseFile(path string) (*Schema, error) {
 			continue
 		}
 
+		id, err := parseIdFromSchema(schemaName, schemaValue)
+		if err != nil {
+			return nil, err
+		}
+
 		fields, fieldList, err := parseFields(schemaValue.Properties)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse properties of schema %q: %w", schemaName, err)
@@ -44,6 +49,7 @@ func ParseFile(path string) (*Schema, error) {
 
 		message := &Message{
 			Name:       schemaName,
+			TypeID:     id,
 			Fields:     fieldList,
 			Properties: fields,
 		}
@@ -52,6 +58,20 @@ func ParseFile(path string) (*Schema, error) {
 	}
 
 	return resultSchema, nil
+}
+
+func parseIdFromSchema(schemaName string, schema *openapi3.Schema) (uint16, error) {
+	idVal, found := schema.Extensions["x-message-id"]
+	if !found {
+		return 0, fmt.Errorf("schema %s is missing the required x-message-id", schemaName)
+	}
+
+	id, ok := idVal.(float64)
+	if !ok || id < 0 || id > 65535 {
+		return 0, fmt.Errorf("schema %s has an invalid x-message-id; it must be a valid number b/w 0-65535", schemaName)
+	}
+
+	return uint16(id), nil
 }
 
 func parseFields(properties openapi3.Schemas) (map[string]*Field, []*Field, error) {
