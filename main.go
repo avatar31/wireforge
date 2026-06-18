@@ -70,5 +70,42 @@ func run(inputFile, outputDir, packageName string) error {
 	}
 	fmt.Printf("  generated: %s\n", goPath)
 
+	cOutputDir := filepath.Join(outputDir, "c")
+	if err := os.MkdirAll(cOutputDir, 0o755); err != nil {
+		return fmt.Errorf("creating C output dir: %w", err)
+	}
+
+	cHeaderPath := filepath.Join(cOutputDir, "messages.h")
+	cHeaderFile, err := os.Create(cHeaderPath)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", cHeaderPath, err)
+	}
+	defer cHeaderFile.Close()
+
+	if err := codegen.GenerateCHeader(cHeaderFile, cs); err != nil {
+		return fmt.Errorf("generating C header: %w", err)
+	}
+	fmt.Printf("  generated: %s\n", cHeaderPath)
+
+	cSourcePath := filepath.Join(cOutputDir, "messages.c")
+	cSourceFile, err := os.Create(cSourcePath)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", cSourcePath, err)
+	}
+	defer cSourceFile.Close()
+
+	if err := codegen.GenerateC(cSourceFile, cs); err != nil {
+		return fmt.Errorf("generating C source: %w", err)
+	}
+	fmt.Printf("  generated: %s\n", cSourcePath)
+
 	return nil
 }
+
+// TODO's:
+// - Add support for more complex types (arrays, nested objects)
+// - C TODO's:
+// 		- Add better error handling in C code. Like instead of returning -1,
+// 		define error code in header template and return accordingly.
+// 		- Allocate memory for message in _marshal functions and free it in _free functions.
+// - Go TODO's:

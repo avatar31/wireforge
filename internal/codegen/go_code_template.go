@@ -127,8 +127,8 @@ func init() {
 //
 //	[0:2]  Message Type ID ({{$msg.TypeID}})
 //	[2:4]  Fixed Header Length ({{$msg.TotalFixedSize}})
-//	[4:4+{{$msg.TotalFixedSize}}] Fixed header (primitives + length prefixes, Big-Endian)
-//	[4+{{$msg.TotalFixedSize}}:] Dynamic payload (concatenated variable-length data)
+//	[4:{{add 4 $msg.TotalFixedSize}}] Fixed header (primitives + length prefixes, Big-Endian)
+//	[{{add 4 $msg.TotalFixedSize}}:end] Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
