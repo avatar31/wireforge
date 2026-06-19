@@ -103,7 +103,7 @@ void* inbound_reader_thread(void* arg) {
             // Handle the message based on its type
             switch (type_id) {
                 case MESSAGE_TYPE_USER_JOINED: {
-                    size_t dyn_total = calculate_userjoinedmessage_dynamic_payload_size(fixed_buf);
+                    size_t dyn_total = calculate_user_joined_message_dynamic_payload_size(fixed_buf);
 
                     size_t full_payload_len = fixed_len + dyn_total;
                     uint8_t* full_payload = malloc(full_payload_len);
@@ -122,18 +122,18 @@ void* inbound_reader_thread(void* arg) {
                         }
                     }
 
-                    UserJoinedMessage_t msg = {0};
-                    if (userjoinedmessage_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    user_joined_message_t msg = {0};
+                    if (user_joined_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
                         joined = 1;
                         strncpy(peer_name, msg.username, sizeof(peer_name) - 1);
                         printf("\nUser %s joined chat...\n", msg.username);
-                        userjoinedmessage_free(&msg);
+                        user_joined_message_free(&msg);
                     }
                     free(full_payload);
                     break;
                 }
                 case MESSAGE_TYPE_USER_LEFT: {
-                    size_t dyn_total = calculate_userleftmessage_dynamic_payload_size(fixed_buf);
+                    size_t dyn_total = calculate_user_left_message_dynamic_payload_size(fixed_buf);
 
                     size_t full_payload_len = fixed_len + dyn_total;
                     uint8_t* full_payload = malloc(full_payload_len);
@@ -152,18 +152,18 @@ void* inbound_reader_thread(void* arg) {
                         }
                     }
 
-                    UserLeftMessage_t msg = {0};
-                    if (userleftmessage_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    user_left_message_t msg = {0};
+                    if (user_left_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
                         joined = 0;
                         peer_name[0] = '\0';
                         printf("\nUser %s left chat...\n", msg.username);
-                        userleftmessage_free(&msg);
+                        user_left_message_free(&msg);
                     }
                     free(full_payload);
                     break;
                 }
                 case MESSAGE_TYPE_USER_MESSAGE: {
-                    size_t dyn_total = calculate_usermessage_dynamic_payload_size(fixed_buf);
+                    size_t dyn_total = calculate_user_message_dynamic_payload_size(fixed_buf);
 
                     size_t full_payload_len = fixed_len + dyn_total;
                     uint8_t* full_payload = malloc(full_payload_len);
@@ -182,18 +182,18 @@ void* inbound_reader_thread(void* arg) {
                         }
                     }
 
-                    UserMessage_t msg = {0};
-                    if (usermessage_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    user_message_t msg = {0};
+                    if (user_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
                         printf("\r\33[2K[%s] %s\n> ", peer_name, msg.content ? msg.content : "");
                         fflush(stdout);
-                        usermessage_free(&msg);
+                        user_message_free(&msg);
                     }
                     free(full_payload);
                     break;
                 }
                 case MESSAGE_TYPE_HEARTBEAT: {
-                    HeartbeatMessage_t hb = {0};
-                    heartbeatmessage_unmarshal(fixed_buf, fixed_len, fixed_len, &hb);
+                    heartbeat_message_t hb = {0};
+                    heartbeat_message_unmarshal(fixed_buf, fixed_len, fixed_len, &hb);
                     free(fixed_buf);
                     // Clean pass on heartbeat frame logic sync. Loop repeats.
                     break;
@@ -235,15 +235,15 @@ void* outbound_dialer_thread(void* arg) {
                 pthread_mutex_unlock(&out_mutex);
 
                 uint8_t* buf = NULL;
-                UserJoinedMessage_t join_msg = {0};
-                userjoinedmessage_set_timestamp(&join_msg, (int64_t)time(NULL));
-                userjoinedmessage_set_username(&join_msg, myname);
+                user_joined_message_t join_msg = {0};
+                user_joined_message_set_timestamp(&join_msg, (int64_t)time(NULL));
+                user_joined_message_set_username(&join_msg, myname);
 
-                int len = userjoinedmessage_marshal(&join_msg, &buf);
+                int len = user_joined_message_marshal(&join_msg, &buf);
                 if (len > 0 && buf) {
                     send_message(MESSAGE_TYPE_USER_JOINED, buf, len);
                 }
-                userjoinedmessage_free(&join_msg);
+                user_joined_message_free(&join_msg);
                 free(buf);
             } else {
                 close(sock);
@@ -260,31 +260,31 @@ void* client_heartbeat_thread(void* arg) {
         if (!joined) continue;
 
         uint8_t* buf = NULL;
-        HeartbeatMessage_t hb = {0};
-        heartbeatmessage_set_timestamp(&hb, (int64_t)time(NULL));
+        heartbeat_message_t hb = {0};
+        heartbeat_message_set_timestamp(&hb, (int64_t)time(NULL));
         
-        int len = heartbeatmessage_marshal(&hb, &buf);
+        int len = heartbeat_message_marshal(&hb, &buf);
         if (len > 0 && buf) {
             send_message(MESSAGE_TYPE_HEARTBEAT, buf, len);
         }
-        heartbeatmessage_free(&hb);
+        heartbeat_message_free(&hb);
         free(buf);
     }
     return NULL;
 }
 
-int build_usermessage(uint8_t** out_buf, const char* message) {
-    UserMessage_t msg = {0};
-    usermessage_set_timestamp(&msg, (int64_t)time(NULL));
-    usermessage_set_content(&msg, message);
+int build_user_message(uint8_t** out_buf, const char* message) {
+    user_message_t msg = {0};
+    user_message_set_timestamp(&msg, (int64_t)time(NULL));
+    user_message_set_content(&msg, message);
 
     if (msg.content == NULL) {
-        usermessage_free(&msg);
+        user_message_free(&msg);
         return -1;
     }
 
-    int total = usermessage_marshal(&msg, out_buf);
-    usermessage_free(&msg);
+    int total = user_message_marshal(&msg, out_buf);
+    user_message_free(&msg);
     return total;
 }
 
@@ -323,15 +323,15 @@ int main() {
         if (strcmp(input, "exit") == 0) {
             printf("Leaving chat...\n");
             uint8_t* buf = NULL;
-            UserLeftMessage_t left_msg = {0};
-            userleftmessage_set_timestamp(&left_msg, (int64_t)time(NULL));
-            userleftmessage_set_username(&left_msg, myname);
+            user_left_message_t left_msg = {0};
+            user_left_message_set_timestamp(&left_msg, (int64_t)time(NULL));
+            user_left_message_set_username(&left_msg, myname);
             
-            int len = userleftmessage_marshal(&left_msg, &buf);
+            int len = user_left_message_marshal(&left_msg, &buf);
             if (len > 0 && buf) {
                 send_message(MESSAGE_TYPE_USER_LEFT, buf, len);
             }
-            userleftmessage_free(&left_msg);
+            user_left_message_free(&left_msg);
             free(buf);
             break;
         }
@@ -342,7 +342,7 @@ int main() {
         }
 
         uint8_t* buf = NULL;
-        int len = build_usermessage(&buf, input);
+        int len = build_user_message(&buf, input);
         if (len > 0 && buf) {
             send_message(MESSAGE_TYPE_USER_MESSAGE, buf, len);
         }

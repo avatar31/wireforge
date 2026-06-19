@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/avatar31/wireforge/examples/client-server/go-server/messages"
+	"github.com/avatar31/wireforge/examples/peer-to-peer/go-peer/messages"
 )
 
 const (

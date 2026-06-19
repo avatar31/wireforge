@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/avatar31/wireforge/internal/codegen"
 	"github.com/avatar31/wireforge/internal/compiler"
 	"github.com/avatar31/wireforge/internal/schema"
+)
+
+var (
+	packageRegex = regexp.MustCompile(`^[a-zA-Z_]*$`)
 )
 
 func main() {
@@ -25,12 +31,16 @@ func main() {
 			"wire format serialization, and comprehensive safety checks.",
 		SilenceUsage: true, // Don't show usage on error
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !packageRegex.MatchString(packageName) {
+				return fmt.Errorf("invalid package name: %s. Must match regex: %s", packageName, packageRegex.String())
+			}
+
 			return run(inputFile, outputDir, packageName)
 		},
 	}
 
 	rootCmd.Flags().StringVarP(&inputFile, "in", "i", "", "Input OpenAPI YAML schema file (required)")
-	rootCmd.Flags().StringVarP(&outputDir, "out", "o", "./output", "Output directory for generated files")
+	rootCmd.Flags().StringVarP(&outputDir, "out", "o", "./out", "Output directory for generated files")
 	rootCmd.Flags().StringVarP(&packageName, "package", "p", "messages", "Go package name for generated code")
 
 	_ = rootCmd.MarkFlagRequired("in")
@@ -58,7 +68,8 @@ func run(inputFile, outputDir, packageName string) error {
 		return fmt.Errorf("creating Go output dir: %w", err)
 	}
 
-	goPath := filepath.Join(goOutputDir, "messages.go")
+	lowerPackageName := strings.ToLower(packageName)
+	goPath := filepath.Join(goOutputDir, fmt.Sprintf("%s.go", lowerPackageName))
 	goFile, err := os.Create(goPath)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", goPath, err)
@@ -75,7 +86,7 @@ func run(inputFile, outputDir, packageName string) error {
 		return fmt.Errorf("creating C output dir: %w", err)
 	}
 
-	cHeaderPath := filepath.Join(cOutputDir, "messages.h")
+	cHeaderPath := filepath.Join(cOutputDir, fmt.Sprintf("%s.h", lowerPackageName))
 	cHeaderFile, err := os.Create(cHeaderPath)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", cHeaderPath, err)
@@ -87,7 +98,7 @@ func run(inputFile, outputDir, packageName string) error {
 	}
 	fmt.Printf("  generated: %s\n", cHeaderPath)
 
-	cSourcePath := filepath.Join(cOutputDir, "messages.c")
+	cSourcePath := filepath.Join(cOutputDir, fmt.Sprintf("%s.c", lowerPackageName))
 	cSourceFile, err := os.Create(cSourcePath)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", cSourcePath, err)
@@ -98,17 +109,14 @@ func run(inputFile, outputDir, packageName string) error {
 		return fmt.Errorf("generating C source: %w", err)
 	}
 	fmt.Printf("  generated: %s\n", cSourcePath)
-
+	fmt.Printf("\nwireforge: successfully generated %d message type(s)\n", len(cs.Messages))
 	return nil
 }
 
 // TODO's:
 // - Add documentation for all packages and functions in the codegen and compiler packages
 // - Add support for more complex types (arrays, nested objects)
-// - Make better use of fields in compiler.CompiledField to get maximum performance from CPU
-// - Update Docs in both Go and C templates to reflect the new changes in the codegen and compiler packages
 // - C TODO's:
 // 		- Add better error handling in C code. Like instead of returning -1,
 // 		define error code in header template and return accordingly.
-// 		- Allocate memory for message in _marshal functions and free it in _free functions.
 // - Go TODO's:

@@ -55,6 +55,9 @@ import (
 )
 
 const (
+	// FrameHeaderSize represents the 2 bytes for TypeID and 2 bytes for FixedHeaderLen.
+	FrameHeaderSize = 4
+
 	// MaxAllowedPacket is the hard ceiling on any single message size (16 MB).
 	// Any incoming length field exceeding this value is treated as corrupted
 	// data and rejected immediately, preventing denial-of-service via
@@ -125,10 +128,10 @@ func init() {
 //
 // Wire layout written:
 //
-//	[0:2]  Message Type ID ({{$msg.TypeID}})
-//	[2:4]  Fixed Header Length ({{$msg.TotalFixedSize}})
-//	[4:{{add 4 $msg.TotalFixedSize}}] Fixed header (primitives + length prefixes, Big-Endian)
-//	[{{add 4 $msg.TotalFixedSize}}:end] Dynamic payload (concatenated variable-length data)
+//	[0:2]     Message Type ID ({{$msg.TypeID}})
+//	[2:4]     Fixed Header Length ({{$msg.TotalFixedSize}})
+//	[4:{{add 4 $msg.TotalFixedSize}}]    Fixed header (primitives + length prefixes, Big-Endian)
+//	[{{add 4 $msg.TotalFixedSize}}:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
@@ -137,9 +140,9 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 	dynamicSize += len({{receiver $msg.Name}}.{{.GoName}})
 {{- end}}
 
-	totalSize := 4 + {{$msg.Name}}FixedSize + dynamicSize
+	totalSize := FrameHeaderSize + {{$msg.Name}}FixedSize + dynamicSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("wireforge: {{$msg.Name}} message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("{{$msg.Name}} message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
@@ -148,9 +151,11 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint16(buf[0:2], {{$msg.TypeID}})
 	binary.BigEndian.PutUint16(buf[2:4], uint16({{$msg.Name}}FixedSize))
 
-	// Fixed header block (starts at offset 4)
-	hdr := buf[4:]
-	dynOff := {{$msg.Name}}FixedSize + 4	// TODO: Why we need +4 here?
+	// Fixed header block (starts at offset FrameHeaderSize)
+	hdr := buf[FrameHeaderSize:]
+	// Dynamic payload sections start directly after the fixed wire block
+	dynOff := FrameHeaderSize + {{$msg.Name}}FixedSize
+
 {{range $msg.Fields}}
 {{- if isVariable .Type}}
 	binary.BigEndian.PutUint32(hdr[{{.Offset}}:{{add .Offset 4}}], uint32(len({{receiver $msg.Name}}.{{.GoName}})))
@@ -201,19 +206,19 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 // streaming sockets that may deliver partial data.
 func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader, fixedHeaderLen uint16) error {
 	if int(fixedHeaderLen) < {{$msg.Name}}FixedSize {
-		return fmt.Errorf("wireforge: {{$msg.Name}} fixed header too short: got %d, need %d", fixedHeaderLen, {{$msg.Name}}FixedSize)
+		return fmt.Errorf("{{$msg.Name}} fixed header too short: got %d, need %d", fixedHeaderLen, {{$msg.Name}}FixedSize)
 	}
 
 	hdr := make([]byte, fixedHeaderLen)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("wireforge: reading {{$msg.Name}} fixed header: %w", err)
+		return fmt.Errorf("reading {{$msg.Name}} fixed header: %w", err)
 	}
 
 {{range $msg.Fields}}
 {{- if isVariable .Type}}
 	{{receiver $msg.Name}}_{{.GoName}}_len := binary.BigEndian.Uint32(hdr[{{.Offset}}:{{add .Offset 4}}])
 	if {{receiver $msg.Name}}_{{.GoName}}_len > MaxAllowedPacket {
-		return fmt.Errorf("wireforge: {{$msg.Name}}.{{.GoName}} length %d exceeds MaxAllowedPacket", {{receiver $msg.Name}}_{{.GoName}}_len)
+		return fmt.Errorf("{{$msg.Name}}.{{.GoName}} length %d exceeds MaxAllowedPacket", {{receiver $msg.Name}}_{{.GoName}}_len)
 	}
 {{- else}}
 {{- if eq (goType .Type) "uint8"}}
@@ -248,7 +253,7 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader, fixedHe
 	if {{receiver $msg.Name}}_{{.GoName}}_len > 0 {
 		{{receiver $msg.Name}}_{{.GoName}}_buf := make([]byte, {{receiver $msg.Name}}_{{.GoName}}_len)
 		if _, err := io.ReadFull(reader, {{receiver $msg.Name}}_{{.GoName}}_buf); err != nil {
-			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{.GoName}} payload: %w", err)
+			return fmt.Errorf("reading {{$msg.Name}}.{{.GoName}} payload: %w", err)
 		}
 {{- if eq (goType .Type) "string"}}
 		{{receiver $msg.Name}}.{{.GoName}} = string({{receiver $msg.Name}}_{{.GoName}}_buf)
@@ -260,13 +265,13 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader, fixedHe
 
 	return nil
 }
-
 {{end}}
+
 // ReadMessageFrame reads the 4-byte wire frame header from r and returns the
 // message type ID and fixed header length. Use this when you need to dispatch
 // to different message types based on the type ID before calling Unmarshal.
 func ReadMessageFrame(r io.Reader) (typeID uint16, fixedHeaderLen uint16, err error) {
-	var frame [4]byte
+	var frame [FrameHeaderSize]byte
 	if _, err = io.ReadFull(r, frame[:]); err != nil {
 		return 0, 0, err
 	}

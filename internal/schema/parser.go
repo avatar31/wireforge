@@ -10,9 +10,9 @@ import (
 )
 
 // ParseFile reads and parses an OpenAPI YAML file, extracting message schemas.
-// Unsupported Types:
-// - array
-// - null
+// It returns a Schema object containing the parsed messages or an error if parsing fails.
+// This function doesn't support array types and will return an error if any schema 
+// contains an array property.
 func ParseFile(path string) (*Schema, error) {
 	ctx := context.Background()
 	loader := openapi3.NewLoader()

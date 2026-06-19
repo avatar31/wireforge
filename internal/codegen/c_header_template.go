@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"fmt"
 	"io"
 	"strings"
 	"text/template"
@@ -17,67 +16,10 @@ var cHeaderTemplate = template.Must(template.New("cheader").Funcs(template.FuncM
 	"isVariable": func(ft schema.FieldType) bool { return ft.IsVariable() },
 	"isByteArray": func(ft schema.FieldType) bool { return ft.GoType() == "[]byte" },
 	"add":        func(a, b int) int { return a + b },
-	"snakeUpper": toUpperSnake,
+	"snakeUpper": func(name string) string { return strings.ToUpper(compiler.ToSnakeCase(name)) },
+	"snakeLower": func(name string) string { return strings.ToLower(compiler.ToSnakeCase(name)) },
 	"padFields":  generatePadFields,
 }).Parse(cHeaderTemplateSource))
-
-func toUpperSnake(name string) string {
-	return strings.ToUpper(toSnakeCaseInternal(name))
-}
-
-func toSnakeCaseInternal(name string) string {
-	var b strings.Builder
-	for i, r := range name {
-		if r >= 'A' && r <= 'Z' {
-			if i > 0 {
-				b.WriteByte('_')
-			}
-			b.WriteRune(r + 32)
-		} else {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-type padFieldEntry struct {
-	IsPadding bool
-	PadName   string
-	PadSize   int
-	Field     *compiler.CompiledField
-}
-
-func generatePadFields(msg *compiler.CompiledMessage) []padFieldEntry {
-	var entries []padFieldEntry
-	padIdx := 0
-	for _, f := range msg.Fields {
-		if f.PaddingBefore > 0 {
-			entries = append(entries, padFieldEntry{
-				IsPadding: true,
-				PadName:   fmt.Sprintf("_pad%d", padIdx),
-				PadSize:   f.PaddingBefore,
-			})
-			padIdx++
-		}
-		entries = append(entries, padFieldEntry{
-			IsPadding: false,
-			Field:     f,
-		})
-	}
-	totalWithoutTrailing := 0
-	if len(msg.Fields) > 0 {
-		last := msg.Fields[len(msg.Fields)-1]
-		totalWithoutTrailing = last.Offset + last.Size
-	}
-	if totalWithoutTrailing < msg.TotalFixedSize {
-		entries = append(entries, padFieldEntry{
-			IsPadding: true,
-			PadName:   fmt.Sprintf("_pad%d", padIdx),
-			PadSize:   msg.TotalFixedSize - totalWithoutTrailing,
-		})
-	}
-	return entries
-}
 
 // GenerateCHeader writes the generated C header to w.
 func GenerateCHeader(w io.Writer, cs *compiler.CompiledSchema) error {
@@ -109,19 +51,17 @@ const cHeaderTemplateSource = `/*
  *
  * Safety guarantees:
  *   - MAX_ALLOWED_PACKET caps any single allocation (prevents malloc bombs)
- *   - All length fields are validated before malloc()
  *   - NULL checks on every allocation result
- *   - Strings are always NUL-terminated after deserialization
+ *   - Strings are always NULL-terminated after deserialization
  *   - free functions set pointers to NULL to prevent double-free
- *   - read/write use loops to handle EINTR and short transfers
  *
  * Memory ownership:
- *   - After unmarshal or read, the caller owns the struct and must call
+ *   - After unmarshal, the caller owns the struct and must call
  *     the corresponding _free() function when done.
- *   - After marshal or write, no heap memory is retained by the callee.
+ *   - After marshal, no heap memory is retained by the callee.
  */
-#ifndef WIREFORGE_MESSAGES_H
-#define WIREFORGE_MESSAGES_H
+#ifndef {{upper .PackageName}}_H
+#define {{upper .PackageName}}_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -160,7 +100,7 @@ uint16_t get_message_fixed_length(const uint8_t* buf);
 #define {{snakeUpper .Name}}_FIXED_SIZE {{.TotalFixedSize}}
 
 /**
- * {{.Name}}_t - Wire-serializable message structure.
+ * {{snakeLower .Name}}_t - Wire-serializable message structure.
  *
  * Fixed-size fields are stored inline. Variable-length fields (strings, byte
  * arrays) are represented as a uint32 length prefix plus a heap-allocated
@@ -188,41 +128,46 @@ typedef struct {
 {{- end}}
 {{- end}}
 {{- end}}
-} {{.Name}}_t;
+} {{snakeLower .Name}}_t;
 
 /* Compile-time size check: catch layout mismatches before runtime. */
-_Static_assert(sizeof({{.Name}}_t) >= {{.TotalFixedSize}},
-    "wireforge: {{.Name}}_t fixed layout size mismatch");
+_Static_assert(sizeof({{snakeLower .Name}}_t) >= {{.TotalFixedSize}},
+    "wireforge: {{snakeLower .Name}}_t fixed layout size mismatch");
 
 {{- range .Fields}}{{$msg_field := .}}
 
 /**
- * Sets the value of the {{$msg_field.CName}} field in the {{$msg.Name}}_t struct.
+ * Sets the value of the {{$msg_field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
+{{- if isVariable $msg_field.Type}}
 {{- if isByteArray $msg_field.Type}}
-void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value, size_t len);
+void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len);
 {{- else}}
-void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value);
+void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value);
+{{- end}}
+{{- else}}
+void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cType $msg_field.Type}} value);
 {{- end}}
 {{- end}}
 
 /**
- * calculate_{{lower .Name}}_dynamic_payload_size - Compute the total size of
+ * calculate_{{snakeLower .Name}}_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the {{$msg.Name}} message from the fixed header.
  */
-size_t calculate_{{lower .Name}}_dynamic_payload_size(uint8_t* hdr_buf);
+size_t calculate_{{snakeLower .Name}}_dynamic_payload_size(const uint8_t* hdr_buf);
 
 /**
  * Serialize a {{.Name}} message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
- * @param out_buf   Destination buffer (must be at least
- *                  WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE + dynamic payload bytes).
- * @param buf_size  Total capacity of out_buf in bytes.
+ * @param out_buf   Pointer to the destination byte buffer pointer. The function 
+ * 					will write the serialized message stream into the buffer referenced 
+ * 					by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t** out_buf);
+int {{snakeLower .Name}}_marshal(const {{snakeLower .Name}}_t* msg, uint8_t** out_buf);
 
 /**
  * Deserialize a {{.Name}} message from a contiguous buffer.
@@ -234,25 +179,25 @@ int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t** out_buf);
  * @return                 0 on success, -1 on error (truncated data, allocation failure,
  *                         length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call {{lower .Name}}_free(out_msg) when done to release
+ * On success, caller MUST call {{snakeLower .Name}}_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, {{.Name}}_t* out_msg);
+int {{snakeLower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, {{snakeLower .Name}}_t* out_msg);
 
 /**
- * Free all dynamically allocated fields in a {{.Name}}_t struct.
+ * Free all dynamically allocated fields in a {{snakeLower .Name}}_t struct.
  *
  * Safe to call multiple times: pointers are set to NULL and lengths to 0
  * after release. Does NOT free the struct itself (caller manages lifetime).
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void {{lower .Name}}_free({{.Name}}_t* msg);
+void {{snakeLower .Name}}_free({{snakeLower .Name}}_t* msg);
 
 {{end}}
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* WIREFORGE_MESSAGES_H */
+#endif /* {{upper .PackageName}}_H */
 `

@@ -23,19 +23,17 @@
  *
  * Safety guarantees:
  *   - MAX_ALLOWED_PACKET caps any single allocation (prevents malloc bombs)
- *   - All length fields are validated before malloc()
  *   - NULL checks on every allocation result
- *   - Strings are always NUL-terminated after deserialization
+ *   - Strings are always NULL-terminated after deserialization
  *   - free functions set pointers to NULL to prevent double-free
- *   - read/write use loops to handle EINTR and short transfers
  *
  * Memory ownership:
- *   - After unmarshal or read, the caller owns the struct and must call
+ *   - After unmarshal, the caller owns the struct and must call
  *     the corresponding _free() function when done.
- *   - After marshal or write, no heap memory is retained by the callee.
+ *   - After marshal, no heap memory is retained by the callee.
  */
-#ifndef WIREFORGE_MESSAGES_H
-#define WIREFORGE_MESSAGES_H
+#ifndef MESSAGES_H
+#define MESSAGES_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -74,7 +72,7 @@ uint16_t get_message_fixed_length(const uint8_t* buf);
 #define USER_MESSAGE_FIXED_SIZE 16
 
 /**
- * UserMessage_t - Wire-serializable message structure.
+ * user_message_t - Wire-serializable message structure.
  *
  * Fixed-size fields are stored inline. Variable-length fields (strings, byte
  * arrays) are represented as a uint32 length prefix plus a heap-allocated
@@ -89,44 +87,47 @@ typedef struct {
     char* content;     /**< Heap-allocated; call usermessage_free() when done. */
     uint32_t attachment_len;
     uint8_t* attachment;     /**< Heap-allocated; call usermessage_free() when done. */
-} UserMessage_t;
+} user_message_t;
 
 /* Compile-time size check: catch layout mismatches before runtime. */
-_Static_assert(sizeof(UserMessage_t) >= 16,
-    "wireforge: UserMessage_t fixed layout size mismatch");
+_Static_assert(sizeof(user_message_t) >= 16,
+    "wireforge: user_message_t fixed layout size mismatch");
 
 /**
- * Sets the value of the timestamp field in the UserMessage_t struct.
+ * Sets the value of the timestamp field in the user_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void usermessage_set_timestamp(UserMessage_t* msg, const int64_t value);
+void user_message_set_timestamp(user_message_t* msg, const int64_t value);
 
 /**
- * Sets the value of the content field in the UserMessage_t struct.
+ * Sets the value of the content field in the user_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void usermessage_set_content(UserMessage_t* msg, const char* value);
+void user_message_set_content(user_message_t* msg, const char* value);
 
 /**
- * Sets the value of the attachment field in the UserMessage_t struct.
+ * Sets the value of the attachment field in the user_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void usermessage_set_attachment(UserMessage_t* msg, const uint8_t* value, size_t len);
+void user_message_set_attachment(user_message_t* msg, const uint8_t* value, size_t len);
 
 /**
- * calculate_usermessage_dynamic_payload_size - Compute the total size of
+ * calculate_user_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the UserMessage message from the fixed header.
  */
-size_t calculate_usermessage_dynamic_payload_size(uint8_t* hdr_buf);
+size_t calculate_user_message_dynamic_payload_size(const uint8_t* hdr_buf);
 
 /**
  * Serialize a UserMessage message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
- * @param out_buf   Destination buffer (must be at least
- *                  WIRE_FRAME_HEADER_SIZE + USER_MESSAGE_FIXED_SIZE + dynamic payload bytes).
- * @param buf_size  Total capacity of out_buf in bytes.
+ * @param out_buf   Pointer to the destination byte buffer pointer. The function 
+ * 					will write the serialized message stream into the buffer referenced 
+ * 					by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int usermessage_marshal(const UserMessage_t* msg, uint8_t** out_buf);
+int user_message_marshal(const user_message_t* msg, uint8_t** out_buf);
 
 /**
  * Deserialize a UserMessage message from a contiguous buffer.
@@ -138,20 +139,20 @@ int usermessage_marshal(const UserMessage_t* msg, uint8_t** out_buf);
  * @return                 0 on success, -1 on error (truncated data, allocation failure,
  *                         length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call usermessage_free(out_msg) when done to release
+ * On success, caller MUST call user_message_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int usermessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, UserMessage_t* out_msg);
+int user_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, user_message_t* out_msg);
 
 /**
- * Free all dynamically allocated fields in a UserMessage_t struct.
+ * Free all dynamically allocated fields in a user_message_t struct.
  *
  * Safe to call multiple times: pointers are set to NULL and lengths to 0
  * after release. Does NOT free the struct itself (caller manages lifetime).
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void usermessage_free(UserMessage_t* msg);
+void user_message_free(user_message_t* msg);
 
 
 /* ===========================================================================
@@ -167,7 +168,7 @@ void usermessage_free(UserMessage_t* msg);
 #define HEARTBEAT_MESSAGE_FIXED_SIZE 8
 
 /**
- * HeartbeatMessage_t - Wire-serializable message structure.
+ * heartbeat_message_t - Wire-serializable message structure.
  *
  * Fixed-size fields are stored inline. Variable-length fields (strings, byte
  * arrays) are represented as a uint32 length prefix plus a heap-allocated
@@ -178,34 +179,35 @@ void usermessage_free(UserMessage_t* msg);
  */
 typedef struct {
     int64_t timestamp;
-} HeartbeatMessage_t;
+} heartbeat_message_t;
 
 /* Compile-time size check: catch layout mismatches before runtime. */
-_Static_assert(sizeof(HeartbeatMessage_t) >= 8,
-    "wireforge: HeartbeatMessage_t fixed layout size mismatch");
+_Static_assert(sizeof(heartbeat_message_t) >= 8,
+    "wireforge: heartbeat_message_t fixed layout size mismatch");
 
 /**
- * Sets the value of the timestamp field in the HeartbeatMessage_t struct.
+ * Sets the value of the timestamp field in the heartbeat_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void heartbeatmessage_set_timestamp(HeartbeatMessage_t* msg, const int64_t value);
+void heartbeat_message_set_timestamp(heartbeat_message_t* msg, const int64_t value);
 
 /**
- * calculate_heartbeatmessage_dynamic_payload_size - Compute the total size of
+ * calculate_heartbeat_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the HeartbeatMessage message from the fixed header.
  */
-size_t calculate_heartbeatmessage_dynamic_payload_size(uint8_t* hdr_buf);
+size_t calculate_heartbeat_message_dynamic_payload_size(const uint8_t* hdr_buf);
 
 /**
  * Serialize a HeartbeatMessage message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
- * @param out_buf   Destination buffer (must be at least
- *                  WIRE_FRAME_HEADER_SIZE + HEARTBEAT_MESSAGE_FIXED_SIZE + dynamic payload bytes).
- * @param buf_size  Total capacity of out_buf in bytes.
+ * @param out_buf   Pointer to the destination byte buffer pointer. The function 
+ * 					will write the serialized message stream into the buffer referenced 
+ * 					by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int heartbeatmessage_marshal(const HeartbeatMessage_t* msg, uint8_t** out_buf);
+int heartbeat_message_marshal(const heartbeat_message_t* msg, uint8_t** out_buf);
 
 /**
  * Deserialize a HeartbeatMessage message from a contiguous buffer.
@@ -217,20 +219,20 @@ int heartbeatmessage_marshal(const HeartbeatMessage_t* msg, uint8_t** out_buf);
  * @return                 0 on success, -1 on error (truncated data, allocation failure,
  *                         length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call heartbeatmessage_free(out_msg) when done to release
+ * On success, caller MUST call heartbeat_message_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int heartbeatmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, HeartbeatMessage_t* out_msg);
+int heartbeat_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, heartbeat_message_t* out_msg);
 
 /**
- * Free all dynamically allocated fields in a HeartbeatMessage_t struct.
+ * Free all dynamically allocated fields in a heartbeat_message_t struct.
  *
  * Safe to call multiple times: pointers are set to NULL and lengths to 0
  * after release. Does NOT free the struct itself (caller manages lifetime).
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void heartbeatmessage_free(HeartbeatMessage_t* msg);
+void heartbeat_message_free(heartbeat_message_t* msg);
 
 
 /* ===========================================================================
@@ -246,7 +248,7 @@ void heartbeatmessage_free(HeartbeatMessage_t* msg);
 #define USER_JOINED_MESSAGE_FIXED_SIZE 16
 
 /**
- * UserJoinedMessage_t - Wire-serializable message structure.
+ * user_joined_message_t - Wire-serializable message structure.
  *
  * Fixed-size fields are stored inline. Variable-length fields (strings, byte
  * arrays) are represented as a uint32 length prefix plus a heap-allocated
@@ -260,39 +262,41 @@ typedef struct {
     uint32_t username_len;
     char* username;     /**< Heap-allocated; call userjoinedmessage_free() when done. */
     uint8_t _pad0[4]; /**< Explicit alignment padding. */
-} UserJoinedMessage_t;
+} user_joined_message_t;
 
 /* Compile-time size check: catch layout mismatches before runtime. */
-_Static_assert(sizeof(UserJoinedMessage_t) >= 16,
-    "wireforge: UserJoinedMessage_t fixed layout size mismatch");
+_Static_assert(sizeof(user_joined_message_t) >= 16,
+    "wireforge: user_joined_message_t fixed layout size mismatch");
 
 /**
- * Sets the value of the timestamp field in the UserJoinedMessage_t struct.
+ * Sets the value of the timestamp field in the user_joined_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void userjoinedmessage_set_timestamp(UserJoinedMessage_t* msg, const int64_t value);
+void user_joined_message_set_timestamp(user_joined_message_t* msg, const int64_t value);
 
 /**
- * Sets the value of the username field in the UserJoinedMessage_t struct.
+ * Sets the value of the username field in the user_joined_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void userjoinedmessage_set_username(UserJoinedMessage_t* msg, const char* value);
+void user_joined_message_set_username(user_joined_message_t* msg, const char* value);
 
 /**
- * calculate_userjoinedmessage_dynamic_payload_size - Compute the total size of
+ * calculate_user_joined_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the UserJoinedMessage message from the fixed header.
  */
-size_t calculate_userjoinedmessage_dynamic_payload_size(uint8_t* hdr_buf);
+size_t calculate_user_joined_message_dynamic_payload_size(const uint8_t* hdr_buf);
 
 /**
  * Serialize a UserJoinedMessage message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
- * @param out_buf   Destination buffer (must be at least
- *                  WIRE_FRAME_HEADER_SIZE + USER_JOINED_MESSAGE_FIXED_SIZE + dynamic payload bytes).
- * @param buf_size  Total capacity of out_buf in bytes.
+ * @param out_buf   Pointer to the destination byte buffer pointer. The function 
+ * 					will write the serialized message stream into the buffer referenced 
+ * 					by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int userjoinedmessage_marshal(const UserJoinedMessage_t* msg, uint8_t** out_buf);
+int user_joined_message_marshal(const user_joined_message_t* msg, uint8_t** out_buf);
 
 /**
  * Deserialize a UserJoinedMessage message from a contiguous buffer.
@@ -304,20 +308,20 @@ int userjoinedmessage_marshal(const UserJoinedMessage_t* msg, uint8_t** out_buf)
  * @return                 0 on success, -1 on error (truncated data, allocation failure,
  *                         length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call userjoinedmessage_free(out_msg) when done to release
+ * On success, caller MUST call user_joined_message_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int userjoinedmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, UserJoinedMessage_t* out_msg);
+int user_joined_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, user_joined_message_t* out_msg);
 
 /**
- * Free all dynamically allocated fields in a UserJoinedMessage_t struct.
+ * Free all dynamically allocated fields in a user_joined_message_t struct.
  *
  * Safe to call multiple times: pointers are set to NULL and lengths to 0
  * after release. Does NOT free the struct itself (caller manages lifetime).
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void userjoinedmessage_free(UserJoinedMessage_t* msg);
+void user_joined_message_free(user_joined_message_t* msg);
 
 
 /* ===========================================================================
@@ -333,7 +337,7 @@ void userjoinedmessage_free(UserJoinedMessage_t* msg);
 #define USER_LEFT_MESSAGE_FIXED_SIZE 16
 
 /**
- * UserLeftMessage_t - Wire-serializable message structure.
+ * user_left_message_t - Wire-serializable message structure.
  *
  * Fixed-size fields are stored inline. Variable-length fields (strings, byte
  * arrays) are represented as a uint32 length prefix plus a heap-allocated
@@ -347,39 +351,41 @@ typedef struct {
     uint32_t username_len;
     char* username;     /**< Heap-allocated; call userleftmessage_free() when done. */
     uint8_t _pad0[4]; /**< Explicit alignment padding. */
-} UserLeftMessage_t;
+} user_left_message_t;
 
 /* Compile-time size check: catch layout mismatches before runtime. */
-_Static_assert(sizeof(UserLeftMessage_t) >= 16,
-    "wireforge: UserLeftMessage_t fixed layout size mismatch");
+_Static_assert(sizeof(user_left_message_t) >= 16,
+    "wireforge: user_left_message_t fixed layout size mismatch");
 
 /**
- * Sets the value of the timestamp field in the UserLeftMessage_t struct.
+ * Sets the value of the timestamp field in the user_left_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void userleftmessage_set_timestamp(UserLeftMessage_t* msg, const int64_t value);
+void user_left_message_set_timestamp(user_left_message_t* msg, const int64_t value);
 
 /**
- * Sets the value of the username field in the UserLeftMessage_t struct.
+ * Sets the value of the username field in the user_left_message_t struct.
+ * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-void userleftmessage_set_username(UserLeftMessage_t* msg, const char* value);
+void user_left_message_set_username(user_left_message_t* msg, const char* value);
 
 /**
- * calculate_userleftmessage_dynamic_payload_size - Compute the total size of
+ * calculate_user_left_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the UserLeftMessage message from the fixed header.
  */
-size_t calculate_userleftmessage_dynamic_payload_size(uint8_t* hdr_buf);
+size_t calculate_user_left_message_dynamic_payload_size(const uint8_t* hdr_buf);
 
 /**
  * Serialize a UserLeftMessage message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
- * @param out_buf   Destination buffer (must be at least
- *                  WIRE_FRAME_HEADER_SIZE + USER_LEFT_MESSAGE_FIXED_SIZE + dynamic payload bytes).
- * @param buf_size  Total capacity of out_buf in bytes.
+ * @param out_buf   Pointer to the destination byte buffer pointer. The function 
+ * 					will write the serialized message stream into the buffer referenced 
+ * 					by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int userleftmessage_marshal(const UserLeftMessage_t* msg, uint8_t** out_buf);
+int user_left_message_marshal(const user_left_message_t* msg, uint8_t** out_buf);
 
 /**
  * Deserialize a UserLeftMessage message from a contiguous buffer.
@@ -391,24 +397,24 @@ int userleftmessage_marshal(const UserLeftMessage_t* msg, uint8_t** out_buf);
  * @return                 0 on success, -1 on error (truncated data, allocation failure,
  *                         length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call userleftmessage_free(out_msg) when done to release
+ * On success, caller MUST call user_left_message_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int userleftmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, UserLeftMessage_t* out_msg);
+int user_left_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, user_left_message_t* out_msg);
 
 /**
- * Free all dynamically allocated fields in a UserLeftMessage_t struct.
+ * Free all dynamically allocated fields in a user_left_message_t struct.
  *
  * Safe to call multiple times: pointers are set to NULL and lengths to 0
  * after release. Does NOT free the struct itself (caller manages lifetime).
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void userleftmessage_free(UserLeftMessage_t* msg);
+void user_left_message_free(user_left_message_t* msg);
 
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* WIREFORGE_MESSAGES_H */
+#endif /* MESSAGES_H */

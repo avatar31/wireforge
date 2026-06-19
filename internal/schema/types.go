@@ -45,8 +45,7 @@ const (
 )
 
 const (
-	// Supported field types
-	NumOfFieldTypes = 15
+	NumOfFieldTypes = 15 	// Supported number of field types
 )
 
 // Size returns the fixed byte size of the field type.

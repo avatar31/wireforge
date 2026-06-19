@@ -41,6 +41,7 @@ type CompiledField struct {
 }
 
 // Compile takes a parsed schema and computes memory layouts with alignment.
+// Uses `CompileMessage` to compute the layout for each message in the schema.
 func Compile(s *schema.Schema, packageName string) *CompiledSchema {
 	cs := &CompiledSchema{
 		PackageName: packageName,
@@ -111,7 +112,7 @@ func CompileMessage(msg *schema.Message) *CompiledMessage {
 		cf := &CompiledField{
 			Name:        field.Name,
 			GoName:      toGoName(field.Name),
-			CName:       toSnakeCase(field.Name),
+			CName:       ToSnakeCase(field.Name),
 			Description: field.Description,
 			Type:        field.Type,
 			Size:        field.Type.Size(),
@@ -172,17 +173,20 @@ func toGoName(name string) string {
 	return b.String()
 }
 
-func toSnakeCase(name string) string {
-	if strings.Contains(name, "_") && name == strings.ToLower(name) {
-		return name
+func ToSnakeCase(name string) string {
+	if name == "" {
+		return ""
 	}
+
 	var b strings.Builder
+	b.Grow(len(name) + 4)
+
 	for i, r := range name {
-		if unicode.IsUpper(r) {
+		if r >= 'A' && r <= 'Z' {
 			if i > 0 {
 				b.WriteByte('_')
 			}
-			b.WriteRune(unicode.ToLower(r))
+			b.WriteRune(r + 32)
 		} else {
 			b.WriteRune(r)
 		}

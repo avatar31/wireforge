@@ -29,6 +29,9 @@ import (
 )
 
 const (
+	// FrameHeaderSize represents the 2 bytes for TypeID and 2 bytes for FixedHeaderLen.
+	FrameHeaderSize = 4
+
 	// MaxAllowedPacket is the hard ceiling on any single message size (16 MB).
 	// Any incoming length field exceeding this value is treated as corrupted
 	// data and rejected immediately, preventing denial-of-service via
@@ -92,10 +95,10 @@ func init() {
 //
 // Wire layout written:
 //
-//	[0:2]  Message Type ID (1)
-//	[2:4]  Fixed Header Length (16)
-//	[4:20] Fixed header (primitives + length prefixes, Big-Endian)
-//	[20:end] Dynamic payload (concatenated variable-length data)
+//	[0:2]     Message Type ID (1)
+//	[2:4]     Fixed Header Length (16)
+//	[4:20]    Fixed header (primitives + length prefixes, Big-Endian)
+//	[20:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (u *UserMessage) Marshal() ([]byte, error) {
@@ -103,9 +106,9 @@ func (u *UserMessage) Marshal() ([]byte, error) {
 	dynamicSize += len(u.Content)
 	dynamicSize += len(u.Attachment)
 
-	totalSize := 4 + UserMessageFixedSize + dynamicSize
+	totalSize := FrameHeaderSize + UserMessageFixedSize + dynamicSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("wireforge: UserMessage message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("UserMessage message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
@@ -114,9 +117,11 @@ func (u *UserMessage) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint16(buf[0:2], 1)
 	binary.BigEndian.PutUint16(buf[2:4], uint16(UserMessageFixedSize))
 
-	// Fixed header block (starts at offset 4)
-	hdr := buf[4:]
-	dynOff := UserMessageFixedSize + 4	// TODO: Why we need +4 here?
+	// Fixed header block (starts at offset FrameHeaderSize)
+	hdr := buf[FrameHeaderSize:]
+	// Dynamic payload sections start directly after the fixed wire block
+	dynOff := FrameHeaderSize + UserMessageFixedSize
+
 
 	binary.BigEndian.PutUint64(hdr[0:8], uint64(u.Timestamp))
 	binary.BigEndian.PutUint32(hdr[8:12], uint32(len(u.Content)))
@@ -140,23 +145,23 @@ func (u *UserMessage) Marshal() ([]byte, error) {
 // streaming sockets that may deliver partial data.
 func (u *UserMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) error {
 	if int(fixedHeaderLen) < UserMessageFixedSize {
-		return fmt.Errorf("wireforge: UserMessage fixed header too short: got %d, need %d", fixedHeaderLen, UserMessageFixedSize)
+		return fmt.Errorf("UserMessage fixed header too short: got %d, need %d", fixedHeaderLen, UserMessageFixedSize)
 	}
 
 	hdr := make([]byte, fixedHeaderLen)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("wireforge: reading UserMessage fixed header: %w", err)
+		return fmt.Errorf("reading UserMessage fixed header: %w", err)
 	}
 
 
 	u.Timestamp = int64(binary.BigEndian.Uint64(hdr[0:8]))
 	u_Content_len := binary.BigEndian.Uint32(hdr[8:12])
 	if u_Content_len > MaxAllowedPacket {
-		return fmt.Errorf("wireforge: UserMessage.Content length %d exceeds MaxAllowedPacket", u_Content_len)
+		return fmt.Errorf("UserMessage.Content length %d exceeds MaxAllowedPacket", u_Content_len)
 	}
 	u_Attachment_len := binary.BigEndian.Uint32(hdr[12:16])
 	if u_Attachment_len > MaxAllowedPacket {
-		return fmt.Errorf("wireforge: UserMessage.Attachment length %d exceeds MaxAllowedPacket", u_Attachment_len)
+		return fmt.Errorf("UserMessage.Attachment length %d exceeds MaxAllowedPacket", u_Attachment_len)
 	}
 
 	// Read dynamic payload: variable-length fields are appended sequentially
@@ -164,21 +169,20 @@ func (u *UserMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) error {
 	if u_Content_len > 0 {
 		u_Content_buf := make([]byte, u_Content_len)
 		if _, err := io.ReadFull(reader, u_Content_buf); err != nil {
-			return fmt.Errorf("wireforge: reading UserMessage.Content payload: %w", err)
+			return fmt.Errorf("reading UserMessage.Content payload: %w", err)
 		}
 		u.Content = string(u_Content_buf)
 	}
 	if u_Attachment_len > 0 {
 		u_Attachment_buf := make([]byte, u_Attachment_len)
 		if _, err := io.ReadFull(reader, u_Attachment_buf); err != nil {
-			return fmt.Errorf("wireforge: reading UserMessage.Attachment payload: %w", err)
+			return fmt.Errorf("reading UserMessage.Attachment payload: %w", err)
 		}
 		u.Attachment = u_Attachment_buf
 	}
 
 	return nil
 }
-
 
 // ---------------------------------------------------------------------------
 // HeartbeatMessage
@@ -225,18 +229,18 @@ func init() {
 //
 // Wire layout written:
 //
-//	[0:2]  Message Type ID (2)
-//	[2:4]  Fixed Header Length (8)
-//	[4:12] Fixed header (primitives + length prefixes, Big-Endian)
-//	[12:end] Dynamic payload (concatenated variable-length data)
+//	[0:2]     Message Type ID (2)
+//	[2:4]     Fixed Header Length (8)
+//	[4:12]    Fixed header (primitives + length prefixes, Big-Endian)
+//	[12:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (h *HeartbeatMessage) Marshal() ([]byte, error) {
 	dynamicSize := 0
 
-	totalSize := 4 + HeartbeatMessageFixedSize + dynamicSize
+	totalSize := FrameHeaderSize + HeartbeatMessageFixedSize + dynamicSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("wireforge: HeartbeatMessage message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("HeartbeatMessage message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
@@ -245,9 +249,11 @@ func (h *HeartbeatMessage) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint16(buf[0:2], 2)
 	binary.BigEndian.PutUint16(buf[2:4], uint16(HeartbeatMessageFixedSize))
 
-	// Fixed header block (starts at offset 4)
-	hdr := buf[4:]
-	dynOff := HeartbeatMessageFixedSize + 4	// TODO: Why we need +4 here?
+	// Fixed header block (starts at offset FrameHeaderSize)
+	hdr := buf[FrameHeaderSize:]
+	// Dynamic payload sections start directly after the fixed wire block
+	dynOff := FrameHeaderSize + HeartbeatMessageFixedSize
+
 
 	binary.BigEndian.PutUint64(hdr[0:8], uint64(h.Timestamp))
 
@@ -265,12 +271,12 @@ func (h *HeartbeatMessage) Marshal() ([]byte, error) {
 // streaming sockets that may deliver partial data.
 func (h *HeartbeatMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) error {
 	if int(fixedHeaderLen) < HeartbeatMessageFixedSize {
-		return fmt.Errorf("wireforge: HeartbeatMessage fixed header too short: got %d, need %d", fixedHeaderLen, HeartbeatMessageFixedSize)
+		return fmt.Errorf("HeartbeatMessage fixed header too short: got %d, need %d", fixedHeaderLen, HeartbeatMessageFixedSize)
 	}
 
 	hdr := make([]byte, fixedHeaderLen)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("wireforge: reading HeartbeatMessage fixed header: %w", err)
+		return fmt.Errorf("reading HeartbeatMessage fixed header: %w", err)
 	}
 
 
@@ -281,7 +287,6 @@ func (h *HeartbeatMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) er
 
 	return nil
 }
-
 
 // ---------------------------------------------------------------------------
 // UserJoinedMessage
@@ -329,19 +334,19 @@ func init() {
 //
 // Wire layout written:
 //
-//	[0:2]  Message Type ID (3)
-//	[2:4]  Fixed Header Length (16)
-//	[4:20] Fixed header (primitives + length prefixes, Big-Endian)
-//	[20:end] Dynamic payload (concatenated variable-length data)
+//	[0:2]     Message Type ID (3)
+//	[2:4]     Fixed Header Length (16)
+//	[4:20]    Fixed header (primitives + length prefixes, Big-Endian)
+//	[20:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (u *UserJoinedMessage) Marshal() ([]byte, error) {
 	dynamicSize := 0
 	dynamicSize += len(u.Username)
 
-	totalSize := 4 + UserJoinedMessageFixedSize + dynamicSize
+	totalSize := FrameHeaderSize + UserJoinedMessageFixedSize + dynamicSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("wireforge: UserJoinedMessage message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("UserJoinedMessage message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
@@ -350,9 +355,11 @@ func (u *UserJoinedMessage) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint16(buf[0:2], 3)
 	binary.BigEndian.PutUint16(buf[2:4], uint16(UserJoinedMessageFixedSize))
 
-	// Fixed header block (starts at offset 4)
-	hdr := buf[4:]
-	dynOff := UserJoinedMessageFixedSize + 4	// TODO: Why we need +4 here?
+	// Fixed header block (starts at offset FrameHeaderSize)
+	hdr := buf[FrameHeaderSize:]
+	// Dynamic payload sections start directly after the fixed wire block
+	dynOff := FrameHeaderSize + UserJoinedMessageFixedSize
+
 
 	binary.BigEndian.PutUint64(hdr[0:8], uint64(u.Timestamp))
 	binary.BigEndian.PutUint32(hdr[8:12], uint32(len(u.Username)))
@@ -373,19 +380,19 @@ func (u *UserJoinedMessage) Marshal() ([]byte, error) {
 // streaming sockets that may deliver partial data.
 func (u *UserJoinedMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) error {
 	if int(fixedHeaderLen) < UserJoinedMessageFixedSize {
-		return fmt.Errorf("wireforge: UserJoinedMessage fixed header too short: got %d, need %d", fixedHeaderLen, UserJoinedMessageFixedSize)
+		return fmt.Errorf("UserJoinedMessage fixed header too short: got %d, need %d", fixedHeaderLen, UserJoinedMessageFixedSize)
 	}
 
 	hdr := make([]byte, fixedHeaderLen)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("wireforge: reading UserJoinedMessage fixed header: %w", err)
+		return fmt.Errorf("reading UserJoinedMessage fixed header: %w", err)
 	}
 
 
 	u.Timestamp = int64(binary.BigEndian.Uint64(hdr[0:8]))
 	u_Username_len := binary.BigEndian.Uint32(hdr[8:12])
 	if u_Username_len > MaxAllowedPacket {
-		return fmt.Errorf("wireforge: UserJoinedMessage.Username length %d exceeds MaxAllowedPacket", u_Username_len)
+		return fmt.Errorf("UserJoinedMessage.Username length %d exceeds MaxAllowedPacket", u_Username_len)
 	}
 
 	// Read dynamic payload: variable-length fields are appended sequentially
@@ -393,14 +400,13 @@ func (u *UserJoinedMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) e
 	if u_Username_len > 0 {
 		u_Username_buf := make([]byte, u_Username_len)
 		if _, err := io.ReadFull(reader, u_Username_buf); err != nil {
-			return fmt.Errorf("wireforge: reading UserJoinedMessage.Username payload: %w", err)
+			return fmt.Errorf("reading UserJoinedMessage.Username payload: %w", err)
 		}
 		u.Username = string(u_Username_buf)
 	}
 
 	return nil
 }
-
 
 // ---------------------------------------------------------------------------
 // UserLeftMessage
@@ -448,19 +454,19 @@ func init() {
 //
 // Wire layout written:
 //
-//	[0:2]  Message Type ID (4)
-//	[2:4]  Fixed Header Length (16)
-//	[4:20] Fixed header (primitives + length prefixes, Big-Endian)
-//	[20:end] Dynamic payload (concatenated variable-length data)
+//	[0:2]     Message Type ID (4)
+//	[2:4]     Fixed Header Length (16)
+//	[4:20]    Fixed header (primitives + length prefixes, Big-Endian)
+//	[20:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (u *UserLeftMessage) Marshal() ([]byte, error) {
 	dynamicSize := 0
 	dynamicSize += len(u.Username)
 
-	totalSize := 4 + UserLeftMessageFixedSize + dynamicSize
+	totalSize := FrameHeaderSize + UserLeftMessageFixedSize + dynamicSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("wireforge: UserLeftMessage message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("UserLeftMessage message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
@@ -469,9 +475,11 @@ func (u *UserLeftMessage) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint16(buf[0:2], 4)
 	binary.BigEndian.PutUint16(buf[2:4], uint16(UserLeftMessageFixedSize))
 
-	// Fixed header block (starts at offset 4)
-	hdr := buf[4:]
-	dynOff := UserLeftMessageFixedSize + 4	// TODO: Why we need +4 here?
+	// Fixed header block (starts at offset FrameHeaderSize)
+	hdr := buf[FrameHeaderSize:]
+	// Dynamic payload sections start directly after the fixed wire block
+	dynOff := FrameHeaderSize + UserLeftMessageFixedSize
+
 
 	binary.BigEndian.PutUint64(hdr[0:8], uint64(u.Timestamp))
 	binary.BigEndian.PutUint32(hdr[8:12], uint32(len(u.Username)))
@@ -492,19 +500,19 @@ func (u *UserLeftMessage) Marshal() ([]byte, error) {
 // streaming sockets that may deliver partial data.
 func (u *UserLeftMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) error {
 	if int(fixedHeaderLen) < UserLeftMessageFixedSize {
-		return fmt.Errorf("wireforge: UserLeftMessage fixed header too short: got %d, need %d", fixedHeaderLen, UserLeftMessageFixedSize)
+		return fmt.Errorf("UserLeftMessage fixed header too short: got %d, need %d", fixedHeaderLen, UserLeftMessageFixedSize)
 	}
 
 	hdr := make([]byte, fixedHeaderLen)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("wireforge: reading UserLeftMessage fixed header: %w", err)
+		return fmt.Errorf("reading UserLeftMessage fixed header: %w", err)
 	}
 
 
 	u.Timestamp = int64(binary.BigEndian.Uint64(hdr[0:8]))
 	u_Username_len := binary.BigEndian.Uint32(hdr[8:12])
 	if u_Username_len > MaxAllowedPacket {
-		return fmt.Errorf("wireforge: UserLeftMessage.Username length %d exceeds MaxAllowedPacket", u_Username_len)
+		return fmt.Errorf("UserLeftMessage.Username length %d exceeds MaxAllowedPacket", u_Username_len)
 	}
 
 	// Read dynamic payload: variable-length fields are appended sequentially
@@ -512,7 +520,7 @@ func (u *UserLeftMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) err
 	if u_Username_len > 0 {
 		u_Username_buf := make([]byte, u_Username_len)
 		if _, err := io.ReadFull(reader, u_Username_buf); err != nil {
-			return fmt.Errorf("wireforge: reading UserLeftMessage.Username payload: %w", err)
+			return fmt.Errorf("reading UserLeftMessage.Username payload: %w", err)
 		}
 		u.Username = string(u_Username_buf)
 	}
@@ -525,7 +533,7 @@ func (u *UserLeftMessage) Unmarshal(reader io.Reader, fixedHeaderLen uint16) err
 // message type ID and fixed header length. Use this when you need to dispatch
 // to different message types based on the type ID before calling Unmarshal.
 func ReadMessageFrame(r io.Reader) (typeID uint16, fixedHeaderLen uint16, err error) {
-	var frame [4]byte
+	var frame [FrameHeaderSize]byte
 	if _, err = io.ReadFull(r, frame[:]); err != nil {
 		return 0, 0, err
 	}

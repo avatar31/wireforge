@@ -4,15 +4,6 @@
  *
  * This file implements the serialization, deserialization, stream I/O, and
  * memory management functions declared in messages.h.
- *
- * Implementation details:
- *   - All multi-byte integers use Big-Endian (network byte order) encoding
- *     via explicit byte manipulation (no dependency on host endianness).
- *   - Every malloc() is preceded by a length validation against
- *     MAX_ALLOWED_PACKET to prevent denial-of-service attacks where a
- *     corrupted length field could trigger multi-gigabyte allocations.
- *   - All allocated pointers are set to NULL after free() to make
- *     double-free safe and detectable.
  */
 
 #include <stdlib.h>
@@ -23,8 +14,6 @@
 /* ---------------------------------------------------------------------------
  * Big-Endian encoding/decoding helpers
  * These ensure consistent wire format regardless of host CPU byte order.
- * Using explicit byte manipulation instead of htonl/ntohl avoids any
- * dependency on platform-specific header availability beyond <stdint.h>.
  * ---------------------------------------------------------------------------*/
 
 static inline void put_u16_be(uint8_t* buf, uint16_t val) {
@@ -80,32 +69,34 @@ uint16_t get_message_fixed_length(const uint8_t* buf) {
  * ===========================================================================*/
 
 /**
- * Sets the value of the timestamp field in the UserMessage_t struct.
+ * Sets the value of the timestamp field in the user_message_t struct.
  */
-void usermessage_set_timestamp(UserMessage_t* msg, const int64_t value) {
+void user_message_set_timestamp(user_message_t* msg, const int64_t value) {
     if (msg) msg->timestamp = value;
 }
 
 /**
- * Sets the value of the content field in the UserMessage_t struct.
+ * Sets the value of the content field in the user_message_t struct.
  */
-void usermessage_set_content(UserMessage_t* msg, const char* value) {
+void user_message_set_content(user_message_t* msg, const char* value) {
     if (!msg || !value) return;
     if (msg->content != NULL) {
         free(msg->content);
     }
 
-    char* new_value = strdup(value);
+    size_t len = strlen(value);
+    char* new_value = (char*) malloc(len + 1);
     if (!new_value) return;
 
+    memcpy(new_value, value, len + 1);
     msg->content = new_value;
-    msg->content_len = strlen(value);
+    msg->content_len = (uint32_t)len;
 }
 
 /**
- * Sets the value of the attachment field in the UserMessage_t struct.
+ * Sets the value of the attachment field in the user_message_t struct.
  */
-void usermessage_set_attachment(UserMessage_t* msg, const uint8_t* value, size_t len) {
+void user_message_set_attachment(user_message_t* msg, const uint8_t* value, size_t len) {
     if (!msg || !value || len == 0) return;
     if (msg->attachment != NULL) {
         free(msg->attachment);
@@ -116,14 +107,15 @@ void usermessage_set_attachment(UserMessage_t* msg, const uint8_t* value, size_t
 
     memcpy(new_value, value, len);
     msg->attachment = new_value;
-    msg->attachment_len = len;
+    msg->attachment_len = (uint32_t)len;
 }
 
 /**
- * calculate_usermessage_dynamic_payload_size - Compute the total size of
+ * calculate_user_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the UserMessage message from the fixed header.
  */
-size_t calculate_usermessage_dynamic_payload_size(uint8_t* hdr_buf) {
+size_t calculate_user_message_dynamic_payload_size(const uint8_t* hdr_buf) {
+    if (!hdr_buf) return 0;
     size_t dyn_total = 0;
     uint32_t content_len = get_u32_be(hdr_buf + 8);
     dyn_total += content_len;
@@ -133,15 +125,15 @@ size_t calculate_usermessage_dynamic_payload_size(uint8_t* hdr_buf) {
 }
 
 /**
- * usermessage_marshal - Serialize UserMessage to wire format.
+ * user_message_marshal - Serialize UserMessage to wire format.
  *
  * Writes the complete framed message into out_buf:
- *   [0:2]   Type ID (1, Big-Endian)
- *   [2:4]   Fixed header length (16, Big-Endian)
- *   [4:w]  Fixed header (fields + padding, Big-Endian encoded)
- *   [20:end] Dynamic payload (variable-length field data)
+ *   [0:2]     Type ID (1, Big-Endian)
+ *   [2:4]     Fixed header length (16, Big-Endian)
+ *   [4:20]    Fixed header (fields + padding, Big-Endian encoded)
+ *   [20:end]  Dynamic payload (variable-length field data)
  */
-int usermessage_marshal(const UserMessage_t* msg, uint8_t** out_buf) {
+int user_message_marshal(const user_message_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
     /* Calculate total dynamic payload size from all variable-length fields */
@@ -157,7 +149,7 @@ int usermessage_marshal(const UserMessage_t* msg, uint8_t** out_buf) {
 
     memset(buf, 0, WIRE_FRAME_HEADER_SIZE + USER_MESSAGE_FIXED_SIZE);
 
-    /* Write wire frame header */
+    /* Write wire frame header identifiers */
     put_u16_be(buf, USER_MESSAGE_TYPE_ID);
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, USER_MESSAGE_FIXED_SIZE);
 
@@ -181,13 +173,13 @@ int usermessage_marshal(const UserMessage_t* msg, uint8_t** out_buf) {
 }
 
 /**
- * usermessage_unmarshal - Deserialize UserMessage from a contiguous buffer.
+ * user_message_unmarshal - Deserialize UserMessage from a contiguous buffer.
  *
  * in_buf points to the start of the fixed header (after the 4-byte frame header).
- * Variable-length fields are malloc'd; caller must call usermessage_free().
+ * Variable-length fields are malloc'd; caller must call user_message_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int usermessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, UserMessage_t* out_msg) {
+int user_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, user_message_t* out_msg) {
     if (!in_buf || !out_msg ||
         fixed_header_len < USER_MESSAGE_FIXED_SIZE ||
         in_len < fixed_header_len ||
@@ -195,25 +187,25 @@ int usermessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_h
         return -1;
     }
 
-    memset(out_msg, 0, sizeof(UserMessage_t));
+    memset(out_msg, 0, sizeof(user_message_t));
 
     const uint8_t* hdr = in_buf;
     size_t dyn_off = fixed_header_len;
 
-    /* Decode fixed-size fields from the header */
+    /* Decode fixed-size primitives from structural block offsets */
     out_msg->timestamp = (int64_t)get_u64_be(hdr + 0);
     out_msg->content_len = get_u32_be(hdr + 8);
     out_msg->attachment_len = get_u32_be(hdr + 12);
 
-    /* Decode variable-length fields from the dynamic payload region */
+    /* Decode variable-length dynamic fields safely */
     if (out_msg->content_len > 0) {
-        if (dyn_off + out_msg->content_len > in_len) {
-            usermessage_free(out_msg);
+        if (out_msg->content_len > MAX_ALLOWED_PACKET || dyn_off + out_msg->content_len > in_len) {
+            user_message_free(out_msg);
             return -1;
         }
         out_msg->content = (char*) malloc(out_msg->content_len + 1);
         if (!out_msg->content) {
-            usermessage_free(out_msg);
+            user_message_free(out_msg);
             return -1;
         }
 
@@ -222,13 +214,13 @@ int usermessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_h
         dyn_off += out_msg->content_len;
     }
     if (out_msg->attachment_len > 0) {
-        if (dyn_off + out_msg->attachment_len > in_len) {
-            usermessage_free(out_msg);
+        if (out_msg->attachment_len > MAX_ALLOWED_PACKET || dyn_off + out_msg->attachment_len > in_len) {
+            user_message_free(out_msg);
             return -1;
         }
         out_msg->attachment = (uint8_t*)malloc(out_msg->attachment_len);
         if (!out_msg->attachment) {
-            usermessage_free(out_msg);
+            user_message_free(out_msg);
             return -1;
         }
         memcpy(out_msg->attachment, in_buf + dyn_off, out_msg->attachment_len);
@@ -240,13 +232,9 @@ int usermessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_h
 }
 
 /**
- * usermessage_free - Release heap memory owned by a UserMessage_t struct.
- *
- * Frees all dynamically allocated fields (strings, byte arrays) and resets
- * their pointers to NULL and lengths to 0. Safe to call multiple times.
- * Does NOT free the struct itself (stack or caller-managed).
+ * user_message_free - Release heap memory owned by a user_message_t struct.
  */
-void usermessage_free(UserMessage_t* msg) {
+void user_message_free(user_message_t* msg) {
     if (!msg) return;
     if (msg->content) {
         free(msg->content);
@@ -266,31 +254,32 @@ void usermessage_free(UserMessage_t* msg) {
  * ===========================================================================*/
 
 /**
- * Sets the value of the timestamp field in the HeartbeatMessage_t struct.
+ * Sets the value of the timestamp field in the heartbeat_message_t struct.
  */
-void heartbeatmessage_set_timestamp(HeartbeatMessage_t* msg, const int64_t value) {
+void heartbeat_message_set_timestamp(heartbeat_message_t* msg, const int64_t value) {
     if (msg) msg->timestamp = value;
 }
 
 /**
- * calculate_heartbeatmessage_dynamic_payload_size - Compute the total size of
+ * calculate_heartbeat_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the HeartbeatMessage message from the fixed header.
  */
-size_t calculate_heartbeatmessage_dynamic_payload_size(uint8_t* hdr_buf) {
+size_t calculate_heartbeat_message_dynamic_payload_size(const uint8_t* hdr_buf) {
+    if (!hdr_buf) return 0;
     size_t dyn_total = 0;
     return dyn_total;
 }
 
 /**
- * heartbeatmessage_marshal - Serialize HeartbeatMessage to wire format.
+ * heartbeat_message_marshal - Serialize HeartbeatMessage to wire format.
  *
  * Writes the complete framed message into out_buf:
- *   [0:2]   Type ID (2, Big-Endian)
- *   [2:4]   Fixed header length (8, Big-Endian)
- *   [4:w]  Fixed header (fields + padding, Big-Endian encoded)
- *   [12:end] Dynamic payload (variable-length field data)
+ *   [0:2]     Type ID (2, Big-Endian)
+ *   [2:4]     Fixed header length (8, Big-Endian)
+ *   [4:12]    Fixed header (fields + padding, Big-Endian encoded)
+ *   [12:end]  Dynamic payload (variable-length field data)
  */
-int heartbeatmessage_marshal(const HeartbeatMessage_t* msg, uint8_t** out_buf) {
+int heartbeat_message_marshal(const heartbeat_message_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
     /* Calculate total dynamic payload size from all variable-length fields */
@@ -304,7 +293,7 @@ int heartbeatmessage_marshal(const HeartbeatMessage_t* msg, uint8_t** out_buf) {
 
     memset(buf, 0, WIRE_FRAME_HEADER_SIZE + HEARTBEAT_MESSAGE_FIXED_SIZE);
 
-    /* Write wire frame header */
+    /* Write wire frame header identifiers */
     put_u16_be(buf, HEARTBEAT_MESSAGE_TYPE_ID);
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, HEARTBEAT_MESSAGE_FIXED_SIZE);
 
@@ -318,42 +307,38 @@ int heartbeatmessage_marshal(const HeartbeatMessage_t* msg, uint8_t** out_buf) {
 }
 
 /**
- * heartbeatmessage_unmarshal - Deserialize HeartbeatMessage from a contiguous buffer.
+ * heartbeat_message_unmarshal - Deserialize HeartbeatMessage from a contiguous buffer.
  *
  * in_buf points to the start of the fixed header (after the 4-byte frame header).
- * Variable-length fields are malloc'd; caller must call heartbeatmessage_free().
+ * Variable-length fields are malloc'd; caller must call heartbeat_message_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int heartbeatmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, HeartbeatMessage_t* out_msg) {
+int heartbeat_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, heartbeat_message_t* out_msg) {
     if (!in_buf || !out_msg ||
-        fixed_header_len < USER_MESSAGE_FIXED_SIZE ||
+        fixed_header_len < HEARTBEAT_MESSAGE_FIXED_SIZE ||
         in_len < fixed_header_len ||
         in_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
-    memset(out_msg, 0, sizeof(HeartbeatMessage_t));
+    memset(out_msg, 0, sizeof(heartbeat_message_t));
 
     const uint8_t* hdr = in_buf;
     size_t dyn_off = fixed_header_len;
 
-    /* Decode fixed-size fields from the header */
+    /* Decode fixed-size primitives from structural block offsets */
     out_msg->timestamp = (int64_t)get_u64_be(hdr + 0);
 
-    /* Decode variable-length fields from the dynamic payload region */
+    /* Decode variable-length dynamic fields safely */
 
     (void)dyn_off;
     return 0;
 }
 
 /**
- * heartbeatmessage_free - Release heap memory owned by a HeartbeatMessage_t struct.
- *
- * Frees all dynamically allocated fields (strings, byte arrays) and resets
- * their pointers to NULL and lengths to 0. Safe to call multiple times.
- * Does NOT free the struct itself (stack or caller-managed).
+ * heartbeat_message_free - Release heap memory owned by a heartbeat_message_t struct.
  */
-void heartbeatmessage_free(HeartbeatMessage_t* msg) {
+void heartbeat_message_free(heartbeat_message_t* msg) {
     if (!msg) return;
 }
 
@@ -363,33 +348,36 @@ void heartbeatmessage_free(HeartbeatMessage_t* msg) {
  * ===========================================================================*/
 
 /**
- * Sets the value of the timestamp field in the UserJoinedMessage_t struct.
+ * Sets the value of the timestamp field in the user_joined_message_t struct.
  */
-void userjoinedmessage_set_timestamp(UserJoinedMessage_t* msg, const int64_t value) {
+void user_joined_message_set_timestamp(user_joined_message_t* msg, const int64_t value) {
     if (msg) msg->timestamp = value;
 }
 
 /**
- * Sets the value of the username field in the UserJoinedMessage_t struct.
+ * Sets the value of the username field in the user_joined_message_t struct.
  */
-void userjoinedmessage_set_username(UserJoinedMessage_t* msg, const char* value) {
+void user_joined_message_set_username(user_joined_message_t* msg, const char* value) {
     if (!msg || !value) return;
     if (msg->username != NULL) {
         free(msg->username);
     }
 
-    char* new_value = strdup(value);
+    size_t len = strlen(value);
+    char* new_value = (char*) malloc(len + 1);
     if (!new_value) return;
 
+    memcpy(new_value, value, len + 1);
     msg->username = new_value;
-    msg->username_len = strlen(value);
+    msg->username_len = (uint32_t)len;
 }
 
 /**
- * calculate_userjoinedmessage_dynamic_payload_size - Compute the total size of
+ * calculate_user_joined_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the UserJoinedMessage message from the fixed header.
  */
-size_t calculate_userjoinedmessage_dynamic_payload_size(uint8_t* hdr_buf) {
+size_t calculate_user_joined_message_dynamic_payload_size(const uint8_t* hdr_buf) {
+    if (!hdr_buf) return 0;
     size_t dyn_total = 0;
     uint32_t username_len = get_u32_be(hdr_buf + 8);
     dyn_total += username_len;
@@ -397,15 +385,15 @@ size_t calculate_userjoinedmessage_dynamic_payload_size(uint8_t* hdr_buf) {
 }
 
 /**
- * userjoinedmessage_marshal - Serialize UserJoinedMessage to wire format.
+ * user_joined_message_marshal - Serialize UserJoinedMessage to wire format.
  *
  * Writes the complete framed message into out_buf:
- *   [0:2]   Type ID (3, Big-Endian)
- *   [2:4]   Fixed header length (16, Big-Endian)
- *   [4:w]  Fixed header (fields + padding, Big-Endian encoded)
- *   [20:end] Dynamic payload (variable-length field data)
+ *   [0:2]     Type ID (3, Big-Endian)
+ *   [2:4]     Fixed header length (16, Big-Endian)
+ *   [4:20]    Fixed header (fields + padding, Big-Endian encoded)
+ *   [20:end]  Dynamic payload (variable-length field data)
  */
-int userjoinedmessage_marshal(const UserJoinedMessage_t* msg, uint8_t** out_buf) {
+int user_joined_message_marshal(const user_joined_message_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
     /* Calculate total dynamic payload size from all variable-length fields */
@@ -420,7 +408,7 @@ int userjoinedmessage_marshal(const UserJoinedMessage_t* msg, uint8_t** out_buf)
 
     memset(buf, 0, WIRE_FRAME_HEADER_SIZE + USER_JOINED_MESSAGE_FIXED_SIZE);
 
-    /* Write wire frame header */
+    /* Write wire frame header identifiers */
     put_u16_be(buf, USER_JOINED_MESSAGE_TYPE_ID);
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, USER_JOINED_MESSAGE_FIXED_SIZE);
 
@@ -439,38 +427,38 @@ int userjoinedmessage_marshal(const UserJoinedMessage_t* msg, uint8_t** out_buf)
 }
 
 /**
- * userjoinedmessage_unmarshal - Deserialize UserJoinedMessage from a contiguous buffer.
+ * user_joined_message_unmarshal - Deserialize UserJoinedMessage from a contiguous buffer.
  *
  * in_buf points to the start of the fixed header (after the 4-byte frame header).
- * Variable-length fields are malloc'd; caller must call userjoinedmessage_free().
+ * Variable-length fields are malloc'd; caller must call user_joined_message_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int userjoinedmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, UserJoinedMessage_t* out_msg) {
+int user_joined_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, user_joined_message_t* out_msg) {
     if (!in_buf || !out_msg ||
-        fixed_header_len < USER_MESSAGE_FIXED_SIZE ||
+        fixed_header_len < USER_JOINED_MESSAGE_FIXED_SIZE ||
         in_len < fixed_header_len ||
         in_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
-    memset(out_msg, 0, sizeof(UserJoinedMessage_t));
+    memset(out_msg, 0, sizeof(user_joined_message_t));
 
     const uint8_t* hdr = in_buf;
     size_t dyn_off = fixed_header_len;
 
-    /* Decode fixed-size fields from the header */
+    /* Decode fixed-size primitives from structural block offsets */
     out_msg->timestamp = (int64_t)get_u64_be(hdr + 0);
     out_msg->username_len = get_u32_be(hdr + 8);
 
-    /* Decode variable-length fields from the dynamic payload region */
+    /* Decode variable-length dynamic fields safely */
     if (out_msg->username_len > 0) {
-        if (dyn_off + out_msg->username_len > in_len) {
-            userjoinedmessage_free(out_msg);
+        if (out_msg->username_len > MAX_ALLOWED_PACKET || dyn_off + out_msg->username_len > in_len) {
+            user_joined_message_free(out_msg);
             return -1;
         }
         out_msg->username = (char*) malloc(out_msg->username_len + 1);
         if (!out_msg->username) {
-            userjoinedmessage_free(out_msg);
+            user_joined_message_free(out_msg);
             return -1;
         }
 
@@ -484,13 +472,9 @@ int userjoinedmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t f
 }
 
 /**
- * userjoinedmessage_free - Release heap memory owned by a UserJoinedMessage_t struct.
- *
- * Frees all dynamically allocated fields (strings, byte arrays) and resets
- * their pointers to NULL and lengths to 0. Safe to call multiple times.
- * Does NOT free the struct itself (stack or caller-managed).
+ * user_joined_message_free - Release heap memory owned by a user_joined_message_t struct.
  */
-void userjoinedmessage_free(UserJoinedMessage_t* msg) {
+void user_joined_message_free(user_joined_message_t* msg) {
     if (!msg) return;
     if (msg->username) {
         free(msg->username);
@@ -505,33 +489,36 @@ void userjoinedmessage_free(UserJoinedMessage_t* msg) {
  * ===========================================================================*/
 
 /**
- * Sets the value of the timestamp field in the UserLeftMessage_t struct.
+ * Sets the value of the timestamp field in the user_left_message_t struct.
  */
-void userleftmessage_set_timestamp(UserLeftMessage_t* msg, const int64_t value) {
+void user_left_message_set_timestamp(user_left_message_t* msg, const int64_t value) {
     if (msg) msg->timestamp = value;
 }
 
 /**
- * Sets the value of the username field in the UserLeftMessage_t struct.
+ * Sets the value of the username field in the user_left_message_t struct.
  */
-void userleftmessage_set_username(UserLeftMessage_t* msg, const char* value) {
+void user_left_message_set_username(user_left_message_t* msg, const char* value) {
     if (!msg || !value) return;
     if (msg->username != NULL) {
         free(msg->username);
     }
 
-    char* new_value = strdup(value);
+    size_t len = strlen(value);
+    char* new_value = (char*) malloc(len + 1);
     if (!new_value) return;
 
+    memcpy(new_value, value, len + 1);
     msg->username = new_value;
-    msg->username_len = strlen(value);
+    msg->username_len = (uint32_t)len;
 }
 
 /**
- * calculate_userleftmessage_dynamic_payload_size - Compute the total size of
+ * calculate_user_left_message_dynamic_payload_size - Compute the total size of
  * all variable-length fields in the UserLeftMessage message from the fixed header.
  */
-size_t calculate_userleftmessage_dynamic_payload_size(uint8_t* hdr_buf) {
+size_t calculate_user_left_message_dynamic_payload_size(const uint8_t* hdr_buf) {
+    if (!hdr_buf) return 0;
     size_t dyn_total = 0;
     uint32_t username_len = get_u32_be(hdr_buf + 8);
     dyn_total += username_len;
@@ -539,15 +526,15 @@ size_t calculate_userleftmessage_dynamic_payload_size(uint8_t* hdr_buf) {
 }
 
 /**
- * userleftmessage_marshal - Serialize UserLeftMessage to wire format.
+ * user_left_message_marshal - Serialize UserLeftMessage to wire format.
  *
  * Writes the complete framed message into out_buf:
- *   [0:2]   Type ID (4, Big-Endian)
- *   [2:4]   Fixed header length (16, Big-Endian)
- *   [4:w]  Fixed header (fields + padding, Big-Endian encoded)
- *   [20:end] Dynamic payload (variable-length field data)
+ *   [0:2]     Type ID (4, Big-Endian)
+ *   [2:4]     Fixed header length (16, Big-Endian)
+ *   [4:20]    Fixed header (fields + padding, Big-Endian encoded)
+ *   [20:end]  Dynamic payload (variable-length field data)
  */
-int userleftmessage_marshal(const UserLeftMessage_t* msg, uint8_t** out_buf) {
+int user_left_message_marshal(const user_left_message_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
     /* Calculate total dynamic payload size from all variable-length fields */
@@ -562,7 +549,7 @@ int userleftmessage_marshal(const UserLeftMessage_t* msg, uint8_t** out_buf) {
 
     memset(buf, 0, WIRE_FRAME_HEADER_SIZE + USER_LEFT_MESSAGE_FIXED_SIZE);
 
-    /* Write wire frame header */
+    /* Write wire frame header identifiers */
     put_u16_be(buf, USER_LEFT_MESSAGE_TYPE_ID);
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, USER_LEFT_MESSAGE_FIXED_SIZE);
 
@@ -581,38 +568,38 @@ int userleftmessage_marshal(const UserLeftMessage_t* msg, uint8_t** out_buf) {
 }
 
 /**
- * userleftmessage_unmarshal - Deserialize UserLeftMessage from a contiguous buffer.
+ * user_left_message_unmarshal - Deserialize UserLeftMessage from a contiguous buffer.
  *
  * in_buf points to the start of the fixed header (after the 4-byte frame header).
- * Variable-length fields are malloc'd; caller must call userleftmessage_free().
+ * Variable-length fields are malloc'd; caller must call user_left_message_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int userleftmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, UserLeftMessage_t* out_msg) {
+int user_left_message_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, user_left_message_t* out_msg) {
     if (!in_buf || !out_msg ||
-        fixed_header_len < USER_MESSAGE_FIXED_SIZE ||
+        fixed_header_len < USER_LEFT_MESSAGE_FIXED_SIZE ||
         in_len < fixed_header_len ||
         in_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
-    memset(out_msg, 0, sizeof(UserLeftMessage_t));
+    memset(out_msg, 0, sizeof(user_left_message_t));
 
     const uint8_t* hdr = in_buf;
     size_t dyn_off = fixed_header_len;
 
-    /* Decode fixed-size fields from the header */
+    /* Decode fixed-size primitives from structural block offsets */
     out_msg->timestamp = (int64_t)get_u64_be(hdr + 0);
     out_msg->username_len = get_u32_be(hdr + 8);
 
-    /* Decode variable-length fields from the dynamic payload region */
+    /* Decode variable-length dynamic fields safely */
     if (out_msg->username_len > 0) {
-        if (dyn_off + out_msg->username_len > in_len) {
-            userleftmessage_free(out_msg);
+        if (out_msg->username_len > MAX_ALLOWED_PACKET || dyn_off + out_msg->username_len > in_len) {
+            user_left_message_free(out_msg);
             return -1;
         }
         out_msg->username = (char*) malloc(out_msg->username_len + 1);
         if (!out_msg->username) {
-            userleftmessage_free(out_msg);
+            user_left_message_free(out_msg);
             return -1;
         }
 
@@ -626,13 +613,9 @@ int userleftmessage_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fix
 }
 
 /**
- * userleftmessage_free - Release heap memory owned by a UserLeftMessage_t struct.
- *
- * Frees all dynamically allocated fields (strings, byte arrays) and resets
- * their pointers to NULL and lengths to 0. Safe to call multiple times.
- * Does NOT free the struct itself (stack or caller-managed).
+ * user_left_message_free - Release heap memory owned by a user_left_message_t struct.
  */
-void userleftmessage_free(UserLeftMessage_t* msg) {
+void user_left_message_free(user_left_message_t* msg) {
     if (!msg) return;
     if (msg->username) {
         free(msg->username);

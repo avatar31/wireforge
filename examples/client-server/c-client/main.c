@@ -64,7 +64,7 @@ void* server_reader_thread(void* arg) {
         }
 
         if (type_id == USER_MESSAGE_TYPE_ID) {
-            size_t dyn_total = calculate_usermessage_dynamic_payload_size(fixed_buf);
+            size_t dyn_total = calculate_user_message_dynamic_payload_size(fixed_buf);
 
             size_t full_payload_len = fixed_len + dyn_total;
             uint8_t* full_payload = malloc(full_payload_len);
@@ -83,17 +83,17 @@ void* server_reader_thread(void* arg) {
                 }
             }
 
-            UserMessage_t msg = {0};
-            if (usermessage_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+            user_message_t msg = {0};
+            if (user_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
                 printf("\r\33[2K[User] %s\n> ", msg.content ? msg.content : "");
                 fflush(stdout);
-                usermessage_free(&msg);
+                user_message_free(&msg);
             }
             free(full_payload);
 
         } else if (type_id == HEARTBEAT_MESSAGE_TYPE_ID) {
-            HeartbeatMessage_t hb = {0};
-            heartbeatmessage_unmarshal(fixed_buf, fixed_len, fixed_len, &hb);
+            heartbeat_message_t hb = {0};
+            heartbeat_message_unmarshal(fixed_buf, fixed_len, fixed_len, &hb);
             free(fixed_buf);
             // Clean pass on heartbeat frame logic sync. Loop repeats.
         } else {
@@ -155,10 +155,10 @@ void* client_heartbeat_thread(void* arg) {
         if (!joined) continue;
 
         uint8_t* buf = NULL;
-        HeartbeatMessage_t hb = {0};
-        heartbeatmessage_set_timestamp(&hb, (int64_t)time(NULL));
+        heartbeat_message_t hb = {0};
+        heartbeat_message_set_timestamp(&hb, (int64_t)time(NULL));
         
-        int len = heartbeatmessage_marshal(&hb, &buf);
+        int len = heartbeat_message_marshal(&hb, &buf);
         if (len > 0 && buf) {
             send_message(buf, len);
         }
@@ -167,18 +167,18 @@ void* client_heartbeat_thread(void* arg) {
     return NULL;
 }
 
-int build_usermessage(uint8_t** out_buf, const char* message) {
-    UserMessage_t msg = {0};
-    usermessage_set_timestamp(&msg, (int64_t)time(NULL));
-    usermessage_set_content(&msg, message);
+int build_user_message(uint8_t** out_buf, const char* message) {
+    user_message_t msg = {0};
+    user_message_set_timestamp(&msg, (int64_t)time(NULL));
+    user_message_set_content(&msg, message);
 
     if (msg.content == NULL) {
-        usermessage_free(&msg);
+        user_message_free(&msg);
         return -1;
     }
 
-    int total = usermessage_marshal(&msg, out_buf);
-    usermessage_free(&msg);
+    int total = user_message_marshal(&msg, out_buf);
+    user_message_free(&msg);
     return total;
 }
 
@@ -214,7 +214,7 @@ int main() {
         }
 
         uint8_t* buf = NULL;
-        int len = build_usermessage(&buf, input);
+        int len = build_user_message(&buf, input);
         if (len > 0 && buf) {
             send_message(buf, len);
         }
