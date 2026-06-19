@@ -144,8 +144,10 @@ func (ft FieldType) CType() string {
 		return "double"
 	case FieldTypeBool:
 		return "uint8_t"
-	case FieldTypeString, FieldTypeBytes:
-		return ""
+	case FieldTypeString:
+		return "char*"
+	case FieldTypeBytes:
+		return "uint8_t*"
 	default:
 		return "uint8_t"
 	}

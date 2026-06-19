@@ -150,10 +150,9 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 
 	// Fixed header block (starts at offset 4)
 	hdr := buf[4:]
-	dynOff := {{$msg.Name}}FixedSize + 4
+	dynOff := {{$msg.Name}}FixedSize + 4	// TODO: Why we need +4 here?
 {{range $msg.Fields}}
 {{- if isVariable .Type}}
-	// {{.GoName}}: write length prefix into fixed header, data into dynamic payload
 	binary.BigEndian.PutUint32(hdr[{{.Offset}}:{{add .Offset 4}}], uint32(len({{receiver $msg.Name}}.{{.GoName}})))
 	copy(buf[dynOff:], {{receiver $msg.Name}}.{{.GoName}})
 	dynOff += len({{receiver $msg.Name}}.{{.GoName}})
@@ -262,29 +261,6 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader, fixedHe
 	return nil
 }
 
-// Read{{$msg.Name}} reads a complete framed {{$msg.Name}} message from r.
-// It first reads the 4-byte frame header, validates the type ID, then
-// delegates to Unmarshal for the body. Returns the populated message or
-// an error if the stream is malformed or the type ID doesn't match.
-func Read{{$msg.Name}}(r io.Reader) (*{{$msg.Name}}, error) {
-	var frame [4]byte
-	if _, err := io.ReadFull(r, frame[:]); err != nil {
-		return nil, fmt.Errorf("wireforge: reading frame header: %w", err)
-	}
-
-	// TODO: Use ReadMessageFrame() here to avoid duplicating the frame read logic.
-	typeID := binary.BigEndian.Uint16(frame[0:2])
-	if typeID != {{$msg.TypeID}} {
-		return nil, fmt.Errorf("wireforge: expected {{$msg.Name}} type ID %d, got %d", {{$msg.TypeID}}, typeID)
-	}
-
-	fixedLen := binary.BigEndian.Uint16(frame[2:4])
-	msg := &{{$msg.Name}}{}
-	if err := msg.Unmarshal(r, fixedLen); err != nil {
-		return nil, err
-	}
-	return msg, nil
-}
 {{end}}
 // ReadMessageFrame reads the 4-byte wire frame header from r and returns the
 // message type ID and fixed header length. Use this when you need to dispatch
@@ -292,10 +268,11 @@ func Read{{$msg.Name}}(r io.Reader) (*{{$msg.Name}}, error) {
 func ReadMessageFrame(r io.Reader) (typeID uint16, fixedHeaderLen uint16, err error) {
 	var frame [4]byte
 	if _, err = io.ReadFull(r, frame[:]); err != nil {
-		return 0, 0, fmt.Errorf("wireforge: reading frame header: %w", err)
+		return 0, 0, err
 	}
 	typeID = binary.BigEndian.Uint16(frame[0:2])
 	fixedHeaderLen = binary.BigEndian.Uint16(frame[2:4])
+
 	return typeID, fixedHeaderLen, nil
 }
 `

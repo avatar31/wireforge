@@ -104,6 +104,7 @@ func run(inputFile, outputDir, packageName string) error {
 
 // TODO's:
 // - Add support for more complex types (arrays, nested objects)
+// - Make better use of fields in compiler.CompiledField to get maximum performance from CPU
 // - C TODO's:
 // 		- Add better error handling in C code. Like instead of returning -1,
 // 		define error code in header template and return accordingly.

@@ -7,18 +7,20 @@ components:
   schemas:
     UserMessage:
       type: object
+      x-message-id: 1
       properties:
         content:
           type: string
         timestamp:
-          type: string
-          format: date-time
+          type: integer
+          format: int64
         attachment:
           type: string
           format: binary
     HeartbeatMessage:
       type: object
+      x-message-id: 2
       properties:
         timestamp:
-          type: string
-          format: date-time
+          type: integer
+          format: int64

@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -26,9 +27,7 @@ func ParseFile(path string) (*Schema, error) {
 		return nil, fmt.Errorf("YAML is not a valid OpenAPI spec: %w", err)
 	}
 
-	resultSchema := &Schema{
-		Messages: make([]*Message, 0),
-	}
+	messages := make([]*Message, 0)
 
 	// 2. Iterate over components.schemas
 	for schemaName, schemaRef := range doc.Components.Schemas {
@@ -54,10 +53,14 @@ func ParseFile(path string) (*Schema, error) {
 			Properties: fields,
 		}
 
-		resultSchema.Messages = append(resultSchema.Messages, message)
+		messages = append(messages, message)
 	}
 
-	return resultSchema, nil
+	sort.Slice(messages, func(i, j int) bool {
+		return messages[i].TypeID < messages[j].TypeID
+	})
+
+	return &Schema{Messages: messages}, nil
 }
 
 func parseIdFromSchema(schemaName string, schema *openapi3.Schema) (uint16, error) {

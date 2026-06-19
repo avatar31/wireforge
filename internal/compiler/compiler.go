@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 
@@ -95,6 +96,10 @@ func CompileMessage(msg *schema.Message) *CompiledMessage {
 		if precedenceOrder[i] == nil {
 			continue
 		}
+
+		sort.Slice(precedenceOrder[i], func(x, y int) bool {
+			return precedenceOrder[i][x].Name < precedenceOrder[i][y].Name
+		})
 		optimizedFields = append(optimizedFields, precedenceOrder[i]...)
 	}
 

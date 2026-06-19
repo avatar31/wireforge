@@ -15,11 +15,13 @@ var cTemplate = template.Must(template.New("c").Funcs(template.FuncMap{
 	"snakeUpper": toUpperSnake,
 	"cType":      func(ft schema.FieldType) string { return ft.CType() },
 	"isVariable": func(ft schema.FieldType) bool { return ft.IsVariable() },
+	"isByteArray": func(ft schema.FieldType) bool { return ft.GoType() == "[]byte" },
 	"add":        func(a, b int) int { return a + b },
 	"sub":        func(a, b int) int { return a - b },
 	"marshalFields": func(msg *compiler.CompiledMessage) []*compiler.CompiledField {
 		return msg.Fields
 	},
+    "padFields":  generatePadFields,
 }).Parse(cTemplateSource))
 
 // GenerateC writes the generated C implementation to w.
@@ -37,68 +39,17 @@ const cTemplateSource = `/*
  * Implementation details:
  *   - All multi-byte integers use Big-Endian (network byte order) encoding
  *     via explicit byte manipulation (no dependency on host endianness).
- *   - read_all() and write_all() loop internally to handle EINTR signals
- *     and partial transfers (short reads/writes) that are normal on streaming
- *     sockets (TCP, Unix Domain Sockets).
  *   - Every malloc() is preceded by a length validation against
  *     MAX_ALLOWED_PACKET to prevent denial-of-service attacks where a
  *     corrupted length field could trigger multi-gigabyte allocations.
  *   - All allocated pointers are set to NULL after free() to make
  *     double-free safe and detectable.
  */
-#include "messages.h"
 
 #include <stdlib.h>
 #include <string.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <errno.h>
 
-/* ---------------------------------------------------------------------------
- * Internal I/O helpers
- * These handle the fundamental reliability requirement for streaming sockets:
- * a single read()/write() syscall may transfer fewer bytes than requested.
- * ---------------------------------------------------------------------------*/
-
-/**
- * Read exactly 'count' bytes from fd into buf.
- * Retries automatically on EINTR (signal interruption) and loops until all
- * bytes are received or an unrecoverable error (including EOF) occurs.
- *
- * @return 0 on success, -1 on error or premature EOF.
- */
-static int read_all(int fd, uint8_t* buf, size_t count) {
-    size_t total = 0;
-    while (total < count) {
-        ssize_t n = read(fd, buf + total, count - total);
-        if (n <= 0) {
-            if (n < 0 && errno == EINTR) continue;
-            return -1;
-        }
-        total += (size_t)n;
-    }
-    return 0;
-}
-
-/**
- * Write exactly 'count' bytes from buf to fd.
- * Retries automatically on EINTR and loops until all bytes are sent or
- * an unrecoverable error occurs.
- *
- * @return 0 on success, -1 on error.
- */
-static int write_all(int fd, const uint8_t* buf, size_t count) {
-    size_t total = 0;
-    while (total < count) {
-        ssize_t n = write(fd, buf + total, count - total);
-        if (n <= 0) {
-            if (n < 0 && errno == EINTR) continue;
-            return -1;
-        }
-        total += (size_t)n;
-    }
-    return 0;
-}
+#include "messages.h"
 
 /* ---------------------------------------------------------------------------
  * Big-Endian encoding/decoding helpers
@@ -146,10 +97,72 @@ static inline uint64_t get_u64_be(const uint8_t* buf) {
            (uint64_t)buf[6] << 8  | (uint64_t)buf[7];
 }
 
+uint16_t get_message_type(const uint8_t* buf) {
+    return get_u16_be(buf);
+}
+
+uint16_t get_message_fixed_length(const uint8_t* buf) {
+    return get_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE);
+}
+
 {{range .Messages}}{{$msg := .}}
 /* ===========================================================================
  * {{.Name}} (Type ID: {{.TypeID}}, Fixed Header: {{.TotalFixedSize}} bytes)
  * ===========================================================================*/
+
+{{- range padFields .}}
+
+/**
+ * Sets the value of the {{.Field.CName}} field in the {{$msg.Name}}_t struct.
+ */
+{{- if isVariable .Field.Type}}
+{{- if isByteArray .Field.Type}}
+void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value, size_t len) {
+    if (!msg || !value || len == 0) return;
+    if (msg->{{.Field.CName}} != NULL) {
+        free(msg->{{.Field.CName}});
+    }
+
+    uint8_t* new_value = (uint8_t*) malloc(len);
+    if (!new_value) return;
+
+    memcpy(new_value, value, len);
+    msg->{{.Field.CName}} = new_value;
+    msg->{{.Field.CName}}_len = len;
+}
+{{- else}}
+void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value) {
+    if (!msg || !value) return;
+    if (msg->{{.Field.CName}} != NULL) {
+        free(msg->{{.Field.CName}});
+    }
+
+    char* new_value = strdup(value);
+    if (!new_value) return;
+
+    msg->content = new_value;
+    msg->{{.Field.CName}}_len = strlen(value);
+}
+{{- end}}
+{{- else}}
+void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value) {
+    if (msg) msg->{{.Field.CName}} = value;
+}
+{{- end}}
+{{- end}}
+
+/**
+ * calculate_{{lower .Name}}_dynamic_payload_size - Compute the total size of
+ * all variable-length fields in the {{$msg.Name}} message from the fixed header.
+ */
+size_t calculate_{{lower .Name}}_dynamic_payload_size(uint8_t* hdr_buf) {
+    size_t dyn_total = 0;
+{{- range .VariableFields}}
+    uint32_t {{.CName}}_len = get_u32_be(hdr_buf + {{.Offset}});
+    dyn_total += {{.CName}}_len;
+{{- end}}
+    return dyn_total;
+}
 
 /**
  * {{lower .Name}}_marshal - Serialize {{.Name}} to wire format.
@@ -160,7 +173,7 @@ static inline uint64_t get_u64_be(const uint8_t* buf) {
  *   [4:w]  Fixed header (fields + padding, Big-Endian encoded)
  *   [{{add 4 .TotalFixedSize}}:end] Dynamic payload (variable-length field data)
  */
-int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t* out_buf, size_t buf_size) {
+int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
     /* Calculate total dynamic payload size from all variable-length fields */
@@ -170,26 +183,25 @@ int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t* out_buf, size_t buf
 {{- end}}
 
     size_t total = WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE + dyn_size;
-    if (total > buf_size) return -1;
     if (total > MAX_ALLOWED_PACKET) return -1;
 
-    /* Zero the fixed region to ensure padding bytes are deterministic */
-    memset(out_buf, 0, WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE);
+    uint8_t* buf = (uint8_t*)malloc(total);
+    if (!buf) return -1;
+
+    memset(buf, 0, WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE);
 
     /* Write wire frame header */
-    put_u16_be(out_buf, {{snakeUpper .Name}}_TYPE_ID);
-    put_u16_be(out_buf + 2, {{snakeUpper .Name}}_FIXED_SIZE);
+    put_u16_be(buf, {{snakeUpper .Name}}_TYPE_ID);
+    put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, {{snakeUpper .Name}}_FIXED_SIZE);
 
-    uint8_t* hdr = out_buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t* hdr = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE;
 
-    /* Encode each field into the fixed header (and dynamic payload for variable fields) */
 {{- range .Fields}}
 {{- if isVariable .Type}}
-    /* {{.CName}}: length prefix at fixed offset, data appended to dynamic payload */
     put_u32_be(hdr + {{.Offset}}, msg->{{.CName}}_len);
     if (msg->{{.CName}}_len > 0 && msg->{{.CName}}) {
-        memcpy(out_buf + dyn_off, msg->{{.CName}}, msg->{{.CName}}_len);
+        memcpy(buf + dyn_off, msg->{{.CName}}, msg->{{.CName}}_len);
         dyn_off += msg->{{.CName}}_len;
     }
 {{- else}}
@@ -226,6 +238,7 @@ int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t* out_buf, size_t buf
 {{- end}}
 
     (void)dyn_off;
+    *out_buf = buf;
     return (int)total;
 }
 
@@ -237,9 +250,12 @@ int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t* out_buf, size_t buf
  * On any error, partial allocations are cleaned up before returning.
  */
 int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, {{.Name}}_t* out_msg) {
-    if (!in_buf || !out_msg) return -1;
-    if (fixed_header_len < {{snakeUpper .Name}}_FIXED_SIZE) return -1;
-    if (in_len < fixed_header_len) return -1;
+    if (!in_buf || !out_msg ||
+        fixed_header_len < USER_MESSAGE_FIXED_SIZE ||
+        in_len < fixed_header_len ||
+        in_len > MAX_ALLOWED_PACKET) {
+        return -1;
+    }
 
     memset(out_msg, 0, sizeof({{.Name}}_t));
 
@@ -250,10 +266,6 @@ int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fix
 {{- range .Fields}}
 {{- if isVariable .Type}}
     out_msg->{{.CName}}_len = get_u32_be(hdr + {{.Offset}});
-    if (out_msg->{{.CName}}_len > MAX_ALLOWED_PACKET) {
-        memset(out_msg, 0, sizeof({{$msg.Name}}_t));
-        return -1; /* Poison pill: length exceeds safety limit */
-    }
 {{- else}}
 {{- if eq (cType .Type) "uint8_t"}}
     out_msg->{{.CName}} = hdr[{{.Offset}}];
@@ -290,22 +302,23 @@ int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fix
     if (out_msg->{{.CName}}_len > 0) {
         if (dyn_off + out_msg->{{.CName}}_len > in_len) {
             {{lower $msg.Name}}_free(out_msg);
-            return -1; /* Truncated: not enough data for declared length */
+            return -1;
         }
+
 {{- if eq (.Type.GoType) "string"}}
-        /* +1 for NUL terminator (wire data is not NUL-terminated) */
-        out_msg->{{.CName}} = (char*)malloc(out_msg->{{.CName}}_len + 1);
+        out_msg->{{.CName}} = (char*) malloc(out_msg->{{.CName}}_len + 1);
         if (!out_msg->{{.CName}}) {
             {{lower $msg.Name}}_free(out_msg);
-            return -1; /* Allocation failure */
+            return -1;
         }
+
         memcpy(out_msg->{{.CName}}, in_buf + dyn_off, out_msg->{{.CName}}_len);
         out_msg->{{.CName}}[out_msg->{{.CName}}_len] = '\0';
 {{- else}}
         out_msg->{{.CName}} = (uint8_t*)malloc(out_msg->{{.CName}}_len);
         if (!out_msg->{{.CName}}) {
             {{lower $msg.Name}}_free(out_msg);
-            return -1; /* Allocation failure */
+            return -1;
         }
         memcpy(out_msg->{{.CName}}, in_buf + dyn_off, out_msg->{{.CName}}_len);
 {{- end}}
@@ -315,112 +328,6 @@ int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fix
 
     (void)dyn_off;
     return 0;
-}
-
-/**
- * {{lower .Name}}_read - Read a complete framed {{.Name}} from a streaming socket.
- *
- * Protocol steps:
- *   1. Read 4-byte frame header (type ID + fixed header length)
- *   2. Validate type ID matches {{snakeUpper .Name}}_TYPE_ID
- *   3. Read the fixed header
- *   4. Extract dynamic payload lengths from the fixed header
- *   5. Read the dynamic payload
- *   6. Call unmarshal to populate the output struct
- *
- * Uses read_all() internally so partial reads on streaming sockets are
- * handled transparently.
- */
-int {{lower .Name}}_read(int fd, {{.Name}}_t* out_msg) {
-    if (!out_msg) return -1;
-
-    /* Step 1: Read wire frame header */
-    uint8_t frame[WIRE_FRAME_HEADER_SIZE];
-    if (read_all(fd, frame, WIRE_FRAME_HEADER_SIZE) != 0) return -1;
-
-    /* Step 2: Validate message type */
-    uint16_t type_id = get_u16_be(frame);
-    uint16_t fixed_len = get_u16_be(frame + 2);
-
-    if (type_id != {{snakeUpper .Name}}_TYPE_ID) return -1;
-    if (fixed_len < {{snakeUpper .Name}}_FIXED_SIZE) return -1;
-
-    /* Step 3: Read fixed header */
-    uint8_t* hdr_buf = (uint8_t*)malloc(fixed_len);
-    if (!hdr_buf) return -1;
-
-    if (read_all(fd, hdr_buf, fixed_len) != 0) {
-        free(hdr_buf);
-        return -1;
-    }
-
-    /* Step 4: Calculate total dynamic payload size */
-    size_t dyn_total = 0;
-{{- range .VariableFields}}
-    {
-        uint32_t len_{{.CName}} = get_u32_be(hdr_buf + {{.Offset}});
-        if (len_{{.CName}} > MAX_ALLOWED_PACKET) {
-            free(hdr_buf);
-            return -1;
-        }
-        dyn_total += len_{{.CName}};
-    }
-{{- end}}
-
-    /* Step 5: Read dynamic payload into a contiguous buffer */
-    size_t full_len = (size_t)fixed_len + dyn_total;
-    uint8_t* full_buf = (uint8_t*)malloc(full_len);
-    if (!full_buf) {
-        free(hdr_buf);
-        return -1;
-    }
-
-    memcpy(full_buf, hdr_buf, fixed_len);
-    free(hdr_buf);
-
-    if (dyn_total > 0) {
-        if (read_all(fd, full_buf + fixed_len, dyn_total) != 0) {
-            free(full_buf);
-            return -1;
-        }
-    }
-
-    /* Step 6: Unmarshal into the output struct */
-    int rc = {{lower .Name}}_unmarshal(full_buf, full_len, fixed_len, out_msg);
-    free(full_buf);
-    return rc;
-}
-
-/**
- * {{lower .Name}}_write - Write a complete framed {{.Name}} to a streaming socket.
- *
- * Serializes the message into a temporary buffer and writes it atomically
- * (from the application's perspective) using write_all() which handles
- * short writes and EINTR.
- */
-int {{lower .Name}}_write(int fd, const {{.Name}}_t* msg) {
-    if (!msg) return -1;
-
-    size_t dyn_size = 0;
-{{- range .VariableFields}}
-    dyn_size += msg->{{.CName}}_len;
-{{- end}}
-
-    size_t total = WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE + dyn_size;
-    if (total > MAX_ALLOWED_PACKET) return -1;
-
-    uint8_t* buf = (uint8_t*)malloc(total);
-    if (!buf) return -1;
-
-    int n = {{lower .Name}}_marshal(msg, buf, total);
-    if (n < 0) {
-        free(buf);
-        return -1;
-    }
-
-    int rc = write_all(fd, buf, (size_t)n);
-    free(buf);
-    return rc;
 }
 
 /**

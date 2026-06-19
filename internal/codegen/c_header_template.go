@@ -15,6 +15,7 @@ var cHeaderTemplate = template.Must(template.New("cheader").Funcs(template.FuncM
 	"lower":      strings.ToLower,
 	"cType":      func(ft schema.FieldType) string { return ft.CType() },
 	"isVariable": func(ft schema.FieldType) bool { return ft.IsVariable() },
+	"isByteArray": func(ft schema.FieldType) bool { return ft.GoType() == "[]byte" },
 	"add":        func(a, b int) int { return a + b },
 	"snakeUpper": toUpperSnake,
 	"padFields":  generatePadFields,
@@ -136,8 +137,14 @@ extern "C" {
  */
 #define MAX_ALLOWED_PACKET (16 * 1024 * 1024)
 
+#define WIRE_FRAME_MSG_TYPE_SIZE 2
+#define WIRE_FRAME_MSG_FIXED_SIZE 2
+
 /** Size of the wire frame header: 2-byte type ID + 2-byte fixed header length. */
 #define WIRE_FRAME_HEADER_SIZE 4
+
+uint16_t get_message_type(const uint8_t* buf);
+uint16_t get_message_fixed_length(const uint8_t* buf);
 
 {{range .Messages}}{{$msg := .}}
 /* ===========================================================================
@@ -172,11 +179,7 @@ typedef struct {
     /** {{.Field.Description}} (length of dynamic payload below). */
 {{- end}}
     uint32_t {{.Field.CName}}_len;
-    {{- if eq (.Field.Type.GoType) "string"}}
-    char*    {{.Field.CName}};     /**< Heap-allocated; call {{lower $msg.Name}}_free() when done. */
-    {{- else}}
-    uint8_t* {{.Field.CName}};     /**< Heap-allocated; call {{lower $msg.Name}}_free() when done. */
-    {{- end}}
+    {{cType .Field.Type}} {{.Field.CName}};     /**< Heap-allocated; call {{lower $msg.Name}}_free() when done. */
 {{- else}}
 {{- if .Field.Description}}
     /** {{.Field.Description}} */
@@ -191,6 +194,24 @@ typedef struct {
 _Static_assert(sizeof({{.Name}}_t) >= {{.TotalFixedSize}},
     "wireforge: {{.Name}}_t fixed layout size mismatch");
 
+{{- range padFields .}}
+
+/**
+ * Sets the value of the {{.Field.CName}} field in the {{$msg.Name}}_t struct.
+ */
+{{- if isByteArray .Field.Type}}
+void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value, size_t len);
+{{- else}}
+void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value);
+{{- end}}
+{{- end}}
+
+/**
+ * calculate_{{lower .Name}}_dynamic_payload_size - Compute the total size of
+ * all variable-length fields in the {{$msg.Name}} message from the fixed header.
+ */
+size_t calculate_{{lower .Name}}_dynamic_payload_size(uint8_t* hdr_buf);
+
 /**
  * Serialize a {{.Name}} message into out_buf in wire format.
  *
@@ -201,7 +222,7 @@ _Static_assert(sizeof({{.Name}}_t) >= {{.TotalFixedSize}},
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t* out_buf, size_t buf_size);
+int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t** out_buf);
 
 /**
  * Deserialize a {{.Name}} message from a contiguous buffer.
@@ -231,18 +252,7 @@ int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fix
  *
  * On success, caller MUST call {{lower .Name}}_free(out_msg) when done.
  */
-int {{lower .Name}}_read(int fd, {{.Name}}_t* out_msg);
-
-/**
- * Write a complete framed {{.Name}} message to a streaming socket.
- *
- * Internally handles short writes via a write loop (safe for TCP/UDS streams).
- *
- * @param fd   File descriptor of a connected streaming socket.
- * @param msg  Pointer to the message to send (must not be NULL).
- * @return     0 on success, -1 on error (I/O failure, exceeds MAX_ALLOWED_PACKET).
- */
-int {{lower .Name}}_write(int fd, const {{.Name}}_t* msg);
+int {{lower .Name}}_read(uint8_t *buffer, {{.Name}}_t* out_msg);
 
 /**
  * Free all dynamically allocated fields in a {{.Name}}_t struct.

@@ -8,78 +8,99 @@
 #include <stdint.h>
 #include <time.h>
 
-#define BUFFER_SIZE 2048
+#include "messages.h"
+
 #define SOCKET_PATH "/tmp/chat.sock"
 
 int server_sock = -1;
+int joined = 0;
+char myname[256] = {0};
 pthread_mutex_t sock_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Thread-safe wrapper to handle serialization and socket writing
-void send_json_payload(const char* sender, const char* content) {
-    char payload[BUFFER_SIZE];
-    char time_str[64];
+// Helper to reliably read explicit sizes from a streaming socket
+static int read_all(int sock, uint8_t* dest, size_t len) {
+    size_t total_read = 0;
+    while (total_read < len) {
+        ssize_t r = recv(sock, dest + total_read, len - total_read, 0);
+        if (r <= 0) return -1; // Error or socket EOF dropped
+        total_read += r;
+    }
+    return 0;
+}
 
-    time_t now = time(NULL);
-    struct tm *t = localtime(&now);
-    strftime(time_str, sizeof(time_str), "%H:%M:%S", t);
-
+void send_message(uint8_t* buf, int len) {
     pthread_mutex_lock(&sock_mutex);
     if (server_sock != -1) {
-        // Build single-line explicit JSON string ending with a newline
-        snprintf(payload, sizeof(payload), 
-                 "{\"sender\":\"%.127s\",\"content\":\"%.1023s\",\"timestamp\":\"%.63s\"}\n", 
-                 sender, content, time_str);
-                 
-        if (send(server_sock, payload, strlen(payload), MSG_NOSIGNAL) < 0) {
+        if (send(server_sock, buf, len, MSG_NOSIGNAL) < 0) {
             close(server_sock);
             server_sock = -1;
-            if (strcmp(sender, "system") != 0) {
-                printf("\r\33[2K[Client] Lost connection to Server. Reconnecting...\n> ");
-                fflush(stdout);
-            }
+            joined = 0;
+            printf("\r\33[2K[Client] Lost connection to Server.\n> ");
+            fflush(stdout);
         }
-    } else if (strcmp(sender, "system") != 0) {
-        printf("[Client] Cannot send. Server is currently offline.\n");
     }
     pthread_mutex_unlock(&sock_mutex);
 }
 
-// Inbound Reader Thread: Parses JSON streamed down from the Go server
+// Fixed Reader Thread: Uses read_all to handle streaming socket boundaries safely
 void* server_reader_thread(void* arg) {
     int sock = (int)(intptr_t)arg;
-    char buffer[BUFFER_SIZE];
+    uint8_t frame[WIRE_FRAME_HEADER_SIZE];
 
-    // Configure a 3-second receive timeout to clear zombie locks if the server hard-crashes
-    struct timeval tv;
-    tv.tv_sec = 3;
-    tv.tv_usec = 0;
+    struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     while (1) {
-        memset(buffer, 0, BUFFER_SIZE);
-        ssize_t bytes_read = read(sock, buffer, BUFFER_SIZE - 1);
-        if (bytes_read <= 0) break; // Disconnect or timeout occurred
+        if (read_all(sock, frame, WIRE_FRAME_HEADER_SIZE) != 0) break;
 
-        char sender[128] = {0};
-        char content[1024] = {0};
-        char timestamp[64] = {0};
+        uint16_t type_id = get_message_type(frame);
+        uint16_t fixed_len = get_message_fixed_length(frame);
 
-        char* s_ptr = strstr(buffer, "\"sender\":\"");
-        char* c_ptr = strstr(buffer, "\"content\":\"");
-        char* t_ptr = strstr(buffer, "\"timestamp\":\"");
+        // Allocate and read remaining structure frame data dynamically based on length
+        uint8_t* fixed_buf = malloc(fixed_len);
+        if (!fixed_buf) break;
 
-        if (s_ptr && c_ptr && t_ptr) {
-            sscanf(s_ptr, "\"sender\":\"%127[^\"]\"", sender);
-            sscanf(c_ptr, "\"content\":\"%1023[^\"]\"", content);
-            sscanf(t_ptr, "\"timestamp\":\"%63[^\"]\"", timestamp);
+        if (read_all(sock, fixed_buf, fixed_len) != 0) {
+            free(fixed_buf);
+            break;
+        }
 
-            // Filter out system heartbeats from printing
-            if (strcmp(sender, "system") == 0 && strcmp(content, "ping") == 0) {
-                continue;
+        if (type_id == USER_MESSAGE_TYPE_ID) {
+            size_t dyn_total = calculate_usermessage_dynamic_payload_size(fixed_buf);
+
+            size_t full_payload_len = fixed_len + dyn_total;
+            uint8_t* full_payload = malloc(full_payload_len);
+            if (!full_payload) {
+                free(fixed_buf);
+                break;
             }
 
-            printf("\r\33[2K[%s] %s: %s\n> ", timestamp, sender, content);
-            fflush(stdout);
+            memcpy(full_payload, fixed_buf, fixed_len);
+            free(fixed_buf);
+
+            if (dyn_total > 0) {
+                if (read_all(sock, full_payload + fixed_len, dyn_total) != 0) {
+                    free(full_payload);
+                    break;
+                }
+            }
+
+            UserMessage_t msg = {0};
+            if (usermessage_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                printf("\r\33[2K[Server] %s\n> ", msg.content ? msg.content : "");
+                fflush(stdout);
+                usermessage_free(&msg);
+            }
+            free(full_payload);
+
+        } else if (type_id == HEARTBEAT_MESSAGE_TYPE_ID) {
+            HeartbeatMessage_t hb = {0};
+            heartbeatmessage_unmarshal(fixed_buf, fixed_len, fixed_len, &hb);
+            free(fixed_buf);
+            // Clean pass on heartbeat frame logic sync. Loop repeats.
+        } else {
+            free(fixed_buf);
+            break; 
         }
     }
 
@@ -87,15 +108,14 @@ void* server_reader_thread(void* arg) {
     if (server_sock == sock) {
         close(server_sock);
         server_sock = -1;
-        printf("\r\33[2K[Client] Server disconnected. Reconnecting in background...\n> ");
+        joined = 0;
+        printf("\r\33[2K[Client] Server disconnected. Reconnecting...\n> ");
         fflush(stdout);
     }
     pthread_mutex_unlock(&sock_mutex);
-
     return NULL;
 }
 
-// Active Reconnection Dialer Thread
 void* active_reconnect_thread(void* arg) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
@@ -109,37 +129,73 @@ void* active_reconnect_thread(void* arg) {
 
         if (need_connect) {
             int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-            if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-                pthread_mutex_lock(&sock_mutex);
-                server_sock = sock;
-                printf("\r\33[2K[Client] Successfully connected to Go Server!\n> ");
-                fflush(stdout);
+            if (sock >= 0) {
+                if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+                    pthread_mutex_lock(&sock_mutex);
+                    server_sock = sock;
+                    joined = 1;
+                    printf("\rJoined to chat.\n> ");
+                    fflush(stdout);
 
-                pthread_t tid;
-                pthread_create(&tid, NULL, server_reader_thread, (void*)(intptr_t)sock);
-                pthread_detach(tid);
-                pthread_mutex_unlock(&sock_mutex);
-            } else {
-                close(sock);
+                    pthread_t tid;
+                    pthread_create(&tid, NULL, server_reader_thread, (void*)(intptr_t)sock);
+                    pthread_detach(tid);
+                    pthread_mutex_unlock(&sock_mutex);
+                } else {
+                    close(sock);
+                }
             }
         }
-        sleep(2); // Retry polling cadence
+        sleep(2);
     }
     return NULL;
 }
 
-// Heartbeat Generation Thread
 void* client_heartbeat_thread(void* arg) {
     while (1) {
-        sleep(1);
-        send_json_payload("system", "ping");
+        sleep(2);
+        if (!joined) continue;
+
+        uint8_t* buf = NULL;
+        HeartbeatMessage_t hb = {0};
+        heartbeatmessage_set_timestamp(&hb, (int64_t)time(NULL));
+        
+        int len = heartbeatmessage_marshal(&hb, &buf);
+        if (len > 0 && buf) {
+            send_message(buf, len);
+        }
+        free(buf);
     }
     return NULL;
 }
 
-// gcc main.c -o chatapp -pthread
+int build_usermessage(uint8_t** out_buf, const char* message) {
+    UserMessage_t msg = {0};
+    usermessage_set_timestamp(&msg, (int64_t)time(NULL));
+    usermessage_set_content(&msg, message);
+
+    if (msg.content == NULL) {
+        usermessage_free(&msg);
+        return -1;
+    }
+
+    int total = usermessage_marshal(&msg, out_buf);
+    usermessage_free(&msg);
+    return total;
+}
+
+// gcc main.c messages.c -o chatapp -pthread
 int main() {
-    printf("[Client] Initializing C Client...\n");
+    system("clear");
+    printf("=========== Welcome ===========\n");
+    while (1) {
+        printf("Enter your name: ");
+        if (fgets(myname, sizeof(myname), stdin) != NULL) {
+            myname[strcspn(myname, "\n")] = '\0';
+            break;
+        }
+        printf("Please enter your name to enter the chat.\n");
+    }
 
     pthread_t dial_tid, hb_tid;
     pthread_create(&dial_tid, NULL, active_reconnect_thread, NULL);
@@ -147,26 +203,37 @@ int main() {
     pthread_detach(dial_tid);
     pthread_detach(hb_tid);
 
-    char input[1024];
+    printf("Type 'exit' to close the application.\n");
 
+    char input[1024];
     while (1) {
-        printf("> ");
+        printf("%s> ", myname);
         fflush(stdout);
         if (!fgets(input, sizeof(input), stdin)) break;
         input[strcspn(input, "\n")] = 0;
         if (strlen(input) == 0) continue;
 
         if (strcmp(input, "exit") == 0) {
-            printf("[Client] Exiting...\n");
+            printf("Leaving chat...\n");
+			printf("=========== Closing Application ===========\n");
             break;
         }
 
-        send_json_payload("Client (C)", input);
+        if (!joined) {
+            printf("Wait for user to join before sending messages.\n");
+            continue;
+        }
+
+        uint8_t* buf = NULL;
+        int len = build_usermessage(&buf, input);
+        if (len > 0 && buf) {
+            send_message(buf, len);
+        }
+        free(buf);
     }
 
     pthread_mutex_lock(&sock_mutex);
     if (server_sock != -1) close(server_sock);
     pthread_mutex_unlock(&sock_mutex);
-
     return 0;
 }
