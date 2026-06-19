@@ -3,3 +3,5 @@ chatapp
 
 # IDE specific files
 .vscode
+
+.github/.prompts
