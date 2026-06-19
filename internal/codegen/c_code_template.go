@@ -21,7 +21,6 @@ var cTemplate = template.Must(template.New("c").Funcs(template.FuncMap{
 	"marshalFields": func(msg *compiler.CompiledMessage) []*compiler.CompiledField {
 		return msg.Fields
 	},
-    "padFields":  generatePadFields,
 }).Parse(cTemplateSource))
 
 // GenerateC writes the generated C implementation to w.
@@ -110,43 +109,43 @@ uint16_t get_message_fixed_length(const uint8_t* buf) {
  * {{.Name}} (Type ID: {{.TypeID}}, Fixed Header: {{.TotalFixedSize}} bytes)
  * ===========================================================================*/
 
-{{- range padFields .}}
+{{- range .Fields}}{{$msg_field := .}}
 
 /**
- * Sets the value of the {{.Field.CName}} field in the {{$msg.Name}}_t struct.
+ * Sets the value of the {{$msg_field.CName}} field in the {{$msg.Name}}_t struct.
  */
-{{- if isVariable .Field.Type}}
-{{- if isByteArray .Field.Type}}
-void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value, size_t len) {
+{{- if isVariable $msg_field.Type}}
+{{- if isByteArray $msg_field.Type}}
+void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value, size_t len) {
     if (!msg || !value || len == 0) return;
-    if (msg->{{.Field.CName}} != NULL) {
-        free(msg->{{.Field.CName}});
+    if (msg->{{$msg_field.CName}} != NULL) {
+        free(msg->{{$msg_field.CName}});
     }
 
     uint8_t* new_value = (uint8_t*) malloc(len);
     if (!new_value) return;
 
     memcpy(new_value, value, len);
-    msg->{{.Field.CName}} = new_value;
-    msg->{{.Field.CName}}_len = len;
+    msg->{{$msg_field.CName}} = new_value;
+    msg->{{$msg_field.CName}}_len = len;
 }
 {{- else}}
-void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value) {
+void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value) {
     if (!msg || !value) return;
-    if (msg->{{.Field.CName}} != NULL) {
-        free(msg->{{.Field.CName}});
+    if (msg->{{$msg_field.CName}} != NULL) {
+        free(msg->{{$msg_field.CName}});
     }
 
     char* new_value = strdup(value);
     if (!new_value) return;
 
-    msg->content = new_value;
-    msg->{{.Field.CName}}_len = strlen(value);
+    msg->{{$msg_field.CName}} = new_value;
+    msg->{{$msg_field.CName}}_len = strlen(value);
 }
 {{- end}}
 {{- else}}
-void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value) {
-    if (msg) msg->{{.Field.CName}} = value;
+void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value) {
+    if (msg) msg->{{$msg_field.CName}} = value;
 }
 {{- end}}
 {{- end}}

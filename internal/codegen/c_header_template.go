@@ -194,15 +194,15 @@ typedef struct {
 _Static_assert(sizeof({{.Name}}_t) >= {{.TotalFixedSize}},
     "wireforge: {{.Name}}_t fixed layout size mismatch");
 
-{{- range padFields .}}
+{{- range .Fields}}{{$msg_field := .}}
 
 /**
- * Sets the value of the {{.Field.CName}} field in the {{$msg.Name}}_t struct.
+ * Sets the value of the {{$msg_field.CName}} field in the {{$msg.Name}}_t struct.
  */
-{{- if isByteArray .Field.Type}}
-void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value, size_t len);
+{{- if isByteArray $msg_field.Type}}
+void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value, size_t len);
 {{- else}}
-void {{lower $msg.Name}}_set_{{.Field.CName}}({{$msg.Name}}_t* msg, const {{cType .Field.Type}} value);
+void {{lower $msg.Name}}_set_{{$msg_field.CName}}({{$msg.Name}}_t* msg, const {{cType $msg_field.Type}} value);
 {{- end}}
 {{- end}}
 
@@ -238,21 +238,6 @@ int {{lower .Name}}_marshal(const {{.Name}}_t* msg, uint8_t** out_buf);
  * any heap-allocated variable-length fields.
  */
 int {{lower .Name}}_unmarshal(const uint8_t* in_buf, size_t in_len, uint16_t fixed_header_len, {{.Name}}_t* out_msg);
-
-/**
- * Read a complete framed {{.Name}} message from a streaming socket.
- *
- * Internally handles short reads via a read loop (safe for TCP/UDS streams).
- * Validates the type ID in the frame header before proceeding.
- *
- * @param fd       File descriptor of a connected streaming socket.
- * @param out_msg  Output struct (populated on success).
- * @return         0 on success, -1 on error (I/O failure, type mismatch,
- *                 corrupted data).
- *
- * On success, caller MUST call {{lower .Name}}_free(out_msg) when done.
- */
-int {{lower .Name}}_read(uint8_t *buffer, {{.Name}}_t* out_msg);
 
 /**
  * Free all dynamically allocated fields in a {{.Name}}_t struct.

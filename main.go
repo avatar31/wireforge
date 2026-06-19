@@ -103,8 +103,10 @@ func run(inputFile, outputDir, packageName string) error {
 }
 
 // TODO's:
+// - Add documentation for all packages and functions in the codegen and compiler packages
 // - Add support for more complex types (arrays, nested objects)
 // - Make better use of fields in compiler.CompiledField to get maximum performance from CPU
+// - Update Docs in both Go and C templates to reflect the new changes in the codegen and compiler packages
 // - C TODO's:
 // 		- Add better error handling in C code. Like instead of returning -1,
 // 		define error code in header template and return accordingly.

@@ -24,3 +24,21 @@ components:
         timestamp:
           type: integer
           format: int64
+    UserJoinedMessage:
+      type: object
+      x-message-id: 3
+      properties:
+        username:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+    UserLeftMessage:
+      type: object
+      x-message-id: 4
+      properties:
+        username:
+          type: string
+        timestamp:
+          type: integer
+          format: int64

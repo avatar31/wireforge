@@ -1,2 +1,5 @@
 # examples binary files
 chatapp
+
+# IDE specific files
+.vscode

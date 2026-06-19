@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -17,9 +18,11 @@ type Client struct {
 	Joined bool
 }
 
+type MessageType int
+
 const (
-	MsgTypeUserText  = 1
-	MsgTypeHeartbeat = 2
+	MsgTypeUserText  MessageType = 1
+	MsgTypeHeartbeat MessageType = 2
 )
 
 const socketPath = "/tmp/chat.sock"
@@ -28,7 +31,6 @@ var (
 	sockConn      net.Conn
 	sockConnMutex sync.Mutex
 	client        = Client{Joined: false}
-	myname        = ""
 )
 
 func sendMessage(buf []byte) {
@@ -43,13 +45,11 @@ func sendMessage(buf []byte) {
 			sockConn.Close()
 			sockConn = nil
 			client.Joined = false
-			fmt.Print("\r\x1b[K[Server] Transmission failed. Client disconnected.\n> ")
+			fmt.Print("\r\x1b[K[Server] Transmission failed. Client disconnected.\n")
 		}
 		if sockConn != nil {
 			_ = sockConn.SetWriteDeadline(time.Time{})
 		}
-	} else {
-		fmt.Println("[Server] Drop payload. No client currently connected.")
 	}
 }
 
@@ -59,11 +59,10 @@ func handleClientSession(conn net.Conn) {
 	for {
 		msgType, fixedLen, err := messages.ReadMessageFrame(conn)
 		if err != nil {
-			fmt.Printf("[Server] Failed to read message frame: %v\n", err)
 			break // Connection naturally closed or aborted
 		}
 
-		switch msgType {
+		switch MessageType(msgType) {
 		case MsgTypeHeartbeat:
 			msg := &messages.HeartbeatMessage{}
 			if err := msg.Unmarshal(conn, fixedLen); err != nil {
@@ -74,14 +73,13 @@ func handleClientSession(conn net.Conn) {
 
 		case MsgTypeUserText:
 			msg := &messages.UserMessage{}
-			// FIX: We bypass ReadUserMessage to avoid double frame reading!
 			if err := msg.Unmarshal(conn, fixedLen); err != nil {
 				fmt.Printf("[Server] Failed to unmarshal user message body: %v\n", err)
 				return
 			}
-			
+
 			t := time.Unix(msg.Timestamp, 0).Format("15:04:05")
-			fmt.Printf("\r\x1b[K[%s] Client: %s\n> ", t, msg.Content)
+			fmt.Printf("\r\x1b[K[%s] User> %s\n> ", t, msg.Content)
 
 		default:
 			fmt.Printf("[Server] Unknown type frame encountered (%d). Disconnecting client for safety.\n", msgType)
@@ -93,7 +91,7 @@ func handleClientSession(conn net.Conn) {
 func handleServerConsoleInput() {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Printf("%s> ", myname)
+		fmt.Printf("> ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			break
@@ -115,7 +113,7 @@ func handleServerConsoleInput() {
 
 		buf, err := buildUserMessage(input)
 		if err != nil {
-			fmt.Printf("[Server] Failed to build message: %v\n", err)
+			fmt.Printf("Failed to construct message. Please try again\n")
 			continue
 		}
 		sendMessage(buf)
@@ -150,24 +148,8 @@ func buildUserMessage(message string) ([]byte, error) {
 }
 
 func main() {
-	fmt.Print("\033[2J\033[H")
+	clearScreen()
 	fmt.Println("=========== Welcome ===========")
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		fmt.Print("Enter your name: ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			os.Exit(1)
-		}
-		input = strings.TrimSpace(input)
-		if input != "" {
-			myname = input
-			break
-		}
-		fmt.Println("Please enter your name to enter the chat.")
-	}
-
 	_ = os.Remove(socketPath)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -201,10 +183,17 @@ func main() {
 		sockConnMutex.Lock()
 		if sockConn == conn {
 			sockConn = nil
-			client.Joined = false // FIX: Clear state flag on client termination
+			client.Joined = false
 		}
 		sockConnMutex.Unlock()
 
-		fmt.Print("\r\x1b[K[Server] Client disconnected. Listening for a new connection...\n> ")
+		fmt.Println("User left the chat...")
 	}
+}
+
+func clearScreen() {
+	var cmd *exec.Cmd
+	cmd = exec.Command("clear")
+	cmd.Stdout = os.Stdout
+	_ = cmd.Run()
 }

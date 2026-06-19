@@ -14,7 +14,6 @@
 
 int server_sock = -1;
 int joined = 0;
-char myname[256] = {0};
 pthread_mutex_t sock_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Helper to reliably read explicit sizes from a streaming socket
@@ -35,7 +34,7 @@ void send_message(uint8_t* buf, int len) {
             close(server_sock);
             server_sock = -1;
             joined = 0;
-            printf("\r\33[2K[Client] Lost connection to Server.\n> ");
+            printf("\r\33[2K User Disconnected\n> ");
             fflush(stdout);
         }
     }
@@ -45,11 +44,10 @@ void send_message(uint8_t* buf, int len) {
 // Fixed Reader Thread: Uses read_all to handle streaming socket boundaries safely
 void* server_reader_thread(void* arg) {
     int sock = (int)(intptr_t)arg;
-    uint8_t frame[WIRE_FRAME_HEADER_SIZE];
-
     struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
+    uint8_t frame[WIRE_FRAME_HEADER_SIZE];
     while (1) {
         if (read_all(sock, frame, WIRE_FRAME_HEADER_SIZE) != 0) break;
 
@@ -87,7 +85,7 @@ void* server_reader_thread(void* arg) {
 
             UserMessage_t msg = {0};
             if (usermessage_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
-                printf("\r\33[2K[Server] %s\n> ", msg.content ? msg.content : "");
+                printf("\r\33[2K[User] %s\n> ", msg.content ? msg.content : "");
                 fflush(stdout);
                 usermessage_free(&msg);
             }
@@ -109,7 +107,7 @@ void* server_reader_thread(void* arg) {
         close(server_sock);
         server_sock = -1;
         joined = 0;
-        printf("\r\33[2K[Client] Server disconnected. Reconnecting...\n> ");
+        printf("\r\33[2K User left chat...\n> ");
         fflush(stdout);
     }
     pthread_mutex_unlock(&sock_mutex);
@@ -188,14 +186,6 @@ int build_usermessage(uint8_t** out_buf, const char* message) {
 int main() {
     system("clear");
     printf("=========== Welcome ===========\n");
-    while (1) {
-        printf("Enter your name: ");
-        if (fgets(myname, sizeof(myname), stdin) != NULL) {
-            myname[strcspn(myname, "\n")] = '\0';
-            break;
-        }
-        printf("Please enter your name to enter the chat.\n");
-    }
 
     pthread_t dial_tid, hb_tid;
     pthread_create(&dial_tid, NULL, active_reconnect_thread, NULL);
@@ -207,7 +197,7 @@ int main() {
 
     char input[1024];
     while (1) {
-        printf("%s> ", myname);
+        printf("> ");
         fflush(stdout);
         if (!fgets(input, sizeof(input), stdin)) break;
         input[strcspn(input, "\n")] = 0;
@@ -215,7 +205,6 @@ int main() {
 
         if (strcmp(input, "exit") == 0) {
             printf("Leaving chat...\n");
-			printf("=========== Closing Application ===========\n");
             break;
         }
 
