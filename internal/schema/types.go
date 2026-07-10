@@ -11,20 +11,42 @@ type Schema struct {
 }
 
 // Message represents a single struct/message type.
+//
+// Top-level messages carry a wire type ID (x-message-id) and are framed on the
+// wire. Nested messages (produced by object properties or object array elements)
+// have TopLevel == false and are serialized as self-contained, length-delimited
+// bodies embedded inside their parent's dynamic payload.
 type Message struct {
 	Name       string
 	TypeID     uint16
+	TopLevel   bool
 	Fields     []*Field
 	Properties map[string]*Field
 }
 
 // Field represents a single field within a message.
+//
+// The Type discriminates how the field is encoded on the wire. Composite types
+// carry additional descriptors:
+//
+//   - FieldTypeObject: Nested points at the embedded message definition.
+//   - FieldTypeArray:  Elem describes the element encoding (which may itself be
+//     an object, array, enum, or primitive).
+//   - Enum fields:     EnumValues lists the allowed constant values; the base
+//     Type remains the underlying primitive (string or an integer type).
+//
+// Nullable marks the field as optional. A nullable field is always length
+// prefixed on the wire and uses a sentinel prefix (0xFFFFFFFF) to encode the
+// null/absent state, independent of the underlying type.
 type Field struct {
 	Name        string
 	Description string
 	Type        FieldType
 	Format      string
-	Nested      *Message
+	Nested      *Message // object element definition (FieldTypeObject)
+	ArrElem     *Field   // array element descriptor (FieldTypeArray)
+	Nullable    bool
+	EnumValues  []string // allowed values for enum fields (rendered as constants)
 	IsVariable  bool
 }
 
@@ -50,7 +72,8 @@ const (
 )
 
 const (
-	NumOfFieldTypes = 15 // Supported number of field types
+	// Supported number of field types
+	NumOfFieldTypes = 15
 )
 
 // Size returns the fixed byte size of the field type.
@@ -157,7 +180,12 @@ func (ft FieldType) CType() string {
 	}
 }
 
-// IsVariable returns true if the field type has variable length.
+// IsVariable reports whether the type is encoded with a length prefix in the
+// fixed header and a payload in the dynamic section. Objects and arrays are
+// always variable-length; scalars are fixed-width.
 func (ft FieldType) IsVariable() bool {
-	return ft == FieldTypeString || ft == FieldTypeBytes
+	return ft == FieldTypeString ||
+		ft == FieldTypeBytes ||
+		ft == FieldTypeObject ||
+		ft == FieldTypeArray
 }

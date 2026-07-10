@@ -10,14 +10,19 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
 // ParseFile reads and parses an OpenAPI YAML file, extracting message schemas.
-// It returns a Schema object containing the parsed messages or an error if parsing fails.
-// This function doesn't support array types and will return an error if any schema
-// contains an array property.
+//
+// It returns a Schema object containing the parsed top-level messages or an
+// error if parsing fails. The parser supports primitive scalars, strings,
+// binary blobs, enums, nested objects, arrays (including arrays of objects and
+// arrays of arrays), and nullable/optional fields. Composite types are resolved
+// recursively; nested object types are assigned deterministic, parent-qualified
+// names so downstream code generation can emit collision-free struct types.
 func ParseFile(path string) (*Schema, error) {
 	ctx := context.Background()
 	loader := openapi3.NewLoader()
@@ -27,14 +32,14 @@ func ParseFile(path string) (*Schema, error) {
 		return nil, fmt.Errorf("failed to load/parse YAML file: %w", err)
 	}
 
-	// Explicitly validate against the OpenAPI 3.0 specification rules
+	// Explicitly validate against the OpenAPI specification rules.
 	if err := doc.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("YAML is not a valid OpenAPI spec: %w", err)
 	}
 
 	messages := make([]*Message, 0)
 
-	// 2. Iterate over components.schemas
+	// Iterate over components.schemas; each schema becomes a top-level message.
 	for schemaName, schemaRef := range doc.Components.Schemas {
 		schemaValue := schemaRef.Value
 		if schemaValue == nil {
@@ -46,7 +51,7 @@ func ParseFile(path string) (*Schema, error) {
 			return nil, err
 		}
 
-		fields, fieldList, err := parseFields(schemaValue.Properties)
+		fields, fieldList, err := parseFields(schemaValue.Properties, schemaName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse properties of schema %q: %w", schemaName, err)
 		}
@@ -54,6 +59,7 @@ func ParseFile(path string) (*Schema, error) {
 		message := &Message{
 			Name:       schemaName,
 			TypeID:     id,
+			TopLevel:   true,
 			Fields:     fieldList,
 			Properties: fields,
 		}
@@ -82,7 +88,11 @@ func parseIdFromSchema(schemaName string, schema *openapi3.Schema) (uint16, erro
 	return uint16(id), nil
 }
 
-func parseFields(properties openapi3.Schemas) (map[string]*Field, []*Field, error) {
+// parseFields resolves an ordered set of properties into Field descriptors.
+//
+// parentName is the qualified type name of the enclosing message and is used to
+// derive collision-free names for nested object and array-element types.
+func parseFields(properties openapi3.Schemas, parentName string) (map[string]*Field, []*Field, error) {
 	fields := make(map[string]*Field)
 	fieldList := make([]*Field, 0)
 
@@ -92,49 +102,9 @@ func parseFields(properties openapi3.Schemas) (map[string]*Field, []*Field, erro
 			continue
 		}
 
-		if propValue.Type == nil || len(*propValue.Type) == 0 {
-			return nil, nil, fmt.Errorf("property %q has no type defined", propName)
-		}
-
-		if propValue.Type.Includes("array") {
-			return nil, nil, fmt.Errorf("property %q has unsupported type %q", propName, *propValue.Type)
-		}
-
-		if propValue.Type.Includes("object") {
-			nestedFields, nestedFieldList, err := parseFields(propValue.Properties)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to parse nested properties of %q: %w", propName, err)
-			}
-
-			field := &Field{
-				Name:        propName,
-				Description: propValue.Description,
-				Type:        FieldTypeObject,
-				Format:      propValue.Format,
-				IsVariable:  false, // Objects are not variable, but they can contain variable fields
-				Nested: &Message{
-					Name:       propName,
-					Fields:     nestedFieldList,
-					Properties: nestedFields,
-				},
-			}
-
-			fields[propName] = field
-			fieldList = append(fieldList, field)
-			continue
-		}
-
-		ft, err := resolveFieldType((*propValue.Type)[0], propValue.Format)
+		field, err := parseField(propName, propValue, parentName)
 		if err != nil {
 			return nil, nil, err
-		}
-
-		field := &Field{
-			Name:        propName,
-			Description: propValue.Description,
-			Type:        ft,
-			Format:      propValue.Format,
-			IsVariable:  ft.IsVariable(),
 		}
 
 		fields[propName] = field
@@ -142,6 +112,128 @@ func parseFields(properties openapi3.Schemas) (map[string]*Field, []*Field, erro
 	}
 
 	return fields, fieldList, nil
+}
+
+// parseField resolves a single property (identified by name) into a Field.
+//
+// It dispatches on the schema kind (array, object, or primitive/enum) and
+// recurses for composite element/child types. nameHint is the property name and
+// parentName is the qualified name of the enclosing message.
+func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, error) {
+	if sv.Type == nil || len(*sv.Type) == 0 {
+		return nil, fmt.Errorf("property %q has no type defined", name)
+	}
+
+	field := &Field{
+		Name:        name,
+		Description: sv.Description,
+		Format:      sv.Format,
+		Nullable:    sv.Nullable,
+	}
+
+	switch {
+	case sv.Type.Includes("array"):
+		if sv.Items == nil || sv.Items.Value == nil {
+			return nil, fmt.Errorf("array property %q is missing an items schema", name)
+		}
+
+		elem, err := parseField(name+"Item", sv.Items.Value, parentName+exportName(name))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse array element of %q: %w", name, err)
+		}
+
+		field.Type = FieldTypeArray
+		field.ArrElem = elem
+		field.IsVariable = true
+
+	case sv.Type.Includes("object"):
+		nestedName := parentName + exportName(name)
+		nestedFields, nestedList, err := parseFields(sv.Properties, nestedName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse nested properties of %q: %w", name, err)
+		}
+
+		field.Type = FieldTypeObject
+		field.Nested = &Message{
+			Name:       nestedName,
+			TopLevel:   false,
+			Fields:     nestedList,
+			Properties: nestedFields,
+		}
+		field.IsVariable = true
+
+	default:
+		ft, err := resolveFieldType((*sv.Type)[0], sv.Format)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(sv.Enum) > 0 {
+			values, err := parseEnumValues(name, ft, sv.Enum)
+			if err != nil {
+				return nil, err
+			}
+			field.EnumValues = values
+		}
+
+		field.Type = ft
+		field.IsVariable = ft.IsVariable()
+	}
+
+	// A nullable field is always length-prefixed so the null/absent state can be
+	// represented on the wire via a sentinel prefix, regardless of the base type.
+	if field.Nullable {
+		field.IsVariable = true
+	}
+
+	return field, nil
+}
+
+// parseEnumValues validates and normalises the allowed values of an enum field.
+//
+// Enums are only supported over string and integer base types. Values are
+// rendered to their canonical string form for later constant generation.
+func parseEnumValues(name string, base FieldType, raw []any) ([]string, error) {
+	isString := base == FieldTypeString
+	isInteger := base == FieldTypeInt8 || base == FieldTypeInt16 || base == FieldTypeInt32 ||
+		base == FieldTypeInt64 || base == FieldTypeUint8 || base == FieldTypeUint16 ||
+		base == FieldTypeUint32 || base == FieldTypeUint64
+
+	if !isString && !isInteger {
+		return nil, fmt.Errorf("enum on property %q is only supported for string or integer base types", name)
+	}
+
+	values := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, v := range raw {
+		var s string
+		switch val := v.(type) {
+		case string:
+			if !isString {
+				return nil, fmt.Errorf("enum value %q on property %q does not matching with base type", val, name)
+			}
+			s = val
+		case float64:
+			if !isInteger {
+				return nil, fmt.Errorf("numeric enum value on property %q does not matching with base type", name)
+			}
+			s = fmt.Sprintf("%d", int64(val))
+		default:
+			return nil, fmt.Errorf("unsupported enum value type %T on property %q", v, name)
+		}
+
+		if _, dup := seen[s]; dup {
+			return nil, fmt.Errorf("duplicate enum value %q on property %q", s, name)
+		}
+		seen[s] = struct{}{}
+		values = append(values, s)
+	}
+
+	if len(values) == 0 {
+		return nil, fmt.Errorf("enum on property %q must declare at least one value", name)
+	}
+
+	return values, nil
 }
 
 func resolveFieldType(typeName, format string) (FieldType, error) {
@@ -202,4 +294,16 @@ func resolveStringFormat(format string) (FieldType, error) {
 	default:
 		return FieldTypeString, nil
 	}
+}
+
+// exportName upper-cases the first rune of a property name so it can be used as
+// a fragment when composing qualified, exported nested type names. All-caps
+// acronyms (e.g. "ACL") are preserved as-is.
+func exportName(name string) string {
+	if name == "" {
+		return ""
+	}
+	r := []rune(name)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }

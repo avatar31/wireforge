@@ -1,4 +1,4 @@
-openapi: 3.0.0
+openapi: 3.1.0
 info:
   version: 1.0.0
   title: DotFS FSAL Message Schemas
@@ -7,9 +7,10 @@ components:
   schemas:
     ReadRequestMsg:
       type: object
+      x-message-id: 1
       properties:
-        msgType:
-          description: Message type identifier
+        protocol:
+          description: Protocol identifier for the message
           type: string
         Request:
           description: Read request payload
@@ -27,13 +28,23 @@ components:
               format: uint64
     ReadResponseMsg:
       type: object
+      x-message-id: 2
       properties:
-        msgType:
-          description: Message type identifier
-          type: string
-        Response:
+        Error:
+          description: Error response in case of failure
+          type: object
+          nullable: true
+          properties:
+            code:
+              description: HTTP Status code of the error
+              type: integer
+            message:
+              description: Error message
+              type: string
+        Data:
           description: Read response payload
           type: object
+          nullable: true
           properties:
             key:
               description: Key that was read
@@ -46,3 +57,37 @@ components:
               description: Number of bytes read
               type: integer
               format: int64
+    CreateObjectRequestMsg:
+      type: object
+      x-message-id: 3
+      properties:
+        Request:
+          description: Create object request payload
+          type: object
+          properties:
+            key:
+              description: Key to create
+              type: string
+            protocols:
+              description: List of protocols to use for the object
+              type: array
+              items:
+                type: string
+            ACL:
+              description: Access control list for the object
+              type: array
+              items:
+                type: object
+                properties:
+                  principal:
+                    description: Principal for the ACL entry
+                    type: string
+                  permission:
+                    description: Permission for the ACL entry
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - read
+                        - write
+                        - execute
