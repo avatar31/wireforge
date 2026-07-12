@@ -96,7 +96,8 @@ void* inbound_reader_thread(void* arg) {
             if (read_all(client_sock, frame, WIRE_FRAME_HEADER_SIZE) != 0) break;
 
             uint16_t type_id = get_message_type(frame);
-            uint16_t fixed_len = get_message_fixed_length(frame);
+            uint16_t fixed_len = get_message_fixed_payload_length(frame);
+            uint32_t full_payload_len = get_message_overall_payload_length(frame);
 
             // Allocate and read remaining structure frame data dynamically based on length
             uint8_t* fixed_buf = malloc(fixed_len);
@@ -110,9 +111,7 @@ void* inbound_reader_thread(void* arg) {
             // Handle the message based on its type
             switch (type_id) {
                 case MESSAGE_TYPE_USER_JOINED: {
-                    size_t dyn_total = calculate_user_joined_message_dynamic_payload_size(fixed_buf);
-
-                    size_t full_payload_len = fixed_len + dyn_total;
+                    uint32_t dyn_total = calculate_user_joined_message_dynamic_payload_size(fixed_buf);
                     uint8_t* full_payload = malloc(full_payload_len);
                     if (!full_payload) {
                         free(fixed_buf);
@@ -130,7 +129,7 @@ void* inbound_reader_thread(void* arg) {
                     }
 
                     user_joined_message_t msg = {0};
-                    if (user_joined_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    if (user_joined_message_unmarshal(full_payload, fixed_len, full_payload_len, &msg) == 0) {
                         joined = 1;
                         strncpy(peer_name, msg.username, sizeof(peer_name) - 1);
                         printf("\nUser %s joined chat...\n", msg.username);
@@ -140,9 +139,7 @@ void* inbound_reader_thread(void* arg) {
                     break;
                 }
                 case MESSAGE_TYPE_USER_LEFT: {
-                    size_t dyn_total = calculate_user_left_message_dynamic_payload_size(fixed_buf);
-
-                    size_t full_payload_len = fixed_len + dyn_total;
+                    uint32_t dyn_total = calculate_user_left_message_dynamic_payload_size(fixed_buf);
                     uint8_t* full_payload = malloc(full_payload_len);
                     if (!full_payload) {
                         free(fixed_buf);
@@ -160,7 +157,7 @@ void* inbound_reader_thread(void* arg) {
                     }
 
                     user_left_message_t msg = {0};
-                    if (user_left_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    if (user_left_message_unmarshal(full_payload, fixed_len, full_payload_len, &msg) == 0) {
                         joined = 0;
                         peer_name[0] = '\0';
                         printf("\nUser %s left chat...\n", msg.username);
@@ -170,9 +167,7 @@ void* inbound_reader_thread(void* arg) {
                     break;
                 }
                 case MESSAGE_TYPE_USER_MESSAGE: {
-                    size_t dyn_total = calculate_user_message_dynamic_payload_size(fixed_buf);
-
-                    size_t full_payload_len = fixed_len + dyn_total;
+                    uint32_t dyn_total = calculate_user_message_dynamic_payload_size(fixed_buf);
                     uint8_t* full_payload = malloc(full_payload_len);
                     if (!full_payload) {
                         free(fixed_buf);
@@ -190,7 +185,7 @@ void* inbound_reader_thread(void* arg) {
                     }
 
                     user_message_t msg = {0};
-                    if (user_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    if (user_message_unmarshal(full_payload, fixed_len, full_payload_len, &msg) == 0) {
                         printf("\r\33[2K[%s] %s\n> ", peer_name, msg.content ? msg.content : "");
                         fflush(stdout);
                         user_message_free(&msg);
@@ -200,7 +195,7 @@ void* inbound_reader_thread(void* arg) {
                 }
                 case MESSAGE_TYPE_HEARTBEAT: {
                     heartbeat_message_t hb = {0};
-                    heartbeat_message_unmarshal(fixed_buf, fixed_len, fixed_len, &hb);
+                    heartbeat_message_unmarshal(fixed_buf, fixed_len, full_payload_len, &hb);
                     free(fixed_buf);
                     // Clean pass on heartbeat frame logic sync. Loop repeats.
                     break;

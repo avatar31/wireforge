@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-**wireforge** (`github.com/avatar31/wireforge`) is a schema-driven code generator that takes an OpenAPI YAML specification and produces fully self-contained Go and C files implementing a length-prefixed binary wire protocol. It handles alignment, padding, Big-Endian encoding, short-read safety, and memory lifecycle management automatically.
+**wireforge** (`github.com/avatar31/wireforge`) is a schema-driven code generator that takes an OpenAPI YAML specification and produces fully self-contained Go and C files implementing a length-prefixed binary wire protocol. It handles alignment, padding, Big-Endian encoding, short-read safety, and memory lifecycle management automatically. Full details are in the [README](../README.md).
 
 - **Language:** Go 1.26+
 - **License:** MIT
@@ -69,14 +69,15 @@ OpenAPI YAML
 Every message on the wire follows this frame structure:
 
 ```
-+--------+------------------+--------------------+------------------+
-| Offset | Field            | Type               | Description      |
-+--------+------------------+--------------------+------------------+
-| 0      | Message Type ID  | uint16 Big-Endian  | Codec selector   |
-| 2      | Fixed Header Len | uint16 Big-Endian  | Fixed block size |
-| 4      | Fixed Header     | raw bytes (padded) | Primitives+lens  |
-| 4+N    | Dynamic Payload  | raw bytes          | Strings/blobs    |
-+--------+------------------+--------------------+------------------+
++--------+---------------------+--------------------+--------------------------+
+| Offset | Field               | Type               | Description              |
++--------+---------------------+--------------------+--------------------------+
+| 0      | Message Type ID     | uint16 Big-Endian  | Codec selector           |
+| 2      | Fixed Payload Len   | uint16 Big-Endian  | Fixed block size         |
+| 4      | Overall Payload Len | uint32 Big-Endian  | Fixed+Dynamic block size |
+| 8      | Fixed Payload       | raw bytes (padded) | Primitives+lens          |
+| 8+N    | Dynamic Payload     | raw bytes          | Strings/blobs            |
++--------+---------------------+--------------------+--------------------------+
 ```
 
 - Fixed header contains all fixed-width fields + uint32 length prefixes for variable fields
@@ -199,7 +200,7 @@ Inside Go templates, `$msg` is used to capture the current message in `{{range .
 - No support for nested object or array types (only primitives + strings/blobs)
 
 **P1:**
-- Add `--format` flag for gofmt/clang-format post-processing
+- Format C code after code generation (e.g., `clang-format` or `astyle`)
 
 **P2:**
 - Protocol version negotiation in frame header
