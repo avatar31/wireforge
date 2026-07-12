@@ -215,7 +215,7 @@ For each message type, wireforge generates:
 | `func (*Xxx) MessageTypeID() uint16` | Wire type identifier |
 | `func (*Xxx) Marshal() ([]byte, error)` | Serialize entire frame and returns buffer |
 | `func (*Xxx) Unmarshal(io.Reader, uint16, uint32) error` | Deserialize from stream after frame header |
-| `func ReadMessageFrame(io.Reader) (typeID, hdrLen uint16, err error)` | Read just the 4-byte frame header for dispatch |
+| `func ReadMessageFrame(io.Reader) (uint16, uint16, uint32, error)` | Read just the 4-byte frame header for dispatch |
 
 **Safety guarantees in generated Go:**
 - `init()` panics at startup if `unsafe.Sizeof` disagrees with computed layout

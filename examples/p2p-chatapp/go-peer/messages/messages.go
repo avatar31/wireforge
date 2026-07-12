@@ -106,8 +106,8 @@ func init() {
 //	[0:2]     Message Type ID (1)
 //	[2:4]     Fixed Block Length (16)
 //	[4:8]     Fixed and Dynamic Block Length
-//	[8:20]    Fixed payload (primitives + length prefixes, Big-Endian)
-//	[20:end]  Dynamic payload (concatenated variable-length data)
+//	[8:24]    Fixed payload (primitives + length prefixes, Big-Endian)
+//	[24:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (u *UserMessage) Marshal() ([]byte, error) {
@@ -243,8 +243,8 @@ func init() {
 //	[0:2]     Message Type ID (2)
 //	[2:4]     Fixed Block Length (8)
 //	[4:8]     Fixed and Dynamic Block Length
-//	[8:12]    Fixed payload (primitives + length prefixes, Big-Endian)
-//	[12:end]  Dynamic payload (concatenated variable-length data)
+//	[8:16]    Fixed payload (primitives + length prefixes, Big-Endian)
+//	[16:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (h *HeartbeatMessage) Marshal() ([]byte, error) {
@@ -351,8 +351,8 @@ func init() {
 //	[0:2]     Message Type ID (3)
 //	[2:4]     Fixed Block Length (16)
 //	[4:8]     Fixed and Dynamic Block Length
-//	[8:20]    Fixed payload (primitives + length prefixes, Big-Endian)
-//	[20:end]  Dynamic payload (concatenated variable-length data)
+//	[8:24]    Fixed payload (primitives + length prefixes, Big-Endian)
+//	[24:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (u *UserJoinedMessage) Marshal() ([]byte, error) {
@@ -474,8 +474,8 @@ func init() {
 //	[0:2]     Message Type ID (4)
 //	[2:4]     Fixed Block Length (16)
 //	[4:8]     Fixed and Dynamic Block Length
-//	[8:20]    Fixed payload (primitives + length prefixes, Big-Endian)
-//	[20:end]  Dynamic payload (concatenated variable-length data)
+//	[8:24]    Fixed payload (primitives + length prefixes, Big-Endian)
+//	[24:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
 func (u *UserLeftMessage) Marshal() ([]byte, error) {
