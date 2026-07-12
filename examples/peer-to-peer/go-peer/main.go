@@ -70,7 +70,7 @@ func handleClientSession(conn net.Conn) {
 	defer conn.Close()
 
 	for {
-		msgType, fixedLen, err := messages.ReadMessageFrame(conn)
+		msgType, fixedLen, overallLen, err := messages.ReadMessageFrame(conn)
 		if err != nil {
 			break // Connection naturally closed or aborted
 		}
@@ -78,7 +78,7 @@ func handleClientSession(conn net.Conn) {
 		switch MessageType(msgType) {
 		case MsgTypeUserJoined:
 			msg := &messages.UserJoinedMessage{}
-			if err := msg.Unmarshal(conn, fixedLen); err != nil {
+			if err := msg.Unmarshal(conn, fixedLen, overallLen); err != nil {
 				fmt.Printf("[Server] Failed to unmarshal user joined body: %v\n", err)
 				return
 			}
@@ -90,7 +90,7 @@ func handleClientSession(conn net.Conn) {
 
 		case MsgTypeUserLeft:
 			msg := &messages.UserLeftMessage{}
-			if err := msg.Unmarshal(conn, fixedLen); err != nil {
+			if err := msg.Unmarshal(conn, fixedLen, overallLen); err != nil {
 				fmt.Printf("[Server] Failed to unmarshal user left body: %v\n", err)
 				return
 			}
@@ -102,7 +102,7 @@ func handleClientSession(conn net.Conn) {
 
 		case MsgTypeHeartbeat:
 			msg := &messages.HeartbeatMessage{}
-			if err := msg.Unmarshal(conn, fixedLen); err != nil {
+			if err := msg.Unmarshal(conn, fixedLen, overallLen); err != nil {
 				fmt.Printf("[Server] Malformed heartbeat payload: %v\n", err)
 				return
 			}
@@ -110,7 +110,7 @@ func handleClientSession(conn net.Conn) {
 
 		case MsgTypeUserText:
 			msg := &messages.UserMessage{}
-			if err := msg.Unmarshal(conn, fixedLen); err != nil {
+			if err := msg.Unmarshal(conn, fixedLen, overallLen); err != nil {
 				fmt.Printf("[Server] Failed to unmarshal user message body: %v\n", err)
 				return
 			}

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Sachin S. All rights reserved.
-// 
+//
 // Licensed under the MIT License.
 // See LICENSE in the project root.
 
@@ -38,10 +38,10 @@ const (
 	FieldTypeUint32
 	FieldTypeInt32
 	FieldTypeFloat32
-	FieldTypeString		// uint32 length prefix in fixed header
-	FieldTypeBytes		// uint32 length prefix in fixed header
-	FieldTypeObject		// uint32 length prefix in fixed header
-	FieldTypeArray		// uint32 length prefix in fixed header
+	FieldTypeString // uint32 length prefix in fixed header
+	FieldTypeBytes  // uint32 length prefix in fixed header
+	FieldTypeObject // uint32 length prefix in fixed header
+	FieldTypeArray  // uint32 length prefix in fixed header
 	FieldTypeUint16
 	FieldTypeInt16
 	FieldTypeUint8
@@ -50,7 +50,7 @@ const (
 )
 
 const (
-	NumOfFieldTypes = 15 	// Supported number of field types
+	NumOfFieldTypes = 15 // Supported number of field types
 )
 
 // Size returns the fixed byte size of the field type.

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Sachin S. All rights reserved.
-// 
+//
 // Licensed under the MIT License.
 // See LICENSE in the project root.
 
