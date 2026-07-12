@@ -79,7 +79,6 @@ func validateField(t *testing.T, properties map[string]*Field, expectedName stri
 
 	assert.Equal(t, expectedName, field.Name, "field name mismatch")
 	assert.Equal(t, expectedType, field.Type, "field type mismatch")
-	assert.False(t, field.Nullable, "field should not be nullable by default")
 }
 
 func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
@@ -330,30 +329,37 @@ Message:
   x-message-id: 1
   properties:
     Request:
-      type: object
-      properties:
-        key:
-          type: string
+      $ref: '#/components/schemas/Request'
+Request:
+  type: object
+  x-message-id: 2
+  properties:
+    key:
+      type: string
 `),
 			expectErr:     false,
-			expectedCount: 1,
+			expectedCount: 2,
 			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-				assert.Len(t, msg.Properties, 1, "expected exactly one property")
-				validateField(t, msg.Properties, "Request", FieldTypeObject)
+				s1 := schema.Messages[0]
+				assert.Equal(t, "Message", s1.Name, "schema name mismatch")
+				assert.Len(t, s1.Fields, 1, "expected exactly one field")
+				assert.Len(t, s1.Properties, 1, "expected exactly one property")
+				validateField(t, s1.Properties, "Request", FieldTypeObject)
 
-				// Validate nested object
-				nestedField := msg.Properties["Request"]
-				assert.NotNil(t, nestedField.Nested, "expected nested schema for 'Request'")
-				assert.Equal(t, nestedField.Nested.Name, "MessageRequest", "nested field name mismatch")
-				assert.Len(t, nestedField.Nested.Fields, 1, "expected exactly one field")
-				validateField(t, nestedField.Nested.Properties, "key", FieldTypeString)
+				nestedField := s1.Properties["Request"]
+				assert.NotNil(t, nestedField, "expected nested field for 'Request'")
+				assert.True(t, nestedField.IsVariable, "expected nested field should be variable-length")
+				assert.Equal(t, nestedField.NestedMessageId, uint16(2), "nested message ID mismatch")
+
+				s2 := schema.Messages[1]
+				assert.Equal(t, "Request", s2.Name, "schema name mismatch")
+				assert.Len(t, s2.Fields, 1, "expected exactly one field")
+				assert.Len(t, s2.Properties, 1, "expected exactly one property")
+				validateField(t, s2.Properties, "key", FieldTypeString)
 			},
 		},
 		{
-			name: "Test Object type with multiple levels of nesting",
+			name: "Test Inline Object type",
 			yamlContent: wrapInOpenAPIBoilerplate(`
 Message:
   type: object
@@ -364,36 +370,65 @@ Message:
       properties:
         key:
           type: string
-        metadata:
-          type: object
-          properties:
-            timestamp:
-              type: string
-              format: date-time
+`),
+			expectErr: true,
+		},
+		{
+			name: "Test Object type with multiple levels of nesting",
+			yamlContent: wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    Request:
+      $ref: '#/components/schemas/Request'
+Request:
+  type: object
+  x-message-id: 2
+  properties:
+    key:
+      type: string
+    metadata:
+      $ref: '#/components/schemas/Metadata'
+Metadata:
+  type: object
+  x-message-id: 3
+  properties:
+    timestamp:
+      type: string
+      format: date-time
 `),
 			expectErr:     false,
-			expectedCount: 1,
+			expectedCount: 3,
 			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-				assert.Len(t, msg.Properties, 1, "expected exactly one property")
-				validateField(t, msg.Properties, "Request", FieldTypeObject)
+				s1 := schema.Messages[0]
+				assert.Equal(t, "Message", s1.Name, "schema name mismatch")
+				assert.Len(t, s1.Fields, 1, "expected exactly one field")
+				assert.Len(t, s1.Properties, 1, "expected exactly one property")
+				validateField(t, s1.Properties, "Request", FieldTypeObject)
 
-				// Validate nested object
-				nestedField := msg.Properties["Request"]
-				assert.NotNil(t, nestedField.Nested, "expected nested schema for 'Request'")
-				assert.Equal(t, nestedField.Nested.Name, "MessageRequest", "nested field name mismatch")
-				assert.Len(t, nestedField.Nested.Fields, 2, "expected exactly one field")
-				validateField(t, nestedField.Nested.Properties, "key", FieldTypeString)
-				validateField(t, nestedField.Nested.Properties, "metadata", FieldTypeObject)
+				s1NestedField := s1.Properties["Request"]
+				assert.NotNil(t, s1NestedField, "expected nested field for 'Request'")
+				assert.True(t, s1NestedField.IsVariable, "expected nested field should be variable-length")
+				assert.Equal(t, s1NestedField.NestedMessageId, uint16(2), "nested message ID mismatch")
 
-				// Validate second level nested object
-				metadataField := nestedField.Nested.Properties["metadata"]
-				assert.NotNil(t, metadataField.Nested, "expected nested schema for 'metadata'")
-				assert.Equal(t, metadataField.Nested.Name, "MessageRequestMetadata", "nested field name mismatch")
-				assert.Len(t, metadataField.Nested.Fields, 1, "expected exactly one field")
-				validateField(t, metadataField.Nested.Properties, "timestamp", FieldTypeString)
+				s2 := schema.Messages[1]
+				assert.Equal(t, "Request", s2.Name, "schema name mismatch")
+				assert.Len(t, s2.Fields, 2, "expected exactly 2 field")
+				assert.Len(t, s2.Properties, 2, "expected exactly 2 property")
+				validateField(t, s2.Properties, "key", FieldTypeString)
+				validateField(t, s2.Properties, "metadata", FieldTypeObject)
+
+				s2NestedField := s2.Properties["metadata"]
+				assert.NotNil(t, s2NestedField, "expected nested field for 'metadata'")
+				assert.True(t, s2NestedField.IsVariable, "expected nested field should be variable-length")
+				assert.Equal(t, s2NestedField.NestedMessageId, uint16(3), "nested message ID mismatch")
+
+				s3 := schema.Messages[2]
+				assert.Equal(t, "Metadata", s3.Name, "schema name mismatch")
+				assert.Len(t, s3.Fields, 1, "expected exactly one field")
+				assert.Len(t, s3.Properties, 1, "expected exactly one property")
+				validateField(t, s3.Properties, "timestamp", FieldTypeString)
 			},
 		},
 
@@ -424,7 +459,6 @@ Message:
 				assert.NotNil(t, arr.ArrElem, "expected array element descriptor")
 
 				assert.Equal(t, FieldTypeString, arr.ArrElem.Type, "array element type mismatch")
-				assert.Nil(t, arr.ArrElem.Nested, "array element should not have nested schema for string type")
 				assert.Nil(t, arr.ArrElem.ArrElem, "array element should not have nested array for string type")
 				assert.True(t, arr.ArrElem.IsVariable, "array element should be variable-length for string type")
 			},
@@ -455,7 +489,6 @@ Message:
 				assert.NotNil(t, arr.ArrElem, "expected array element descriptor")
 
 				assert.Equal(t, FieldTypeUint16, arr.ArrElem.Type, "array element type mismatch")
-				assert.Nil(t, arr.ArrElem.Nested, "array element should not have nested schema for integer type")
 				assert.Nil(t, arr.ArrElem.ArrElem, "array element should not have nested array for integer type")
 				assert.False(t, arr.ArrElem.IsVariable, "array element should not be variable-length for integer type")
 			},
@@ -470,33 +503,39 @@ Message:
     Users:
       type: array
       items:
-        type: object
-        properties:
-          username:
-            type: string
-          email:
-            type: string
+        $ref: '#/components/schemas/Profile'
+Profile:
+  type: object
+  x-message-id: 2
+  properties:
+    username:
+      type: string
+    email:
+      type: string
 `),
 			expectErr:     false,
-			expectedCount: 1,
+			expectedCount: 2,
 			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-				validateField(t, msg.Properties, "Users", FieldTypeArray)
+				s1 := schema.Messages[0]
+				assert.Equal(t, "Message", s1.Name, "message name mismatch")
+				assert.Len(t, s1.Fields, 1, "expected exactly one field")
+				validateField(t, s1.Properties, "Users", FieldTypeArray)
 
-				arr := msg.Properties["Users"]
-				assert.True(t, arr.IsVariable, "array field must be variable-length")
-				assert.Nil(t, arr.Nested, "array field should not have nested schema for object type")
-				assert.NotNil(t, arr.ArrElem, "expected array element descriptor")
+				usersArr := s1.Properties["Users"]
+				assert.True(t, usersArr.IsVariable, "array field must be variable-length")
+				assert.NotNil(t, usersArr.ArrElem, "expected array element descriptor")
 
-				assert.Equal(t, FieldTypeObject, arr.ArrElem.Type, "array element type mismatch")
-				assert.NotNil(t, arr.ArrElem.Nested, "array element should have nested schema for object type")
-				assert.Nil(t, arr.ArrElem.ArrElem, "array element should not have nested array for object type")
-				assert.Len(t, arr.ArrElem.Nested.Fields, 2, "expected two fields in nested object")
+				assert.Equal(t, FieldTypeObject, usersArr.ArrElem.Type, "array element type mismatch")
+				assert.Nil(t, usersArr.ArrElem.ArrElem, "array element should not have nested array for object type")
+				assert.True(t, usersArr.ArrElem.IsVariable, "array element should be variable-length for object type")
+				assert.Equal(t, uint16(2), usersArr.ArrElem.NestedMessageId, "nested message ID mismatch for array element")
 
-				validateField(t, arr.ArrElem.Nested.Properties, "username", FieldTypeString)
-				validateField(t, arr.ArrElem.Nested.Properties, "email", FieldTypeString)
+				s2 := schema.Messages[1]
+				assert.Equal(t, "Profile", s2.Name, "schema name mismatch")
+				assert.Len(t, s2.Fields, 2, "expected exactly two fields")
+				assert.Len(t, s2.Properties, 2, "expected exactly two properties")
+				validateField(t, s2.Properties, "username", FieldTypeString)
+				validateField(t, s2.Properties, "email", FieldTypeString)
 			},
 		},
 		{
@@ -532,7 +571,6 @@ Message:
 
 				lvl2Arr := lvl1Arr.ArrElem
 				assert.Equal(t, FieldTypeInt32, lvl2Arr.Type, "innermost array element type mismatch")
-				assert.Nil(t, lvl2Arr.Nested, "innermost array element should not have nested schema for int32 type")
 				assert.Nil(t, lvl2Arr.ArrElem, "innermost array element should not have nested array for int32 type")
 				assert.False(t, lvl2Arr.IsVariable, "innermost array element should not be variable-length for int32 type")
 			},
@@ -562,7 +600,6 @@ Message:
 				validateField(t, msg.Properties, "Status", FieldTypeString)
 
 				enumField := msg.Properties["Status"]
-				assert.Nil(t, enumField.Nested, "enum field should not have nested schema for string type")
 				assert.Nil(t, enumField.ArrElem, "enum field should not have nested array for string type")
 				assert.NotNil(t, enumField.EnumValues, "expected enum values to be populated")
 				assert.Equal(t, []string{"ACTIVE", "INACTIVE"}, enumField.EnumValues, "enum values mismatch")
@@ -582,20 +619,7 @@ Message:
         - 2
         - 3
 `),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-				validateField(t, msg.Properties, "Level", FieldTypeInt32)
-
-				enumField := msg.Properties["Level"]
-				assert.Nil(t, enumField.Nested, "enum field should not have nested schema for integer type")
-				assert.Nil(t, enumField.ArrElem, "enum field should not have nested array for integer type")
-				assert.NotNil(t, enumField.EnumValues, "expected enum values to be populated")
-				assert.Equal(t, []string{"1", "2", "3"}, enumField.EnumValues, "enum values mismatch")
-			},
+			expectErr:     true,
 		},
 		{
 			name: "Test Array of Enum type",
@@ -627,210 +651,21 @@ Message:
 
 				enumField := arr.ArrElem
 				assert.Equal(t, FieldTypeString, enumField.Type, "array element type mismatch")
-				assert.Nil(t, enumField.Nested, "enum field should not have nested schema for string type")
 				assert.Nil(t, enumField.ArrElem, "enum field should not have nested array for string type")
 				assert.NotNil(t, enumField.EnumValues, "expected enum values to be populated")
 				assert.Equal(t, []string{"HTTP", "HTTPS", "FTP"}, enumField.EnumValues, "enum values mismatch")
 			},
 		},
-
-		// Nullable type tests
-		// ==================
-		{
-			name: "Test Nullable type of string",
-			yamlContent: wrapInOpenAPIBoilerplate(`
-Message:
-  type: object
-  x-message-id: 1
-  properties:
-    Description:
-      type: string
-      nullable: true
-`),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-
-				nullableField, exists := msg.Properties["Description"]
-				assert.True(t, exists, "expected field '%s' to exist", "Description")
-
-				assert.Equal(t, "Description", nullableField.Name, "field name mismatch")
-				assert.Equal(t, FieldTypeString, nullableField.Type, "field type mismatch")
-
-				assert.True(t, nullableField.Nullable, "field should be marked as nullable")
-				assert.True(t, nullableField.IsVariable, "string field should be variable-length")
-			},
-		},
-		{
-			name: "Test Nullable type of integer",
-			yamlContent: wrapInOpenAPIBoilerplate(`
-Message:
-  type: object
-  x-message-id: 1
-  properties:
-    Age:
-      type: integer
-      format: int32
-      nullable: true
-`),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-
-				nullableField, exists := msg.Properties["Age"]
-				assert.True(t, exists, "expected field '%s' to exist", "Age")
-
-				assert.Equal(t, "Age", nullableField.Name, "field name mismatch")
-				assert.Equal(t, FieldTypeInt32, nullableField.Type, "field type mismatch")
-
-				assert.True(t, nullableField.Nullable, "field should be marked as nullable")
-				assert.True(t, nullableField.IsVariable, "integer field should not be variable-length")
-			},
-		},
-		{
-			name: "Test Nullable type of number",
-			yamlContent: wrapInOpenAPIBoilerplate(`
-Message:
-  type: object
-  x-message-id: 1
-  properties:
-    Price:
-      type: number
-      format: float
-      nullable: true
-`),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-
-				nullableField, exists := msg.Properties["Price"]
-				assert.True(t, exists, "expected field '%s' to exist", "Price")
-
-				assert.Equal(t, "Price", nullableField.Name, "field name mismatch")
-				assert.Equal(t, FieldTypeFloat32, nullableField.Type, "field type mismatch")
-
-				assert.True(t, nullableField.Nullable, "field should be marked as nullable")
-				assert.True(t, nullableField.IsVariable, "number field should not be variable-length")
-			},
-		},
-		{
-			name: "Test Nullable type of boolean",
-			yamlContent: wrapInOpenAPIBoilerplate(`
-Message:
-  type: object
-  x-message-id: 1
-  properties:
-    IsEnabled:
-      type: boolean
-      nullable: true
-`),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-
-				nullableField, exists := msg.Properties["IsEnabled"]
-				assert.True(t, exists, "expected field '%s' to exist", "IsEnabled")
-
-				assert.Equal(t, "IsEnabled", nullableField.Name, "field name mismatch")
-				assert.Equal(t, FieldTypeBool, nullableField.Type, "field type mismatch")
-
-				assert.True(t, nullableField.Nullable, "field should be marked as nullable")
-				assert.True(t, nullableField.IsVariable, "boolean field should not be variable-length")
-			},
-		},
-		{
-			name: "Test Nullable type of object",
-			yamlContent: wrapInOpenAPIBoilerplate(`
-Message:
-  type: object
-  x-message-id: 1
-  properties:
-    Profile:
-      type: object
-      nullable: true
-      properties:
-        username:
-          type: string
-        email:
-          type: string
-`),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-
-				nullableField, exists := msg.Properties["Profile"]
-				assert.True(t, exists, "expected field '%s' to exist", "Profile")
-
-				assert.Equal(t, "Profile", nullableField.Name, "field name mismatch")
-				assert.Equal(t, FieldTypeObject, nullableField.Type, "field type mismatch")
-
-				assert.True(t, nullableField.Nullable, "field should be marked as nullable")
-				assert.NotNil(t, nullableField.Nested, "nullable object field should have nested schema")
-				assert.Len(t, nullableField.Nested.Fields, 2, "expected two fields in nested object")
-
-				validateField(t, nullableField.Nested.Properties, "username", FieldTypeString)
-				validateField(t, nullableField.Nested.Properties, "email", FieldTypeString)
-			},
-		},
-		{
-			name: "Test Nullable type of array",
-			yamlContent: wrapInOpenAPIBoilerplate(`
-Message:
-  type: object
-  x-message-id: 1
-  properties:
-    Tags:
-      type: array
-      nullable: true
-      items:
-        type: string
-`),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-
-				nullableField, exists := msg.Properties["Tags"]
-				assert.True(t, exists, "expected field '%s' to exist", "Tags")
-
-				assert.Equal(t, "Tags", nullableField.Name, "field name mismatch")
-				assert.Equal(t, FieldTypeArray, nullableField.Type, "field type mismatch")
-
-				assert.True(t, nullableField.Nullable, "field should be marked as nullable")
-				assert.NotNil(t, nullableField.ArrElem, "nullable array field should have array element descriptor")
-				assert.Equal(t, FieldTypeString, nullableField.ArrElem.Type, "array element type mismatch")
-				assert.Nil(t, nullableField.ArrElem.Nested, "array element should not have nested schema for string type")
-				assert.Nil(t, nullableField.ArrElem.ArrElem, "array element should not have nested array for string type")
-				assert.True(t, nullableField.ArrElem.IsVariable, "array element should be variable-length for string type")
-			},
-		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			// Create a unique temporary directory for this specific subtest
 			tmpDir := t.TempDir()
 			tmpFile := filepath.Join(tmpDir, "openapi_test.yaml")
 
 			// Write fake file payload
-			err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(tt.yamlContent)), 0644)
+			err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(tc.yamlContent)), 0644)
 			if err != nil {
 				t.Fatalf("failed to create temporary test file: %v", err)
 			}
@@ -839,17 +674,17 @@ Message:
 			result, err := ParseFile(tmpFile)
 
 			// Assert error expectations
-			if tt.expectErr {
+			if tc.expectErr {
 				assert.NotNil(t, err)
 				return
 			}
 
 			assert.Nil(t, err)
-			assert.Len(t, result.Messages, 1, "expected message count mismatch")
+			assert.Len(t, result.Messages, tc.expectedCount, "expected message count mismatch")
 
 			// Execute functional assertions if it passed
-			if tt.validateFunc != nil {
-				tt.validateFunc(t, result)
+			if tc.validateFunc != nil {
+				tc.validateFunc(t, result)
 			}
 		})
 	}

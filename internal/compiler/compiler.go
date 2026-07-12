@@ -15,34 +15,85 @@ import (
 
 // CompiledSchema holds the fully resolved layout information for all messages.
 type CompiledSchema struct {
+	// Name of package in generated go code and header file for generated C code.
 	PackageName string
-	Messages    []*CompiledMessage
+
+	// Messages contains only the top-level, wire-framed message types (those with a
+	// wire type ID).
+	Messages []*CompiledMessage
 }
 
 // CompiledMessage holds the computed memory layout for a single message type.
 type CompiledMessage struct {
-	Name            string
-	TypeID          uint16
-	Fields          []*CompiledField
-	FixedFields     []*CompiledField
-	VariableFields  []*CompiledField
-	TotalFixedSize  int
+	// Name of the message type. Used as struct name in generated code.
+	Name string
+
+	// TypeID is the unique identifier for this message type.
+	// Used in serialization/deserialization.
+	TypeID uint16
+
+	// Fields is the list of all fields in the message, including both
+	// fixed and variable size fields.
+	Fields []*CompiledField
+
+	// VariableFields is the list of all variable size fields in the message.
+	VariableFields []*CompiledField
+
+	// TotalFixedSize is the total size of all fixed-size fields, 4-bytes of
+	// length prefix for variable-size fields and any padding added for alignment.
+	TotalFixedSize int
+
+	// StructAlignment is the maximum alignment requirement of all fields in the message.
+	// This is used internally to determine the alignment of the entire struct in memory.
 	StructAlignment int
-	PaddingBlocks   int
+
+	// PaddingBlocks is the number of padding blocks added to the message
+	// layout to satisfy alignment requirements.
+	PaddingBlocks int
 }
 
 // CompiledField holds the computed layout for a single field.
 type CompiledField struct {
-	Name          string
-	GoName        string
-	CName         string
-	Description   string
-	Type          schema.FieldType
-	Offset        int
-	Size          int
-	Alignment     int
-	IsVariable    bool
+	// Name of the field in the schema.
+	// Used as struct field name in generated code.
+	Name string
+
+	// Go-style name of the field,
+	// used as struct field name in generated code.
+	GoName string
+
+	// C-style name of the field,
+	// used as struct field name in generated C code.
+	CName string
+
+	// Description is the `description` specified in the OpenAPI schema,
+	// used in generated code comments for field.
+	Description string
+
+	// Type is the field type as defined in the schema.
+	Type schema.FieldType
+
+	// Offset of the field in the message struct.
+	Offset int
+
+	// Size of the field in bytes.
+	Size int
+
+	// Alignment requirement of the field in bytes.
+	Alignment int
+
+	// Indicates whether the field is of variable size (e.g., string, bytes, array).
+	IsVariable bool
+
+	// PaddingBefore is the number of padding bytes added before
+	// this field to satisfy alignment requirements.
 	PaddingBefore int
+
+	// NestedMessageId is the type ID of the nested message if this field is a nested message.
+	NestedMessageId uint16
+
+	// If the field is an array, this describes the element type's compiled field.
+	ArrElem *CompiledField
 }
 
 // Compile takes a parsed schema and computes memory layouts with alignment.
@@ -115,14 +166,32 @@ func CompileMessage(msg *schema.Message) *CompiledMessage {
 	// Process the optimally ordered fields
 	for _, field := range optimizedFields {
 		cf := &CompiledField{
-			Name:        field.Name,
-			GoName:      toGoName(field.Name),
-			CName:       ToSnakeCase(field.Name),
-			Description: field.Description,
-			Type:        field.Type,
-			Size:        field.Type.Size(),
-			Alignment:   field.Type.Alignment(),
-			IsVariable:  field.IsVariable,
+			Name:            field.Name,
+			GoName:          toGoName(field.Name),
+			CName:           ToSnakeCase(field.Name),
+			Description:     field.Description,
+			Type:            field.Type,
+			Size:            field.Type.Size(),
+			Alignment:       field.Type.Alignment(),
+			IsVariable:      field.IsVariable,
+			NestedMessageId: field.NestedMessageId,
+		}
+
+		if field.Type == schema.FieldTypeArray {
+			if field.ArrElem == nil {
+				return nil // Invalid schema: array field must have an element type
+			}
+			cf.ArrElem = &CompiledField{
+				Name:            field.ArrElem.Name,
+				GoName:          toGoName(field.ArrElem.Name),
+				CName:           ToSnakeCase(field.ArrElem.Name),
+				Description:     field.ArrElem.Description,
+				Type:            field.ArrElem.Type,
+				Size:            field.ArrElem.Type.Size(),
+				Alignment:       field.ArrElem.Type.Alignment(),
+				IsVariable:      field.ArrElem.IsVariable,
+				NestedMessageId: field.ArrElem.NestedMessageId,
+			}
 		}
 
 		align := cf.Alignment
@@ -144,7 +213,6 @@ func CompileMessage(msg *schema.Message) *CompiledMessage {
 		if cf.IsVariable {
 			cm.VariableFields = append(cm.VariableFields, cf)
 		}
-		cm.FixedFields = append(cm.FixedFields, cf)
 	}
 
 	trailingPad := (maxAlign - (offset % maxAlign)) % maxAlign

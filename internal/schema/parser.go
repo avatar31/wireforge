@@ -38,6 +38,7 @@ func ParseFile(path string) (*Schema, error) {
 	}
 
 	messages := make([]*Message, 0)
+	idMap := make(map[uint16]struct{})
 
 	// Iterate over components.schemas; each schema becomes a top-level message.
 	for schemaName, schemaRef := range doc.Components.Schemas {
@@ -46,10 +47,12 @@ func ParseFile(path string) (*Schema, error) {
 			continue
 		}
 
-		id, err := parseIdFromSchema(schemaName, schemaValue)
+		id, err := parseIdFromSchema(schemaName, schemaValue, idMap)
 		if err != nil {
 			return nil, err
 		}
+
+		idMap[id] = struct{}{}
 
 		fields, fieldList, err := parseFields(schemaValue.Properties, schemaName)
 		if err != nil {
@@ -59,7 +62,6 @@ func ParseFile(path string) (*Schema, error) {
 		message := &Message{
 			Name:       schemaName,
 			TypeID:     id,
-			TopLevel:   true,
 			Fields:     fieldList,
 			Properties: fields,
 		}
@@ -74,18 +76,25 @@ func ParseFile(path string) (*Schema, error) {
 	return &Schema{Messages: messages}, nil
 }
 
-func parseIdFromSchema(schemaName string, schema *openapi3.Schema) (uint16, error) {
+func parseIdFromSchema(schemaName string, schema *openapi3.Schema,
+	idMap map[uint16]struct{}) (uint16, error) {
 	idVal, found := schema.Extensions["x-message-id"]
 	if !found {
 		return 0, fmt.Errorf("schema %s is missing the required x-message-id", schemaName)
 	}
 
 	id, ok := idVal.(float64)
-	if !ok || id < 0 || id > 65535 {
-		return 0, fmt.Errorf("schema %s has an invalid x-message-id; it must be a valid number b/w 0-65535", schemaName)
+	if !ok || id < 1 || id > 65535 {
+		return 0, fmt.Errorf("schema %s has an invalid x-message-id; it must be a valid number b/w 1-65535", schemaName)
 	}
 
-	return uint16(id), nil
+	output := uint16(id)
+
+	if _, exists := idMap[output]; exists {
+		return 0, fmt.Errorf("duplicate x-message-id %d found in schema %s", output, schemaName)
+	}
+
+	return output, nil
 }
 
 // parseFields resolves an ordered set of properties into Field descriptors.
@@ -97,12 +106,11 @@ func parseFields(properties openapi3.Schemas, parentName string) (map[string]*Fi
 	fieldList := make([]*Field, 0)
 
 	for propName, propRef := range properties {
-		propValue := propRef.Value
-		if propValue == nil {
+		if propRef.Value == nil {
 			continue
 		}
 
-		field, err := parseField(propName, propValue, parentName)
+		field, err := parseField(propName, propRef, parentName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -119,7 +127,8 @@ func parseFields(properties openapi3.Schemas, parentName string) (map[string]*Fi
 // It dispatches on the schema kind (array, object, or primitive/enum) and
 // recurses for composite element/child types. nameHint is the property name and
 // parentName is the qualified name of the enclosing message.
-func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, error) {
+func parseField(name string, sRef *openapi3.SchemaRef, parentName string) (*Field, error) {
+	sv := sRef.Value
 	if sv.Type == nil || len(*sv.Type) == 0 {
 		return nil, fmt.Errorf("property %q has no type defined", name)
 	}
@@ -128,7 +137,6 @@ func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, er
 		Name:        name,
 		Description: sv.Description,
 		Format:      sv.Format,
-		Nullable:    sv.Nullable,
 	}
 
 	switch {
@@ -137,7 +145,7 @@ func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, er
 			return nil, fmt.Errorf("array property %q is missing an items schema", name)
 		}
 
-		elem, err := parseField(name+"Item", sv.Items.Value, parentName+exportName(name))
+		elem, err := parseField(name+"Item", sv.Items, parentName+exportName(name))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse array element of %q: %w", name, err)
 		}
@@ -147,19 +155,17 @@ func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, er
 		field.IsVariable = true
 
 	case sv.Type.Includes("object"):
-		nestedName := parentName + exportName(name)
-		nestedFields, nestedList, err := parseFields(sv.Properties, nestedName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse nested properties of %q: %w", name, err)
+		if sRef.Ref == "" {
+			return nil, fmt.Errorf("object property %q is missing a $ref to a named schema; inline object definitions are not supported", name)
 		}
 
 		field.Type = FieldTypeObject
-		field.Nested = &Message{
-			Name:       nestedName,
-			TopLevel:   false,
-			Fields:     nestedList,
-			Properties: nestedFields,
+		id, err := parseIdFromSchema(sRef.Ref, sv, nil)
+		if err != nil {
+			return nil, err
 		}
+
+		field.NestedMessageId = id
 		field.IsVariable = true
 
 	default:
@@ -180,12 +186,6 @@ func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, er
 		field.IsVariable = ft.IsVariable()
 	}
 
-	// A nullable field is always length-prefixed so the null/absent state can be
-	// represented on the wire via a sentinel prefix, regardless of the base type.
-	if field.Nullable {
-		field.IsVariable = true
-	}
-
 	return field, nil
 }
 
@@ -195,12 +195,9 @@ func parseField(name string, sv *openapi3.Schema, parentName string) (*Field, er
 // rendered to their canonical string form for later constant generation.
 func parseEnumValues(name string, base FieldType, raw []any) ([]string, error) {
 	isString := base == FieldTypeString
-	isInteger := base == FieldTypeInt8 || base == FieldTypeInt16 || base == FieldTypeInt32 ||
-		base == FieldTypeInt64 || base == FieldTypeUint8 || base == FieldTypeUint16 ||
-		base == FieldTypeUint32 || base == FieldTypeUint64
 
-	if !isString && !isInteger {
-		return nil, fmt.Errorf("enum on property %q is only supported for string or integer base types", name)
+	if !isString {
+		return nil, fmt.Errorf("enum on property %q is only supported for string base types", name)
 	}
 
 	values := make([]string, 0, len(raw))
@@ -213,11 +210,6 @@ func parseEnumValues(name string, base FieldType, raw []any) ([]string, error) {
 				return nil, fmt.Errorf("enum value %q on property %q does not matching with base type", val, name)
 			}
 			s = val
-		case float64:
-			if !isInteger {
-				return nil, fmt.Errorf("numeric enum value on property %q does not matching with base type", name)
-			}
-			s = fmt.Sprintf("%d", int64(val))
 		default:
 			return nil, fmt.Errorf("unsupported enum value type %T on property %q", v, name)
 		}

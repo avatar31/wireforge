@@ -10,16 +10,11 @@ type Schema struct {
 	Messages []*Message
 }
 
-// Message represents a single struct/message type.
-//
-// Top-level messages carry a wire type ID (x-message-id) and are framed on the
-// wire. Nested messages (produced by object properties or object array elements)
-// have TopLevel == false and are serialized as self-contained, length-delimited
-// bodies embedded inside their parent's dynamic payload.
+// Message represents a single schema in the OpenAPI spec and
+// its corresponding message/struct type in the generated code.
 type Message struct {
 	Name       string
 	TypeID     uint16
-	TopLevel   bool
 	Fields     []*Field
 	Properties map[string]*Field
 }
@@ -35,19 +30,19 @@ type Message struct {
 //   - Enum fields:     EnumValues lists the allowed constant values; the base
 //     Type remains the underlying primitive (string or an integer type).
 //
+// TODO: Revisit here
 // Nullable marks the field as optional. A nullable field is always length
 // prefixed on the wire and uses a sentinel prefix (0xFFFFFFFF) to encode the
 // null/absent state, independent of the underlying type.
 type Field struct {
-	Name        string
-	Description string
-	Type        FieldType
-	Format      string
-	Nested      *Message // object element definition (FieldTypeObject)
-	ArrElem     *Field   // array element descriptor (FieldTypeArray)
-	Nullable    bool
-	EnumValues  []string // allowed values for enum fields (rendered as constants)
-	IsVariable  bool
+	Name            string
+	Description     string
+	Type            FieldType
+	Format          string
+	NestedMessageId uint16 // object element id (FieldTypeObject)
+	ArrElem         *Field // array element descriptor (FieldTypeArray)
+	EnumValues      []string // allowed values for enum fields (rendered as constants)
+	IsVariable      bool
 }
 
 // FieldType enumerates the supported concrete field types.
@@ -141,6 +136,10 @@ func (ft FieldType) GoType() string {
 		return "string"
 	case FieldTypeBytes:
 		return "[]byte"
+	case FieldTypeObject:
+		return "struct"
+	case FieldTypeArray:
+		return "[]any"
 	default:
 		return "uint8"
 	}
