@@ -32,7 +32,6 @@ wireforge sits in the sweet spot: **zero runtime dependencies**, **deterministic
   - [Rules](#rules)
   - [Example](#example)
   - [Type Mappings](#type-mappings)
-  - [C-to-Go Interop](#c-to-go-interop)
 - [Generated Code Details](#generated-code-details)
   - [Go Output](#go-output-messagesgo)
   - [C Output](#c-output-messagesh--messagesc)
@@ -86,18 +85,19 @@ wireforge -i <schema.yaml> -o <output_dir> [-p <package_name>]
 Every wireforge message uses this frame layout:
 
 ```
- Byte 0    1    2    3    4          4+N        4+N+M
-      +----+----+----+-----+----------+-----------+
-      | Type ID |  Hdr Len |  Fixed   | Dynamic   |
-      | (u16 BE)| (u16 BE) | mHeader  | Payload   |
-      +---------+----------+----------+-----------+
+ Byte 0    1    2     3     4     6      8          8+N        8+N+M
+      +----+----+-----+-----+-----+------+-----------+-----------+
+      |   Type  | Fixed Pay | Oveall Pay |   Fixed   |  Dynamic  |
+      |    ID   | load Len  | load Len   |  Payload  |  Payload  |
+      +---------+-----------+------------+-----------+-----------+
 ```
 
 | Section | Size | Contents |
 |---|---|---|
 | **Type ID** | 2 bytes | Message type selector (Big-Endian uint16) |
-| **Fixed Header Length** | 2 bytes | Size of fixed block (Big-Endian uint16) |
-| **Fixed Header** | N bytes | All fixed-width fields + uint32 length prefixes for variable fields, naturally aligned with padding |
+| **Fixed Payload Length** | 2 bytes | Size of fixed payload block (Big-Endian uint16) |
+| **Overall Payload Length** | 4 bytes | Size of fixed+dynamic payload block (Big-Endian uint32) |
+| **Fixed Payload** | N bytes | All fixed-width fields + uint32 length prefixes for variable fields, naturally aligned with padding |
 | **Dynamic Payload** | M bytes | Concatenated variable-length data (strings, byte arrays) in field order |
 
 
@@ -146,7 +146,7 @@ This schema uses 24 bytes (23 bytes for actual data and 1 byte for padding align
 > `wireforge` does not support validation of field values like `minimum`, `maximum`, `pattern`, or `enum`. It only generates serialization code. You must implement any validation logic in your application. 
 
 ### Rules
-- Each schema must have a unique `x-message-id` integer (0-65535) to identify the message type on the wire.
+- Each schema must have a unique `x-message-id` integer (1-65535) to identify the message type on the wire.
 - Supported field types: `integer` (with `format`), `number` (with `format`), `boolean`, `string` (with optional `format: binary`).
 - No nested objects or arrays allowed; all fields must be primitive types. For variable-length data, use `string` with `format: binary` for byte arrays or `string` for text.
 - Field names must be unique within a schema. The generated struct fields will be ordered by size (largest first) to minimize padding, then alphabetically by name for deterministic output.
@@ -201,16 +201,6 @@ components:
 | `string` | — | `string` | `uint32_t` len + `char*` | 4 (prefix) | 4 |
 | `string` | `binary` | `[]byte` | `uint32_t` len + `uint8_t*` | 4 (prefix) | 4 |
 
-### C-to-Go Interop
-
-Since both languages produce **identical wire bytes**, you can freely mix:
-- C client → C server
-- Go client → Go server
-- C client → Go server
-- Go client → C server
-
-No additional serialization layer or adapter code needed.
-
 
 ## Generated Code Details
 
@@ -224,7 +214,7 @@ For each message type, wireforge generates:
 | `const XxxFixedSize` | Fixed header byte count (compile-time constant) |
 | `func (*Xxx) MessageTypeID() uint16` | Wire type identifier |
 | `func (*Xxx) Marshal() ([]byte, error)` | Serialize entire frame and returns buffer |
-| `func (*Xxx) Unmarshal(io.Reader, uint16) error` | Deserialize from stream after frame header |
+| `func (*Xxx) Unmarshal(io.Reader, uint16, uint32) error` | Deserialize from stream after frame header |
 | `func ReadMessageFrame(io.Reader) (typeID, hdrLen uint16, err error)` | Read just the 4-byte frame header for dispatch |
 
 **Safety guarantees in generated Go:**
@@ -242,7 +232,7 @@ For each message type, wireforge generates:
 | `xxx_xx_set_yyy(msg, new_value)` | Setter functions for all the fields in struct |
 | `calculate_xxx_xx_dynamic_payload_size(hdr_len)` | Calculate the overall size of all dynamic fields |
 | `xxx_xx_marshal(msg, buf)` | Serialize to buffer; returns total bytes or -1 |
-| `xxx_xx_unmarshal(buf, len, hdr_len, out)` | Deserialize from buffer; mallocs dynamic fields |
+| `xxx_xx_unmarshal(buf, fixed_payload_len, overall_payload_len, out)` | Deserialize from buffer; mallocs dynamic fields |
 | `xxx_xx_free(msg)` | Free all heap-allocated dynamic fields |
 
 **Safety guarantees in generated C:**
@@ -311,7 +301,7 @@ func handleClientSession(conn net.Conn) {
 	defer conn.Close()
 
 	for {
-		msgType, fixedLen, err := messages.ReadMessageFrame(conn)
+		msgType, fixedLen, overallLen, err := messages.ReadMessageFrame(conn)
 		if err != nil {
 			break
 		}
@@ -319,14 +309,14 @@ func handleClientSession(conn net.Conn) {
 		switch MessageType(msgType) {
 		case MsgTypeHeartbeat:
 			msg := &messages.HeartbeatMessage{}
-			if err := msg.Unmarshal(conn, fixedLen); err != nil {
+			if err := msg.Unmarshal(conn, fixedLen, overallLen); err != nil {
 				fmt.Printf("[Server] Malformed heartbeat payload: %v\n", err)
 				return
 			}
 
 		case MsgTypeUserText:
 			msg := &messages.UserMessage{}
-			if err := msg.Unmarshal(conn, fixedLen); err != nil {
+			if err := msg.Unmarshal(conn, fixedLen, overallLen); err != nil {
 				fmt.Printf("[Server] Failed to unmarshal user message body: %v\n", err)
 				return
 			}
@@ -362,7 +352,8 @@ func handleClientSession(conn net.Conn) {
             if (read_all(client_sock, frame, WIRE_FRAME_HEADER_SIZE) != 0) break;
 
             uint16_t type_id = get_message_type(frame);
-            uint16_t fixed_len = get_message_fixed_length(frame);
+            uint16_t fixed_len = get_message_fixed_payload_length(frame);
+            uint32_t full_payload_len = get_message_overall_payload_length(frame);
 
             uint8_t* fixed_buf = malloc(fixed_len);
             if (!fixed_buf) break;
@@ -374,9 +365,7 @@ func handleClientSession(conn net.Conn) {
 
             switch (type_id) {
                 case MESSAGE_TYPE_USER_MESSAGE: {
-                    size_t dyn_total = calculate_user_message_dynamic_payload_size(fixed_buf);
-
-                    size_t full_payload_len = fixed_len + dyn_total;
+                    uint32_t dyn_total = calculate_user_message_dynamic_payload_size(fixed_buf);
                     uint8_t* full_payload = malloc(full_payload_len);
                     if (!full_payload) {
                         free(fixed_buf);
@@ -394,7 +383,7 @@ func handleClientSession(conn net.Conn) {
                     }
 
                     user_message_t msg = {0};
-                    if (user_message_unmarshal(full_payload, full_payload_len, fixed_len, &msg) == 0) {
+                    if (user_message_unmarshal(full_payload, fixed_len, full_payload_len, &msg) == 0) {
                         printf("\r\33[2K[%s] %s\n> ", peer_name, msg.content ? msg.content : "");
                         fflush(stdout);
                         user_message_free(&msg);
@@ -417,4 +406,4 @@ func handleClientSession(conn net.Conn) {
     }
 ```
 
-The complete example server and client code is available in the [examples/](examples/) directory.
+The complete example is available in the [examples/](examples/) directory.
