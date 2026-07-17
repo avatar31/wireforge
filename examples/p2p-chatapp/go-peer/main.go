@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Sachin S. All rights reserved.
-// 
+//
 // Licensed under the MIT License.
 // See LICENSE in the project root.
 
@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/avatar31/wireforge/examples/peer-to-peer/go-peer/messages"
+	"github.com/avatar31/wireforge/examples/p2p-chatapp/go-peer/messages"
 )
 
 const (
@@ -114,7 +114,7 @@ func handleClientSession(conn net.Conn) {
 				fmt.Printf("[Server] Failed to unmarshal user message body: %v\n", err)
 				return
 			}
-			
+
 			t := time.Unix(msg.Timestamp, 0).Format("15:04:05")
 			fmt.Printf("\r\x1b[K[%s] %s> %s\n> ", t, peer.name, msg.Content)
 
