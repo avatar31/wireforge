@@ -539,7 +539,7 @@ Profile:
 			},
 		},
 		{
-			name: "Test Array of array type",
+			name: "Test 2D array type",
 			yamlContent: wrapInOpenAPIBoilerplate(`
 Message:
   type: object
@@ -574,6 +574,70 @@ Message:
 				assert.Nil(t, lvl2Arr.ArrElem, "innermost array element should not have nested array for int32 type")
 				assert.False(t, lvl2Arr.IsVariable, "innermost array element should not be variable-length for int32 type")
 			},
+		},
+		{
+			name: "Test 3D array type",
+			yamlContent: wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    Cube:
+      type: array
+      items:
+        type: array
+        items:
+          type: array
+          items:
+            type: integer
+            format: int32
+`),
+			expectErr:     false,
+			expectedCount: 1,
+			validateFunc: func(t *testing.T, schema *Schema) {
+				msg := schema.Messages[0]
+				assert.Equal(t, "Message", msg.Name, "message name mismatch")
+				assert.Len(t, msg.Fields, 1, "expected exactly one field")
+				validateField(t, msg.Properties, "Cube", FieldTypeArray)
+
+				lvl1Arr := msg.Properties["Cube"]
+				assert.True(t, lvl1Arr.IsVariable, "outer array field must be variable-length")
+				assert.NotNil(t, lvl1Arr.ArrElem, "expected outer array element descriptor")
+
+				lvl2Arr := lvl1Arr.ArrElem
+				assert.Equal(t, FieldTypeArray, lvl2Arr.Type, "second-level array element type mismatch")
+				assert.NotNil(t, lvl2Arr.ArrElem, "expected second-level array element descriptor")
+
+				lvl3Arr := lvl2Arr.ArrElem
+				assert.Equal(t, FieldTypeArray, lvl3Arr.Type, "third-level array element type mismatch")
+				assert.NotNil(t, lvl3Arr.ArrElem, "expected third-level array element descriptor")
+
+				lvl4Elem := lvl3Arr.ArrElem
+				assert.Equal(t, FieldTypeInt32, lvl4Elem.Type, "innermost array element type mismatch")
+				assert.Nil(t, lvl4Elem.ArrElem, "innermost array element should not have nested array for int32 type")
+				assert.False(t, lvl4Elem.IsVariable, "innermost array element should not be variable-length for int32 type")
+			},
+		},
+		{
+			name: "Test 4D array type",
+			yamlContent: wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    HyperCube:
+      type: array
+      items:
+        type: array
+        items:
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int32
+`),
+			expectErr: true,
 		},
 
 		// Enum type tests
@@ -619,7 +683,7 @@ Message:
         - 2
         - 3
 `),
-			expectErr:     true,
+			expectErr: true,
 		},
 		{
 			name: "Test Array of Enum type",

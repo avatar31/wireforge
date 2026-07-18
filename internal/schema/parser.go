@@ -15,6 +15,16 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
+const (
+	// MinAllowedMessageId is set to 1 to reserve 0 for special cases (e.g. "no message").
+	MinAllowedMessageId = 1
+
+	// MaxAllowedMessageId is set to 65500 to leave some room for future reserved message IDs.
+	MaxAllowedMessageId = 65500
+
+	MaxArrayDimensions = 3
+)
+
 // ParseFile reads and parses an OpenAPI YAML file, extracting message schemas.
 //
 // It returns a Schema object containing the parsed top-level messages or an
@@ -84,8 +94,9 @@ func parseIdFromSchema(schemaName string, schema *openapi3.Schema,
 	}
 
 	id, ok := idVal.(float64)
-	if !ok || id < 1 || id > 65535 {
-		return 0, fmt.Errorf("schema %s has an invalid x-message-id; it must be a valid number b/w 1-65535", schemaName)
+	if !ok || id < MinAllowedMessageId || id > MaxAllowedMessageId {
+		return 0, fmt.Errorf("schema %s has an invalid x-message-id; it must be a valid number b/w %d-%d",
+					schemaName, MinAllowedMessageId, MaxAllowedMessageId)
 	}
 
 	output := uint16(id)
@@ -110,7 +121,7 @@ func parseFields(properties openapi3.Schemas, parentName string) (map[string]*Fi
 			continue
 		}
 
-		field, err := parseField(propName, propRef, parentName)
+		field, err := parseField(propName, propRef, parentName, 0)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -127,7 +138,7 @@ func parseFields(properties openapi3.Schemas, parentName string) (map[string]*Fi
 // It dispatches on the schema kind (array, object, or primitive/enum) and
 // recurses for composite element/child types. nameHint is the property name and
 // parentName is the qualified name of the enclosing message.
-func parseField(name string, sRef *openapi3.SchemaRef, parentName string) (*Field, error) {
+func parseField(name string, sRef *openapi3.SchemaRef, parentName string, arrDimension int) (*Field, error) {
 	sv := sRef.Value
 	if sv.Type == nil || len(*sv.Type) == 0 {
 		return nil, fmt.Errorf("property %q has no type defined", name)
@@ -141,11 +152,16 @@ func parseField(name string, sRef *openapi3.SchemaRef, parentName string) (*Fiel
 
 	switch {
 	case sv.Type.Includes("array"):
+		if arrDimension >= MaxArrayDimensions {
+			return nil, fmt.Errorf("array property %q exceeds maximum allowed dimensions (%d)",
+					name, MaxArrayDimensions)
+		}
+
 		if sv.Items == nil || sv.Items.Value == nil {
 			return nil, fmt.Errorf("array property %q is missing an items schema", name)
 		}
 
-		elem, err := parseField(name+"Item", sv.Items, parentName+exportName(name))
+		elem, err := parseField(name+"Item", sv.Items, parentName+exportName(name), arrDimension+1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse array element of %q: %w", name, err)
 		}
