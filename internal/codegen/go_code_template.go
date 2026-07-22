@@ -18,15 +18,17 @@ import (
 )
 
 var goTemplate = template.Must(template.New("go").Funcs(template.FuncMap{
-	"lower":       strings.ToLower,
-	"goBaseType":  func(ft schema.FieldType) string { return ft.GoType() },
-	"goType":      goType,
-	"isVariable":  func(ft schema.FieldType) bool { return ft.IsVariable() },
-	"size":        func(ft schema.FieldType) int { return ft.Size() },
-	"sub":         func(a, b int) int { return a - b },
-	"add":         func(a, b int) int { return a + b },
-	"receiver":    func(name string) string { return strings.ToLower(name[:1]) },
-	"hasVariable": func(msg *compiler.CompiledMessage) bool { return len(msg.VariableFields) > 0 },
+	"lower":          strings.ToLower,
+	"goBaseType":     func(ft schema.FieldType) string { return ft.GoType() },
+	"goType":         goType,
+	"isVariable":     func(ft schema.FieldType) bool { return ft.IsVariable() },
+	"size":           func(ft schema.FieldType) int { return ft.Size() },
+	"sub":            func(a, b int) int { return a - b },
+	"add":            func(a, b int) int { return a + b },
+	"receiver":       func(name string) string { return strings.ToLower(name[:1]) },
+	"hasVariable":    func(msg *compiler.CompiledMessage) bool { return len(msg.VariableFields) > 0 },
+	"arrayDimension": arrayDimension,
+	"arrayRootType":  arrayRootType,
 }).Parse(goTemplateSource))
 
 // GenerateGo writes the generated Go source to w.
@@ -48,6 +50,13 @@ func GenerateGo(w io.Writer, cs *compiler.CompiledSchema) error {
 	return err
 }
 
+func arrayDimension(f *compiler.CompiledField) int {
+	if f == nil || f.Type != schema.FieldTypeArray {
+		return 0
+	}
+	return 1 + arrayDimension(f.ArrElem)
+}
+
 func goType(f *compiler.CompiledField, messages []*compiler.CompiledMessage, pointerStruct bool) string {
 	switch f.Type {
 	case schema.FieldTypeObject:
@@ -56,19 +65,22 @@ func goType(f *compiler.CompiledField, messages []*compiler.CompiledMessage, poi
 				if pointerStruct {
 					return fmt.Sprintf("*%s", msg.Name)
 				}
-				return fmt.Sprintf("%s", msg.Name)
+				return msg.Name
 			}
 		}
 	case schema.FieldTypeArray:
-		for _, msg := range messages {
-			if msg.TypeID == f.ArrElem.NestedMessageId {
-				if pointerStruct {
-					return fmt.Sprintf("[]*%s", msg.Name)
-				}
-				return fmt.Sprintf("[]%s", msg.Name)
-			}
+		dimension := arrayDimension(f)
+		var output strings.Builder
+		for range dimension {
+			output.WriteString("[]")
 		}
-		return fmt.Sprintf("[]%s", f.ArrElem.Type.GoType())
+
+		// if pointerStruct {
+		// 	output.WriteString("*")
+		// }
+
+		output.WriteString(arrayRootType(f, messages, "go"))
+		return output.String()
 	default:
 		return f.Type.GoType()
 	}
@@ -137,12 +149,25 @@ const (
 
 // Constants for our 2-byte Type Markers
 const (
-    TagString    uint16 = 0x0001
-    TagByteSlice uint16 = 0x0002
-    TagArray     uint16 = 0x0003
-
+    TagNone      uint16 = 0x0000
+    TagUint8     uint16 = 0x0001
+    TagInt8 	 uint16 = 0x0002
+    TagBool      uint16 = 0x0003
+	TagUint16    uint16 = 0x0004
+	TagInt16     uint16 = 0x0005
+	TagUint32    uint16 = 0x0006
+	TagInt32     uint16 = 0x0007
+	TagFloat32   uint16 = 0x0008
+	TagUint64    uint16 = 0x0009
+	TagInt64     uint16 = 0x000A
+	TagFloat64   uint16 = 0x000B
+	TagString    uint16 = 0x000C
+    TagByteSlice uint16 = 0x000D
+    TagArray     uint16 = 0x000E
+	Tag2DArray 	 uint16 = 0x000F
+	Tag3DArray 	 uint16 = 0x0010
     {{- range $i, $msg := .Messages }}
-    Tag{{$msg.Name}} uint16 = {{ printf "0x%04X" (add $i 16) }}
+    Tag{{$msg.Name}} uint16 = {{ printf "0x%04X" (add $i 32) }}
     {{- end }}
 )
 
@@ -154,19 +179,6 @@ var (
 	_ = unsafe.Sizeof(uint8(0))
 )
 
-type Primitive interface {
-	bool | int8 | uint8 |
-		int16 | uint16 |
-		int32 | uint32 | float32 |
-		int64 | uint64 | float64
-}
-
-type NonPrimitive interface {
-	string |
-	[]byte |{{range .Messages}}{{$msg := .}}
-	*{{$msg.Name}} |{{end}}
-	[]any
-}
 {{$overallMessages := .Messages}}
 {{range .Messages}}{{$msg := .}}
 // ---------------------------------------------------------------------------
@@ -281,27 +293,19 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 	}
 	binary.BigEndian.PutUint32(hdr[{{$field.Offset}}:{{add $field.Offset 4}}], uint32({{receiver $msg.Name}}_{{$field.GoName}}_len))
 {{- else if eq (goBaseType $field.Type) "[]any"}}
-{{if (isVariable $field.ArrElem.Type)}}
 
-	{{receiver $msg.Name}}_{{$field.GoName}}_Bytes, err := nonPrimitiveTypeSliceToBytes({{receiver $msg.Name}}.{{$field.GoName}}...)
+	var tmp{{$field.GoName}} {{(goType $field $overallMessages true)}}
+	eleType{{$field.GoName}}, err := getElementType(tmp{{$field.GoName}})
 	if err != nil {
 		return nil, fmt.Errorf("wireforge: failed to marshal {{$msg.Name}}.{{$field.GoName}}: %v", err)
 	}
-
-	copy(buf[dynOff:], {{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
-	binary.BigEndian.PutUint32(hdr[{{$field.Offset}}:{{add $field.Offset 4}}], uint32(len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)))
-	dynOff += len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
-{{- else}} {{/* not (isVariable $field.ArrElem.Type) */}}
-
-	{{receiver $msg.Name}}_{{$field.GoName}}_Bytes, err := primitiveTypeSliceToBytes({{receiver $msg.Name}}.{{$field.GoName}}...)
+	{{receiver $msg.Name}}_{{$field.GoName}}_Bytes, err := sliceToBytes[{{goType $field $overallMessages true}}](eleType{{$field.GoName}}, {{receiver $msg.Name}}.{{$field.GoName}})
 	if err != nil {
 		return nil, fmt.Errorf("wireforge: failed to marshal {{$msg.Name}}.{{$field.GoName}}: %v", err)
 	}
-
 	copy(buf[dynOff:], {{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
-	dynOff += len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
 	binary.BigEndian.PutUint32(hdr[{{$field.Offset}}:{{add $field.Offset 4}}], uint32(len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)))
-{{- end}} {{/* isVariable $field.ArrElem.Type */}}
+	dynOff += len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
 {{- else}} {{/* eq (goBaseType $field.Type) "string" or "[]byte" */}}
 
 	copy(buf[dynOff:], {{receiver $msg.Name}}.{{$field.GoName}})
@@ -409,30 +413,46 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader,
 		}
 		{{receiver $msg.Name}}.{{$field.GoName}} = string({{receiver $msg.Name}}_{{$field.GoName}}_buf)
 {{- else if eq (goBaseType $field.Type) "[]any"}}
-{{if (isVariable $field.ArrElem.Type)}}
 		if {{receiver $msg.Name}}_{{$field.GoName}}_len < (TypeMarkerSize + ArrayCountPrefixSize) {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} length %d too short", {{receiver $msg.Name}}_{{$field.GoName}}_len)
 		}
 
+		arrType, err := readUint16(reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} type marker: %w", err)
+		}
+		eleType, err := readUint16(reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} element type marker: %w", err)
+		}
+
 		{{receiver $msg.Name}}_{{$field.GoName}}_reader := io.LimitReader(reader, int64({{receiver $msg.Name}}_{{$field.GoName}}_len))
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readerToNonPrimitiveTypeSlice[{{(goType $field.ArrElem $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
+{{- if eq (arrayDimension $field) 1}}
+		if arrType != TagArray {
+			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
+		}
+
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readOneDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, eleType)
+{{- else if eq (arrayDimension $field) 2}}
+		if arrType != Tag2DArray {
+			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
+		}
+
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readTwoDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, eleType)
+{{- else if eq (arrayDimension $field) 3}}
+		if arrType != Tag3DArray {
+			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
+		}
+
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readThreeDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, eleType)
+{{- else}}
+		err := fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} has unsupported array type")
+{{- end}}
 		if err != nil {
 			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} array: %w", err)
 		}
 
 		{{receiver $msg.Name}}.{{$field.GoName}} = {{receiver $msg.Name}}_{{$field.GoName}}_arr
-{{- else}} {{/* not (isVariable $field.ArrElem.Type) */}}
-		{{receiver $msg.Name}}_{{$field.GoName}}_buf := make([]byte, {{receiver $msg.Name}}_{{$field.GoName}}_len)
-		if _, err := io.ReadFull(reader, {{receiver $msg.Name}}_{{$field.GoName}}_buf); err != nil {
-			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} payload: %w", err)
-		}
-		
-		var err error
-		{{receiver $msg.Name}}.{{$field.GoName}}, err = bytesToPrimitiveTypeSlice[{{goBaseType $field.ArrElem.Type}}]({{receiver $msg.Name}}_{{$field.GoName}}_buf)
-		if err != nil {
-			return fmt.Errorf("wireforge: failed to convert {{$msg.Name}}.{{$field.GoName}} bytes: %w", err)
-		}
-{{- end}} {{/* isVariable $field.ArrElem.Type */}}
 {{- else if eq (goBaseType $field.Type) "struct"}}
 		{{receiver $msg.Name}}_{{$field.GoName}}_reader := io.LimitReader(reader, int64({{receiver $msg.Name}}_{{$field.GoName}}_len))
 
@@ -571,23 +591,99 @@ func calcTypeSize(ele any) int {
 	}
 }
 
-func primitiveTypeSliceToBytes[T Primitive](elements ...T) ([]byte, error) {
+func sliceToBytes[T any](eleType uint16, elements any) ([]byte, error) {	
+	switch arr := elements.(type) {
+	case []T:
+		result := binary.BigEndian.AppendUint16(nil, TagArray)
+		result = binary.BigEndian.AppendUint16(result, eleType)
+		arrBytes, err := oneDimensionalSliceToBytes(arr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize 1D slice: %w", err)
+		}
+		result = append(result, arrBytes...)
+		return result, nil
+	case [][]T:
+		result := binary.BigEndian.AppendUint16(nil, Tag2DArray)
+		result = binary.BigEndian.AppendUint16(result, eleType)
+		arrBytes, err := twoDimensionalSliceToBytes(arr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize 2D slice: %w", err)
+		}
+		result = append(result, arrBytes...)
+		return result, nil
+	case [][][]T:
+		result := binary.BigEndian.AppendUint16(nil, Tag3DArray)
+		result = binary.BigEndian.AppendUint16(result, eleType)
+		arrBytes, err := threeDimensionalSliceToBytes(arr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize 3D slice: %w", err)
+		}
+		result = append(result, arrBytes...)
+		return result, nil
+	default:
+		return nil, fmt.Errorf("unsupported slice type: %T", arr)
+	}
+}
+
+func threeDimensionalSliceToBytes[T any](elements [][][]T) ([]byte, error) {
 	count := len(elements)
 	if count == 0 {
 		return binary.BigEndian.AppendUint16(nil, 0), nil
 	}
 
 	if count > int(MaxArrayElements) {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements (%d)", count, MaxArrayElements)
+		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
+	}
+
+	result := make([]byte, 0, 2) // Initial capacity for the count
+	result = binary.BigEndian.AppendUint16(result, uint16(count))
+
+	for i, v := range elements {
+		bytes, err := twoDimensionalSliceToBytes(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize 2D slice at index %d: %w", i, err)
+		}
+		result = append(result, bytes...)
+	}
+	return result, nil
+}
+
+func twoDimensionalSliceToBytes[T any](elements [][]T) ([]byte, error) {
+	count := len(elements)
+	if count == 0 {
+		return binary.BigEndian.AppendUint16(nil, 0), nil
+	}
+
+	if count > int(MaxArrayElements) {
+		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
+	}
+
+	result := make([]byte, 0, 2) // Initial capacity for the count
+	result = binary.BigEndian.AppendUint16(result, uint16(count))
+	for i, v := range elements {
+		bytes, err := oneDimensionalSliceToBytes(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize 1D slice at index %d: %w", i, err)
+		}
+		result = append(result, bytes...)
+	}
+	return result, nil
+}
+
+func oneDimensionalSliceToBytes[T any](elements []T) ([]byte, error) {
+	count := len(elements)
+	if count == 0 {
+		return binary.BigEndian.AppendUint16(nil, 0), nil
+	}
+
+	if count > int(MaxArrayElements) {
+		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
 	var zero T
-	elemSize := calcTypeSize(zero)
-	combinedBuf := make([]byte, 0, ArrayCountPrefixSize+(count*elemSize))
-	combinedBuf = binary.BigEndian.AppendUint16(combinedBuf, uint16(count))
-
 	switch sl := any(elements).(type) {
 	case []bool:
+		combinedBuf := make([]byte, 0, count * 1)	// 1 byte per bool
 		for _, v := range sl {
 			if v {
 				combinedBuf = append(combinedBuf, 1)
@@ -595,345 +691,335 @@ func primitiveTypeSliceToBytes[T Primitive](elements ...T) ([]byte, error) {
 				combinedBuf = append(combinedBuf, 0)
 			}
 		}
+		return combinedBuf, nil
 	case []uint8:
+		combinedBuf := make([]byte, 0, count * 1)	// 1 byte per uint8
 		combinedBuf = append(combinedBuf, sl...)
+		return combinedBuf, nil
 	case []int8:
+		combinedBuf := make([]byte, 0, count * 1)	// 1 byte per int8
 		for _, v := range sl {
 			combinedBuf = append(combinedBuf, byte(v))
 		}
+		return combinedBuf, nil
 	case []uint16:
+		combinedBuf := make([]byte, 0, count * 2)	// 2 bytes per uint16
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint16(combinedBuf, v)
 		}
+		return combinedBuf, nil
 	case []int16:
+		combinedBuf := make([]byte, 0, count * 2)	// 2 bytes per int16
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint16(combinedBuf, uint16(v))
 		}
+		return combinedBuf, nil
 	case []uint32:
+		combinedBuf := make([]byte, 0, count * 4)	// 4 bytes per uint32
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, v)
 		}
+		return combinedBuf, nil
 	case []int32:
+		combinedBuf := make([]byte, 0, count * 4)	// 4 bytes per int32
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, uint32(v))
 		}
+		return combinedBuf, nil
 	case []float32:
+		combinedBuf := make([]byte, 0, count * 4)	// 4 bytes per float32
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, math.Float32bits(v))
 		}
+		return combinedBuf, nil
 	case []uint64:
+		combinedBuf := make([]byte, 0, count * 8)	// 8 bytes per uint64
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint64(combinedBuf, v)
 		}
+		return combinedBuf, nil
 	case []int64:
+		combinedBuf := make([]byte, 0, count * 8)	// 8 bytes per int64
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint64(combinedBuf, uint64(v))
 		}
+		return combinedBuf, nil
 	case []float64:
+		combinedBuf := make([]byte, 0, count * 8)	// 8 bytes per float64
 		for _, v := range sl {
 			combinedBuf = binary.BigEndian.AppendUint64(combinedBuf, math.Float64bits(v))
 		}
-	default:
-		return nil, fmt.Errorf("unsupported primitive type: %T", zero)
-	}
-
-	return combinedBuf, nil
-}
-
-func bytesToPrimitiveTypeSlice[T Primitive](data []byte) ([]T, error) {
-	if len(data) < ArrayCountPrefixSize {
-		return nil, fmt.Errorf("buffer too small")
-	}
-
-	count := int(binary.BigEndian.Uint16(data[:ArrayCountPrefixSize]))
-	if count > int(MaxArrayElements) {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
-	}
-
-	if count == 0 {
-		return make([]T, 0), nil
-	}
-
-	var zero T
-	elemSize := calcTypeSize(zero)
-	
-	data = data[ArrayCountPrefixSize:]
-	expected := count * elemSize
-	if len(data) != expected {
-		return nil, fmt.Errorf("invalid buffer length: expected %d bytes, got %d", expected, len(data))
-	}
-
-	result := make([]T, count)
-	switch sl := any(result).(type) {
-	case []bool:
-		for i := range count {
-			sl[i] = data[i] != 0
+		return combinedBuf, nil
+	case []string:
+		totalSize := 0
+		for _, v := range sl {
+			totalSize += StrOrByteLenPrefixSize + len(v)
 		}
-	case []uint8:
-		copy(sl, data)
-	case []int8:
-		for i := range count {
-			sl[i] = int8(data[i])
+		combinedBuf := make([]byte, 0, totalSize)
+		for _, v := range sl {
+			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, uint32(len(v)))
+			combinedBuf = append(combinedBuf, v...)
 		}
-	case []uint16:
-		for i := range count {
-			sl[i] = binary.BigEndian.Uint16(data[i*2:])
+		return combinedBuf, nil
+	case [][]byte:
+		totalSize := 0
+		for _, v := range sl {
+			totalSize += StrOrByteLenPrefixSize + len(v)
 		}
-	case []int16:
-		for i := range count {
-			sl[i] = int16(binary.BigEndian.Uint16(data[i*2:]))
+		combinedBuf := make([]byte, 0, totalSize)
+		for _, v := range sl {
+			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, uint32(len(v)))
+			combinedBuf = append(combinedBuf, v...)
 		}
-	case []uint32:
-		for i := range count {
-			sl[i] = binary.BigEndian.Uint32(data[i*4:])
-		}
-	case []int32:
-		for i := range count {
-			sl[i] = int32(binary.BigEndian.Uint32(data[i*4:]))
-		}
-	case []float32:
-		for i := range count {
-			sl[i] = math.Float32frombits(binary.BigEndian.Uint32(data[i*4:]))
-		}
-	case []uint64:
-		for i := range count {
-			sl[i] = binary.BigEndian.Uint64(data[i*8:])
-		}
-	case []int64:
-		for i := range count {
-			sl[i] = int64(binary.BigEndian.Uint64(data[i*8:]))
-		}
-	case []float64:
-		for i := range count {
-			sl[i] = math.Float64frombits(binary.BigEndian.Uint64(data[i*8:]))
-		}
-	default:
-		return nil, fmt.Errorf("unsupported primitive type: %T", zero)
-	}
-
-	return result, nil
-}
-
-func nonPrimitiveTypeSliceToBytes[T NonPrimitive](elements ...T) ([]byte, error) {
-	count := len(elements)
-	if count == 0 {
-		return binary.BigEndian.AppendUint16(nil, 0), nil
-	}
-
-	if count > int(MaxArrayElements) {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
-	}
-
-	result := make([]byte, 0, calcArraySize(elements...))
-	typeTag, err := getElementType(elements[0])
-	if err != nil {
-		return nil, err
-	}
-
-	// Layout: [Tag (2B)] [Element Count (2B)] [Elements...]
-	result = binary.BigEndian.AppendUint16(result, typeTag)
-	result = binary.BigEndian.AppendUint16(result, uint16(count))
-
-	for i, v := range elements {
-		bytes, err := serializeRawValue(v)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize element at index %d: %w", i, err)
-		}
-		result = append(result, bytes...)
-	}
-
-	return result, nil
-}
-
-func serializeRawValue(item any) ([]byte, error) {
-	switch val := item.(type) {
-	case string:
-		length := len(val)
-		if uint32(length) > MaxAllowedPacket {
-			return nil, fmt.Errorf("string length %d exceeds MaxAllowedPacket", length)
-		}
-
-		// Layout: [Length (4B)] [String Data (NB)]
-		buf := binary.BigEndian.AppendUint32(nil, uint32(length))
-		return append(buf, val...), nil
-
-	case []byte:
-		length := len(val)
-		if length > MaxAllowedPacket {
-			return nil, fmt.Errorf("[]byte length %d exceeds MaxAllowedPacket", length)
-		}
-
-		// Layout: [Length (4B)] [Byte Data (NB)]
-		buf := binary.BigEndian.AppendUint32(nil, uint32(length))
-		return append(buf, val...), nil
-
-	case []any:
-		count := len(val)
-		if count > MaxArrayElements {
-			return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
-		}
-
-		if count == 0 {
-			result := binary.BigEndian.AppendUint16(nil, TagString)
-        	return binary.BigEndian.AppendUint16(result, 0), nil
-		}
-
-		// Peak at the next internal depth layer type 
-		innerTypeTag, err := getElementType(val[0])
-		if err != nil {
-			return nil, err
-		}
-
-		// Layout: [Tag (2B)] [Count (2B)] [Raw Elements...]
-		result := binary.BigEndian.AppendUint16(nil, innerTypeTag)
-		result = binary.BigEndian.AppendUint16(result, uint16(count))
-		for i, innerItem := range val {
-			innerBytes, err := serializeRawValue(innerItem)
-			if err != nil {
-				return nil, fmt.Errorf("failed at index %d: %w", i, err)
-			}
-			result = append(result, innerBytes...)
-		}
-		return result, nil
-
+		return combinedBuf, nil
 {{range .Messages}}{{$msg := .}}
-		case *{{$msg.Name}}:
-			if val == nil {
+	case []*{{$msg.Name}}:
+		totalSize := 0
+		for _, v := range sl {
+			if v == nil {
 				return nil, fmt.Errorf("cannot serialize nil *{{$msg.Name}} element in array")
 			}
-			return val.Marshal()
+			totalSize += v.Size()
+		}
+		combinedBuf := make([]byte, 0, totalSize)
+		for _, v := range sl {
+			bytes, err := v.Marshal()
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize *{{$msg.Name}} element in array: %w", err)
+			}
+			combinedBuf = append(combinedBuf, bytes...)
+		}
+		return combinedBuf, nil
 {{end}} {{/* range .Messages */}}
-
 	default:
-		return nil, fmt.Errorf("unsupported nested type: %T", item)
+		return nil, fmt.Errorf("unsupported primitive type: %T", zero)
 	}
 }
 
-func readerToNonPrimitiveTypeSlice[T NonPrimitive](r io.Reader) ([]T, error) {
-	typeTag, err := readUint16(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read array type tag: %w", err)
-	}
-
+func readThreeDimensionalSlice[T any](r io.Reader, eleType uint16) ([][][]T, error) {
 	count, err := readUint16(r)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read array count: %w", err)
+		return nil, fmt.Errorf("failed to read 3D array count: %w", err)
 	}
 
-	if count > MaxArrayElements {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
-	}
-
-	result := make([]T, count)
-	if count == 0 {
-		return result, nil
-	}
-
+	// Read the 3D array elements
+	slice := make([][][]T, count)
 	for i := 0; i < int(count); i++ {
-		val, err := deserializeRawValue(r, typeTag)
+		innerSlice, err := readTwoDimensionalSlice[T](r, eleType)
 		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize element at index %d: %w", i, err)
+			return nil, fmt.Errorf("failed to read 3D array element at index %d: %w", i, err)
 		}
-		result[i] = val.(T)
-	}
 
-	return result, nil
+		slice[i] = innerSlice
+	}
+	return slice, nil
 }
 
-// deserializeRawValue reads a target item out of the stream based on the expected type indicator
-func deserializeRawValue(r io.Reader, targetTag uint16) (any, error) {
-	switch targetTag {
-	case TagString:
-		length, err := readUint32(r)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read string length: %w", err)
-		}
-		if length > MaxAllowedPacket {
-			return nil, fmt.Errorf("string length %d exceeds MaxAllowedPacket", length)
-		}
-
-		buf := make([]byte, length)
-		if _, err := io.ReadFull(r, buf); err != nil {
-			return nil, fmt.Errorf("failed to read string data: %w", err)
-		}
-		return string(buf), nil
-
-	case TagByteSlice:
-		length, err := readUint32(r)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read []byte length: %w", err)
-		}
-		if length > MaxAllowedPacket {
-			return nil, fmt.Errorf("[]byte length %d exceeds MaxAllowedPacket", length)
-		}
-
-		buf := make([]byte, length)
-		if _, err := io.ReadFull(r, buf); err != nil {
-			return nil, fmt.Errorf("failed to read []byte data: %w", err)
-		}
-		return buf, nil
-
-{{range .Messages}}{{$msg := .}}
-	case Tag{{$msg.Name}}:
-		typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
-		if err != nil {
-			return nil, err
-		}
-
-		var msg {{$msg.Name}}
-		if typeID != msg.MessageTypeID() {
-			return nil, fmt.Errorf("unexpected type ID %d for {{$msg.Name}}, expected %d", typeID, msg.MessageTypeID())
-		}
-
-		{{$msg.Name}}_reader := io.LimitReader(r, int64(overallPayloadLen))
-		if err := msg.Unmarshal({{$msg.Name}}_reader, fixedPayloadLen, overallPayloadLen); err != nil {
-			return nil, fmt.Errorf("failed to deserialize {{$msg.Name}}: %w", err)
-		}
-		return &msg, nil
-{{end}} {{/* range .Messages */}}
-
-	case TagArray:
-		innerTypeTag, err := readUint16(r)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read array type tag: %w", err)
-		}
-
-		count, err := readUint16(r)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read inner array count: %w", err)
-		}
-		if count > MaxArrayElements {
-			return nil, fmt.Errorf("inner array length %d exceeds MaxArrayElements", count)
-		}
-
-		innerSlice := make([]any, count)
-		for i := 0; i < int(count); i++ {
-			val, err := deserializeRawValue(r, innerTypeTag)
-			if err != nil {
-				return nil, fmt.Errorf("failed at inner index %d: %w", i, err)
-			}
-			innerSlice[i] = val
-		}
-		return innerSlice, nil
-
-	default:
-		return nil, fmt.Errorf("unknown decoding type tag: 0x%04X", targetTag)
+func readTwoDimensionalSlice[T any](r io.Reader, eleType uint16) ([][]T, error) {
+	count, err := readUint16(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read 2D array count: %w", err)
 	}
+	
+	// Read the 2D array elements
+	slice := make([][]T, count)
+	for i := 0; i < int(count); i++ {
+		innerSlice, err := readOneDimensionalSlice[T](r, eleType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read 2D array element at index %d: %w", i, err)
+		}
+
+		slice[i] = innerSlice
+	}
+	return slice, nil
+}
+
+func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
+	count, err := readUint16(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read 1D array count: %w", err)
+	}
+
+	slice := make([]T, count)
+
+	// Read the 1D array elements
+	switch sl := any(slice).(type) {
+	case []uint8:
+		data := make([]byte, count)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		copy(sl, data)
+	case []int8:
+		data := make([]byte, count)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = int8(data[i])
+		}
+	case []bool:
+		data := make([]byte, count)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = data[i] != 0
+		}
+	case []uint16:
+		data := make([]byte, count * 2)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = binary.BigEndian.Uint16(data[i*2:i*2+2])
+		}
+	case []int16:
+		data := make([]byte, count * 2)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = int16(binary.BigEndian.Uint16(data[i*2:i*2+2]))
+		}
+	case []uint32:
+		data := make([]byte, count * 4)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = binary.BigEndian.Uint32(data[i*4:i*4+4])
+		}
+	case []int32:
+		data := make([]byte, count * 4)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = int32(binary.BigEndian.Uint32(data[i*4:i*4+4]))
+		}
+	case []float32:
+		data := make([]byte, count * 4)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = math.Float32frombits(binary.BigEndian.Uint32(data[i*4:i*4+4]))
+		}
+	case []uint64:
+		data := make([]byte, count * 8)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = binary.BigEndian.Uint64(data[i*8:i*8+8])
+		}
+	case []int64:
+		data := make([]byte, count * 8)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = int64(binary.BigEndian.Uint64(data[i*8:i*8+8]))
+		}
+	case []float64:
+		data := make([]byte, count * 8)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, fmt.Errorf("failed to read array elements: %w", err)
+		}
+		for i := range sl {
+			sl[i] = math.Float64frombits(binary.BigEndian.Uint64(data[i*8:i*8+8]))
+		}
+	case []string:
+		for i := range sl {
+			length, err := readUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read string length at index %d: %w", i, err)
+			}
+			if length > MaxAllowedPacket {
+				return nil, fmt.Errorf("string length %d exceeds MaxAllowedPacket at index %d", length, i)
+			}
+
+			buf := make([]byte, length)
+			if _, err := io.ReadFull(r, buf); err != nil {
+				return nil, fmt.Errorf("failed to read string data at index %d: %w", i, err)
+			}
+			sl[i] = string(buf)
+		}
+	case [][]byte:
+		for i := range sl {
+			length, err := readUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read []byte length at index %d: %w", i, err)
+			}
+			if length > MaxAllowedPacket {
+				return nil, fmt.Errorf("[]byte length %d exceeds MaxAllowedPacket at index %d", length, i)
+			}
+
+			buf := make([]byte, length)
+			if _, err := io.ReadFull(r, buf); err != nil {
+				return nil, fmt.Errorf("failed to read []byte data at index %d: %w", i, err)
+			}
+			sl[i] = buf
+		}
+{{range .Messages}}{{$msg := .}}
+	case []*{{$msg.Name}}:
+		for i := range sl {
+			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read frame header for *{{$msg.Name}} at index %d: %w", i, err)
+			}
+			
+			var msg {{$msg.Name}}
+			if typeID != msg.MessageTypeID() {
+				return nil, fmt.Errorf("unexpected type ID %d for {{$msg.Name}}, expected %d", typeID, msg.MessageTypeID())
+			}
+
+			{{$msg.Name}}_reader := io.LimitReader(r, int64(overallPayloadLen))
+			if err := msg.Unmarshal({{$msg.Name}}_reader, fixedPayloadLen, overallPayloadLen); err != nil {
+				return nil, fmt.Errorf("failed to deserialize {{$msg.Name}}: %w", err)
+			}
+			sl[i] = &msg
+		}
+{{end}} {{/* range .Messages */}}
+	default:
+		return nil, fmt.Errorf("unsupported 1D array element type: %d", eleType)
+	}
+
+	return slice, nil
 }
 
 func getElementType(item any) (uint16, error) {
 	switch item.(type) {
+	case bool:
+		return TagBool, nil
+	case int8:
+		return TagInt8, nil
+	case uint8:
+		return TagUint8, nil
+	case int16:
+		return TagInt16, nil
+	case uint16:
+		return TagUint16, nil
+	case int32:
+		return TagInt32, nil
+	case uint32:
+		return TagUint32, nil
+	case float32:
+		return TagFloat32, nil
+	case int64:
+		return TagInt64, nil
+	case uint64:
+		return TagUint64, nil
+	case float64:
+		return TagFloat64, nil
 	case string:
 		return TagString, nil
 	case []byte:
 		return TagByteSlice, nil
-	case []any, []string:
-		return TagArray, nil
 {{range .Messages}}{{$msg := .}}
 	case *{{$msg.Name}}:
 		return Tag{{$msg.Name}}, nil
-	case []*{{$msg.Name}}:
-		return TagArray, nil
 {{end}} {{/* range .Messages */}}
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", item)

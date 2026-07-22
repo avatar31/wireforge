@@ -100,24 +100,24 @@ uint16_t get_message_fixed_payload_length(const uint8_t* buf);
 uint32_t get_message_overall_payload_length(const uint8_t* buf);
 
 {{range .Messages}}{{$msg := .}}
-typedef struct {{snakeLower .Name}} {{snakeLower .Name}}_t;
-{{end}}
+typedef struct {{snakeLower $msg.Name}} {{snakeLower $msg.Name}}_t;
+{{end}}{{/* range .Messages */}}
 {{range .Messages}}{{$msg := .}}
 /* ===========================================================================
- * {{.Name}}
- * Wire Type ID: {{.TypeID}}
+ * {{$msg.Name}}
+ * Wire Type ID: {{$msg.TypeID}}
  * Fixed Block Length: {{.TotalFixedSize}} bytes (including alignment padding)
  * Overall Payload Length: {{.TotalFixedSize}} bytes + Runtime dynamic payload
  * ===========================================================================*/
 
-/** Wire protocol message type ID for {{.Name}}. */
-#define {{snakeUpper .Name}}_TYPE_ID {{.TypeID}}
+/** Wire protocol message type ID for {{$msg.Name}}. */
+#define {{snakeUpper $msg.Name}}_TYPE_ID {{$msg.TypeID}}
 
-/** Byte size of the fixed block for {{.Name}} (padded for alignment). */
-#define {{snakeUpper .Name}}_FIXED_SIZE {{.TotalFixedSize}}
+/** Byte size of the fixed block for {{$msg.Name}} (padded for alignment). */
+#define {{snakeUpper $msg.Name}}_FIXED_SIZE {{.TotalFixedSize}}
 
 /**
- * {{snakeLower .Name}}_t - Wire-serializable message structure.
+ * {{snakeLower $msg.Name}}_t - Wire-serializable message structure.
  *
  * Fixed-size fields are stored inline. Variable-length fields (strings, byte
  * arrays) are represented as a uint32 length prefix plus a heap-allocated
@@ -126,56 +126,54 @@ typedef struct {{snakeLower .Name}} {{snakeLower .Name}}_t;
  *
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
-struct {{snakeLower .Name}} {
-{{- range padFields .}}
-{{- if .IsPadding}}
-    uint8_t {{.PadName}}[{{.PadSize}}]; /**< Explicit alignment padding. */
+struct {{snakeLower $msg.Name}} {
+{{- range padFields .}} {{$pad_field := .}}
+{{- if $pad_field.IsPadding}}
+    uint8_t {{$pad_field.PadName}}[{{$pad_field.PadSize}}]; /**< Explicit alignment padding. */
 {{- else}}
-{{- if isVariable .Field.Type}}
-{{- if .Field.Description}}
-    /** {{.Field.Description}} (length of dynamic payload below). */
-{{- end}}
-    uint32_t {{.Field.CName}}_len;
-    {{cType .Field.Type}} {{.Field.CName}};     /**< Heap-allocated; call {{snakeLower $msg.Name}}_free() when done. */
-{{- else}}
-{{- if .Field.Description}}
-    /** {{.Field.Description}} */
-{{- end}}
-    {{cType .Field.Type}} {{.Field.CName}};
-{{- end}}
-{{- end}}
-{{- end}}
+{{- if isVariable $pad_field.Field.Type}}
+{{- if $pad_field.Field.Description}}
+    /** {{$pad_field.Field.Description}} */
+{{- end}} {{/* $pad_field.Field.Description */}}
+
+
+    uint32_t {{$pad_field.Field.CName}}_len;
+    {{cType $pad_field.Field.Type}} {{$pad_field.Field.CName}};
+
+	
+{{- else}} {{/* not (isVariable $pad_field.Field.Type) */}}
+{{- if $pad_field.Field.Description}}
+    /** {{$pad_field.Field.Description}} */
+{{- end}} {{/* $pad_field.Field.Description */}}
+    {{cType $pad_field.Field.Type}} {{$pad_field.Field.CName}};
+{{- end}} {{/* isVariable $pad_field.Field.Type */}}
+{{- end}} {{/* $pad_field.IsPadding */}}
+{{- end}} {{/* range padFields . */}}
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
-_Static_assert(sizeof({{snakeLower .Name}}_t) >= {{.TotalFixedSize}},
-    "wireforge: {{snakeLower .Name}}_t fixed layout size mismatch");
+_Static_assert(sizeof({{snakeLower $msg.Name}}_t) >= {{.TotalFixedSize}},
+    "wireforge: {{snakeLower $msg.Name}}_t fixed layout size mismatch");
 
-{{- range .Fields}}{{$msg_field := .}}
+{{- range $msg.Fields}}{{$field := .}}
 
 /**
- * Sets the value of the {{$msg_field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
+ * Sets the value of the {{$field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
  * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
-{{- if isVariable $msg_field.Type}}
-{{- if isByteArray $msg_field.Type}}
-void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len);
-{{- else}}
-void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value);
-{{- end}}
-{{- else}}
-void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cType $msg_field.Type}} value);
-{{- end}}
-{{- end}}
+{{- if isVariable $field.Type}}
+{{- if isByteArray $field.Type}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len);
+{{- else}}{{/* not (isByteArray $field.Type) */}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value);
+{{- end}}{{/* isByteArray $field.Type */}}
+{{- else}}{{/* not (isVariable $field.Type) */}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cType $field.Type}} value);
+{{- end}}{{/* isVariable $field.Type */}}
+{{- end}}{{/* range $msg.Fields */}}
 
 /**
- * calculate_{{snakeLower .Name}}_dynamic_payload_size - Compute the total size of
- * all variable-length fields in the {{$msg.Name}} message from the fixed payload.
- */
-uint32_t calculate_{{snakeLower .Name}}_dynamic_payload_size(const uint8_t* hdr_buf);
-
-/**
- * Serialize a {{.Name}} message into out_buf in wire format.
+ * Serialize a {{$msg.Name}} message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
@@ -184,10 +182,10 @@ uint32_t calculate_{{snakeLower .Name}}_dynamic_payload_size(const uint8_t* hdr_
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int {{snakeLower .Name}}_marshal(const {{snakeLower .Name}}_t* msg, uint8_t** out_buf);
+int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t* msg, uint8_t** out_buf);
 
 /**
- * Deserialize a {{.Name}} message from a contiguous buffer.
+ * Deserialize a {{$msg.Name}} message from a contiguous buffer.
  *
  * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
@@ -196,23 +194,23 @@ int {{snakeLower .Name}}_marshal(const {{snakeLower .Name}}_t* msg, uint8_t** ou
  * @return						0 on success, -1 on error (truncated data, allocation failure,
  *                          		length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call {{snakeLower .Name}}_free(out_msg) when done to release
+ * On success, caller MUST call {{snakeLower $msg.Name}}_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int {{snakeLower .Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, {{snakeLower .Name}}_t* out_msg);
+int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t* out_msg);
 
 /**
- * Free all dynamically allocated fields in a {{snakeLower .Name}}_t struct.
+ * Free all dynamically allocated fields in a {{snakeLower $msg.Name}}_t struct.
  *
  * Safe to call multiple times: pointers are set to NULL and lengths to 0
  * after release. Does NOT free the struct itself (caller manages lifetime).
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void {{snakeLower .Name}}_free({{snakeLower .Name}}_t* msg);
+void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t* msg);
 
-{{end}}
+{{end}}{{/* range .Messages */}}
 #ifdef __cplusplus
 }
 #endif

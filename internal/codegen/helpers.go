@@ -7,8 +7,10 @@ package codegen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/avatar31/wireforge/internal/compiler"
+	"github.com/avatar31/wireforge/internal/schema"
 )
 
 type padFieldEntry struct {
@@ -64,4 +66,41 @@ func generatePadFields(msg *compiler.CompiledMessage) []padFieldEntry {
 		})
 	}
 	return entries
+}
+
+func snakeLowerCase(s string) string {
+	return strings.ToLower(compiler.ToSnakeCase(s))
+}
+
+func arrayRootType(f *compiler.CompiledField, messages []*compiler.CompiledMessage, outputType string) string {
+    if f.Type != schema.FieldTypeArray {
+        return ""
+    }
+
+    dimenstion := 1
+    arrElem := f.ArrElem
+    for {
+        if arrElem.Type != schema.FieldTypeArray {
+			for _, msg := range messages {
+				if msg.TypeID == f.ArrElem.NestedMessageId {
+					if outputType == "go" {
+						return "*"+msg.Name
+					}
+					return snakeLowerCase(msg.Name)
+				}
+			}
+
+			if outputType == "go" {
+				return arrElem.Type.GoType()
+			}
+            return arrElem.Type.CType()
+        }
+        if dimenstion >= 4 {
+            break
+        }
+        arrElem = arrElem.ArrElem
+        dimenstion++
+    }
+
+    return ""
 }

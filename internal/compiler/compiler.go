@@ -6,6 +6,7 @@
 package compiler
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"unicode"
@@ -98,17 +99,21 @@ type CompiledField struct {
 
 // Compile takes a parsed schema and computes memory layouts with alignment.
 // Uses `CompileMessage` to compute the layout for each message in the schema.
-func Compile(s *schema.Schema, packageName string) *CompiledSchema {
+func Compile(s *schema.Schema, packageName string) (*CompiledSchema, error) {
 	cs := &CompiledSchema{
 		PackageName: packageName,
 		Messages:    make([]*CompiledMessage, 0, len(s.Messages)),
 	}
 
 	for _, msg := range s.Messages {
-		cs.Messages = append(cs.Messages, CompileMessage(msg))
+		cm, err := CompileMessage(msg)
+		if err != nil {
+			return nil, err
+		}
+		cs.Messages = append(cs.Messages, cm)
 	}
 
-	return cs
+	return cs, nil
 }
 
 // CompileMessage computes the memory layout for a single message, including offsets, padding, and alignment.
@@ -134,7 +139,7 @@ func Compile(s *schema.Schema, packageName string) *CompiledSchema {
 //	--------------------------------------------------------
 //	Total Fixed Size: 24 bytes (17 bytes data + 7 bytes trailing padding)
 //	Struct Alignment: 8 bytes
-func CompileMessage(msg *schema.Message) *CompiledMessage {
+func CompileMessage(msg *schema.Message) (*CompiledMessage, error) {
 	cm := &CompiledMessage{Name: msg.Name, TypeID: msg.TypeID}
 	precedenceOrder := make([][]*schema.Field, schema.NumOfFieldTypes)
 	for i := range msg.Fields {
@@ -165,33 +170,9 @@ func CompileMessage(msg *schema.Message) *CompiledMessage {
 
 	// Process the optimally ordered fields
 	for _, field := range optimizedFields {
-		cf := &CompiledField{
-			Name:            field.Name,
-			GoName:          toGoName(field.Name),
-			CName:           ToSnakeCase(field.Name),
-			Description:     field.Description,
-			Type:            field.Type,
-			Size:            field.Type.Size(),
-			Alignment:       field.Type.Alignment(),
-			IsVariable:      field.IsVariable,
-			NestedMessageId: field.NestedMessageId,
-		}
-
-		if field.Type == schema.FieldTypeArray {
-			if field.ArrElem == nil {
-				return nil // Invalid schema: array field must have an element type
-			}
-			cf.ArrElem = &CompiledField{
-				Name:            field.ArrElem.Name,
-				GoName:          toGoName(field.ArrElem.Name),
-				CName:           ToSnakeCase(field.ArrElem.Name),
-				Description:     field.ArrElem.Description,
-				Type:            field.ArrElem.Type,
-				Size:            field.ArrElem.Type.Size(),
-				Alignment:       field.ArrElem.Type.Alignment(),
-				IsVariable:      field.ArrElem.IsVariable,
-				NestedMessageId: field.ArrElem.NestedMessageId,
-			}
+		cf, err := parseCompiledField(field)
+		if err != nil {
+			return nil, err
 		}
 
 		align := cf.Alignment
@@ -224,7 +205,35 @@ func CompileMessage(msg *schema.Message) *CompiledMessage {
 	cm.TotalFixedSize = offset
 	cm.StructAlignment = maxAlign
 
-	return cm
+	return cm, nil
+}
+
+func parseCompiledField(field *schema.Field) (*CompiledField, error) {
+	cf := &CompiledField{
+		Name:            field.Name,
+		GoName:          toGoName(field.Name),
+		CName:           ToSnakeCase(field.Name),
+		Description:     field.Description,
+		Type:            field.Type,
+		Size:            field.Type.Size(),
+		Alignment:       field.Type.Alignment(),
+		IsVariable:      field.IsVariable,
+		NestedMessageId: field.NestedMessageId,
+	}
+
+	if field.Type == schema.FieldTypeArray {
+		if field.ArrElem == nil {
+			return nil, errors.New("array field must have an element type defined")
+		}
+
+		arrField, err := parseCompiledField(field.ArrElem)
+		if err != nil {
+			return nil, err
+		}
+		cf.ArrElem = arrField
+	}
+
+	return cf, nil
 }
 
 func toGoName(name string) string {

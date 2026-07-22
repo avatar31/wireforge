@@ -19,7 +19,7 @@ var cTemplate = template.Must(template.New("c").Funcs(template.FuncMap{
 	"upper":       strings.ToUpper,
 	"snakeUpper":  func(name string) string { return strings.ToUpper(compiler.ToSnakeCase(name)) },
 	"snakeLower":  func(name string) string { return strings.ToLower(compiler.ToSnakeCase(name)) },
-	"cType":       func(ft schema.FieldType) string { return ft.CType() },
+	"cBaseType":   func(f *compiler.CompiledField) string { return f.Type.CType() },
 	"isVariable":  func(ft schema.FieldType) bool { return ft.IsVariable() },
 	"isByteArray": func(ft schema.FieldType) bool { return ft.GoType() == "[]byte" },
 	"add":         func(a, b int) int { return a + b },
@@ -103,34 +103,34 @@ uint32_t get_message_overall_payload_length(const uint8_t* buf) {
 
 {{range .Messages}}{{$msg := .}}
 /* ===========================================================================
- * {{.Name}} (Type ID: {{.TypeID}}, Fixed Payload: {{.TotalFixedSize}} bytes)
+ * {{$msg.Name}} (Type ID: {{$msg.TypeID}}, Fixed Payload: {{$msg.TotalFixedSize}} bytes)
  * ===========================================================================*/
 
-{{- range .Fields}}{{$msg_field := .}}
+{{- range $msg.Fields}}{{$field := .}}
 
 /**
- * Sets the value of the {{$msg_field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
+ * Sets the value of the {{$field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
  */
-{{- if isVariable $msg_field.Type}}
-{{- if isByteArray $msg_field.Type}}
-void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len) {
+{{- if isVariable $field.Type}}
+{{- if isByteArray $field.Type}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len) {
     if (!msg || !value || len == 0) return;
-    if (msg->{{$msg_field.CName}} != NULL) {
-        free(msg->{{$msg_field.CName}});
+    if (msg->{{$field.CName}} != NULL) {
+        free(msg->{{$field.CName}});
     }
 
     uint8_t* new_value = (uint8_t*) malloc(len);
     if (!new_value) return;
 
     memcpy(new_value, value, len);
-    msg->{{$msg_field.CName}} = new_value;
-    msg->{{$msg_field.CName}}_len = (uint32_t)len;
+    msg->{{$field.CName}} = new_value;
+    msg->{{$field.CName}}_len = (uint32_t)len;
 }
-{{- else}}
-void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value) {
+{{- else}}{{/* not (isByteArray $field.Type) */}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value) {
     if (!msg || !value) return;
-    if (msg->{{$msg_field.CName}} != NULL) {
-        free(msg->{{$msg_field.CName}});
+    if (msg->{{$field.CName}} != NULL) {
+        free(msg->{{$field.CName}});
     }
 
     size_t len = strlen(value);
@@ -138,51 +138,37 @@ void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_
     if (!new_value) return;
 
     memcpy(new_value, value, len + 1);
-    msg->{{$msg_field.CName}} = new_value;
-    msg->{{$msg_field.CName}}_len = (uint32_t)len;
+    msg->{{$field.CName}} = new_value;
+    msg->{{$field.CName}}_len = (uint32_t)len;
 }
-{{- end}}
-{{- else}}
-void {{snakeLower $msg.Name}}_set_{{$msg_field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cType $msg_field.Type}} value) {
-    if (msg) msg->{{$msg_field.CName}} = value;
+{{- end}}{{/* isByteArray $field.Type */}}
+{{- else}}{{/* not (isVariable $field.Type) */}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cBaseType $field}} value) {
+    if (msg) msg->{{$field.CName}} = value;
 }
-{{- end}}
-{{- end}}
+{{- end}}{{/* isVariable $field.Type */}}
+{{- end}}{{/* range $msg.Fields */}}
 
 /**
- * calculate_{{snakeLower .Name}}_dynamic_payload_size - Compute the total size of
- * all variable-length fields in the {{$msg.Name}} message from the fixed header.
- */
-uint32_t calculate_{{snakeLower .Name}}_dynamic_payload_size(const uint8_t* hdr_buf) {
-    if (!hdr_buf) return 0;
-    uint32_t dyn_total = 0;
-{{- range .VariableFields}}
-    uint32_t {{.CName}}_len = get_u32_be(hdr_buf + {{.Offset}});
-    dyn_total += {{.CName}}_len;
-{{- end}}
-    return dyn_total;
-}
-
-/**
- * {{snakeLower .Name}}_marshal - Serialize {{.Name}} to wire format.
+ * {{snakeLower $msg.Name}}_marshal - Serialize {{$msg.Name}} to wire format.
  *
  * Writes the complete framed message into out_buf:
- *   [0:2]      Type ID ({{.TypeID}}, Big-Endian)
- *   [2:4]      Fixed payload length ({{.TotalFixedSize}}, Big-Endian)
+ *   [0:2]      Type ID ({{$msg.TypeID}}, Big-Endian)
+ *   [2:4]      Fixed payload length ({{$msg.TotalFixedSize}}, Big-Endian)
  *   [4:8]      Overall payload length (including runtime dynamic payload, Big-Endian encoded)
  *   [8:{{add 8 .TotalFixedSize}}]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [{{add 8 .TotalFixedSize}}:end]   Dynamic payload (variable-length field data)
  */
-int {{snakeLower .Name}}_marshal(const {{snakeLower .Name}}_t* msg, uint8_t** out_buf) {
+int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
     /* Calculate total dynamic payload size from all variable-length fields */
     size_t dyn_size = 0;
-{{- range .VariableFields}}
-    dyn_size += msg->{{.CName}}_len;
-{{- end}}
+{{- range $msg.VariableFields}}{{$field := .}}
+    dyn_size += msg->{{$field.CName}}_len;
+{{- end}}{{/* range $msg.VariableFields */}}
 
-    uint32_t payload_size = {{snakeUpper .Name}}_FIXED_SIZE + dyn_size;
+    uint32_t payload_size = {{snakeUpper $msg.Name}}_FIXED_SIZE + dyn_size;
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
         return -1;
@@ -193,66 +179,66 @@ int {{snakeLower .Name}}_marshal(const {{snakeLower .Name}}_t* msg, uint8_t** ou
         return -1;
     }
 
-    memset(buf, 0, WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE);
+    memset(buf, 0, WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE);
 
     /* Write wire frame header identifiers */
-    put_u16_be(buf, {{snakeUpper .Name}}_TYPE_ID);
-    put_u16_be(buf + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, {{snakeUpper .Name}}_FIXED_SIZE);
+    put_u16_be(buf, {{snakeUpper $msg.Name}}_TYPE_ID);
+    put_u16_be(buf + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, {{snakeUpper $msg.Name}}_FIXED_SIZE);
     put_u32_be(buf + WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE, payload_size);
 
     uint8_t* hdr = buf + WIRE_FRAME_HEADER_SIZE;
-    size_t dyn_off = WIRE_FRAME_HEADER_SIZE + {{snakeUpper .Name}}_FIXED_SIZE;
+    size_t dyn_off = WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE;
 
-{{- range .Fields}}
-{{- if isVariable .Type}}
+{{- range $msg.Fields}}{{$field := .}}
+{{- if isVariable $field.Type}}
 
-    put_u32_be(hdr + {{.Offset}}, msg->{{.CName}}_len);
-    if (msg->{{.CName}}_len > 0 && msg->{{.CName}}) {
-        memcpy(buf + dyn_off, msg->{{.CName}}, msg->{{.CName}}_len);
-        dyn_off += msg->{{.CName}}_len;
+    put_u32_be(hdr + {{$field.Offset}}, msg->{{$field.CName}}_len);
+    if (msg->{{$field.CName}}_len > 0 && msg->{{$field.CName}}) {
+        memcpy(buf + dyn_off, msg->{{$field.CName}}, msg->{{$field.CName}}_len);
+        dyn_off += msg->{{$field.CName}}_len;
     }
-{{- else}}
-{{- if eq (cType .Type) "uint8_t"}}
+{{- else}}{{/* not (isVariable $field.Type) */}}
+{{- if eq (cBaseType $field) "uint8_t"}}
 
-    hdr[{{.Offset}}] = msg->{{.CName}};
-{{- else if eq (cType .Type) "int8_t"}}
+    hdr[{{$field.Offset}}] = msg->{{$field.CName}};
+{{- else if eq (cBaseType $field) "int8_t"}}
 
-    hdr[{{.Offset}}] = (uint8_t)msg->{{.CName}};
-{{- else if eq (cType .Type) "uint16_t"}}
+    hdr[{{$field.Offset}}] = (uint8_t)msg->{{$field.CName}};
+{{- else if eq (cBaseType $field) "uint16_t"}}
 
-    put_u16_be(hdr + {{.Offset}}, msg->{{.CName}});
-{{- else if eq (cType .Type) "int16_t"}}
+    put_u16_be(hdr + {{$field.Offset}}, msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "int16_t"}}
 
-    put_u16_be(hdr + {{.Offset}}, (uint16_t)msg->{{.CName}});
-{{- else if eq (cType .Type) "uint32_t"}}
+    put_u16_be(hdr + {{$field.Offset}}, (uint16_t)msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "uint32_t"}}
 
-    put_u32_be(hdr + {{.Offset}}, msg->{{.CName}});
-{{- else if eq (cType .Type) "int32_t"}}
+    put_u32_be(hdr + {{$field.Offset}}, msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "int32_t"}}
 
-    put_u32_be(hdr + {{.Offset}}, (uint32_t)msg->{{.CName}});
-{{- else if eq (cType .Type) "uint64_t"}}
+    put_u32_be(hdr + {{$field.Offset}}, (uint32_t)msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "uint64_t"}}
 
-    put_u64_be(hdr + {{.Offset}}, msg->{{.CName}});
-{{- else if eq (cType .Type) "int64_t"}}
+    put_u64_be(hdr + {{$field.Offset}}, msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "int64_t"}}
 
-    put_u64_be(hdr + {{.Offset}}, (uint64_t)msg->{{.CName}});
-{{- else if eq (cType .Type) "float"}}
+    put_u64_be(hdr + {{$field.Offset}}, (uint64_t)msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "float"}}
 
     {
         uint32_t tmp;
-        memcpy(&tmp, &msg->{{.CName}}, sizeof(tmp));
-        put_u32_be(hdr + {{.Offset}}, tmp);
+        memcpy(&tmp, &msg->{{$field.CName}}, sizeof(tmp));
+        put_u32_be(hdr + {{$field.Offset}}, tmp);
     }
-{{- else if eq (cType .Type) "double"}}
+{{- else if eq (cBaseType $field) "double"}}
 
     {
         uint64_t tmp;
-        memcpy(&tmp, &msg->{{.CName}}, sizeof(tmp));
-        put_u64_be(hdr + {{.Offset}}, tmp);
+        memcpy(&tmp, &msg->{{$field.CName}}, sizeof(tmp));
+        put_u64_be(hdr + {{$field.Offset}}, tmp);
     }
-{{- end}}
-{{- end}}
-{{- end}}
+{{- end}}{{/* eq (cBaseType $field) */}}
+{{- end}}{{/* isVariable $field.Type */}}
+{{- end}}{{/* range $msg.Fields */}}
 
     (void)dyn_off;
     *out_buf = buf;
@@ -260,111 +246,115 @@ int {{snakeLower .Name}}_marshal(const {{snakeLower .Name}}_t* msg, uint8_t** ou
 }
 
 /**
- * {{snakeLower .Name}}_unmarshal - Deserialize {{.Name}} from a contiguous buffer.
+ * {{snakeLower $msg.Name}}_unmarshal - Deserialize {{$msg.Name}} from a contiguous buffer.
  *
  * in_buf points to the start of the fixed header (after the 8-byte frame header).
- * Variable-length fields are malloc'd; caller must call {{snakeLower .Name}}_free().
+ * Variable-length fields are malloc'd; caller must call {{snakeLower $msg.Name}}_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int {{snakeLower .Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, {{snakeLower .Name}}_t* out_msg) {
+int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t* out_msg) {
     if (!in_buf || !out_msg ||
-        fixed_payload_len < {{snakeUpper .Name}}_FIXED_SIZE ||
+        fixed_payload_len < {{snakeUpper $msg.Name}}_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
-    memset(out_msg, 0, sizeof({{snakeLower .Name}}_t));
+    memset(out_msg, 0, sizeof({{snakeLower $msg.Name}}_t));
 
     const uint8_t* hdr = in_buf;
     size_t dyn_off = fixed_payload_len;
 
     /* Decode fixed-size primitives from structural block offsets */
-{{- range .Fields}}
-{{- if isVariable .Type}}
-    out_msg->{{.CName}}_len = get_u32_be(hdr + {{.Offset}});
-{{- else}}
-{{- if eq (cType .Type) "uint8_t"}}
-    out_msg->{{.CName}} = hdr[{{.Offset}}];
-{{- else if eq (cType .Type) "int8_t"}}
-    out_msg->{{.CName}} = (int8_t)hdr[{{.Offset}}];
-{{- else if eq (cType .Type) "uint16_t"}}
-    out_msg->{{.CName}} = get_u16_be(hdr + {{.Offset}});
-{{- else if eq (cType .Type) "int16_t"}}
-    out_msg->{{.CName}} = (int16_t)get_u16_be(hdr + {{.Offset}});
-{{- else if eq (cType .Type) "uint32_t"}}
-    out_msg->{{.CName}} = get_u32_be(hdr + {{.Offset}});
-{{- else if eq (cType .Type) "int32_t"}}
-    out_msg->{{.CName}} = (int32_t)get_u32_be(hdr + {{.Offset}});
-{{- else if eq (cType .Type) "uint64_t"}}
-    out_msg->{{.CName}} = get_u64_be(hdr + {{.Offset}});
-{{- else if eq (cType .Type) "int64_t"}}
-    out_msg->{{.CName}} = (int64_t)get_u64_be(hdr + {{.Offset}});
-{{- else if eq (cType .Type) "float"}}
+{{- range $msg.Fields}}{{$field := .}}
+{{- if isVariable $field.Type}}
+
+
+    out_msg->{{$field.CName}}_len = get_u32_be(hdr + {{$field.Offset}});
+
+
+{{- else}} {{/* not (isVariable $field.Type) */}}
+{{- if eq (cBaseType $field) "uint8_t"}}
+    out_msg->{{$field.CName}} = hdr[{{$field.Offset}}];
+{{- else if eq (cBaseType $field) "int8_t"}}
+    out_msg->{{$field.CName}} = (int8_t)hdr[{{$field.Offset}}];
+{{- else if eq (cBaseType $field) "uint16_t"}}
+    out_msg->{{$field.CName}} = get_u16_be(hdr + {{$field.Offset}});
+{{- else if eq (cBaseType $field) "int16_t"}}
+    out_msg->{{$field.CName}} = (int16_t)get_u16_be(hdr + {{$field.Offset}});
+{{- else if eq (cBaseType $field) "uint32_t"}}
+    out_msg->{{$field.CName}} = get_u32_be(hdr + {{$field.Offset}});
+{{- else if eq (cBaseType $field) "int32_t"}}
+    out_msg->{{$field.CName}} = (int32_t)get_u32_be(hdr + {{$field.Offset}});
+{{- else if eq (cBaseType $field) "uint64_t"}}
+    out_msg->{{$field.CName}} = get_u64_be(hdr + {{$field.Offset}});
+{{- else if eq (cBaseType $field) "int64_t"}}
+    out_msg->{{$field.CName}} = (int64_t)get_u64_be(hdr + {{$field.Offset}});
+{{- else if eq (cBaseType $field) "float"}}
     {
-        uint32_t tmp = get_u32_be(hdr + {{.Offset}});
-        memcpy(&out_msg->{{.CName}}, &tmp, sizeof(tmp));
+        uint32_t tmp = get_u32_be(hdr + {{$field.Offset}});
+        memcpy(&out_msg->{{$field.CName}}, &tmp, sizeof(tmp));
     }
-{{- else if eq (cType .Type) "double"}}
+{{- else if eq (cBaseType $field) "double"}}
     {
-        uint64_t tmp = get_u64_be(hdr + {{.Offset}});
-        memcpy(&out_msg->{{.CName}}, &tmp, sizeof(tmp));
+        uint64_t tmp = get_u64_be(hdr + {{$field.Offset}});
+        memcpy(&out_msg->{{$field.CName}}, &tmp, sizeof(tmp));
     }
-{{- end}}
-{{- end}}
-{{- end}}
+{{- end}}{{/* eq (cBaseType $field) */}}
+{{- end}}{{/* isVariable $field.Type */}}
+{{- end}}{{/* range $field.Fields */}}
 
     /* Decode variable-length dynamic fields safely */
-{{- range .VariableFields}}
-    if (out_msg->{{.CName}}_len > 0) {
-        if (out_msg->{{.CName}}_len > MAX_ALLOWED_PACKET ||
-            dyn_off + out_msg->{{.CName}}_len > overall_payload_len) {
+{{- range $msg.VariableFields}}{{$field := .}}
+    if (out_msg->{{$field.CName}}_len > 0) {
+        if (out_msg->{{$field.CName}}_len > MAX_ALLOWED_PACKET ||
+            dyn_off + out_msg->{{$field.CName}}_len > overall_payload_len) {
             {{snakeLower $msg.Name}}_free(out_msg);
             return -1;
         }
 
-{{- if eq (.Type.GoType) "string"}}
-        out_msg->{{.CName}} = (char*) malloc(out_msg->{{.CName}}_len + 1);
-        if (!out_msg->{{.CName}}) {
+{{- if eq ($field.Type.GoType) "string"}}
+        out_msg->{{$field.CName}} = (char*) malloc(out_msg->{{$field.CName}}_len + 1);
+        if (!out_msg->{{$field.CName}}) {
             {{snakeLower $msg.Name}}_free(out_msg);
             return -1;
         }
 
-        memcpy(out_msg->{{.CName}}, in_buf + dyn_off, out_msg->{{.CName}}_len);
-        out_msg->{{.CName}}[out_msg->{{.CName}}_len] = '\0';
-{{- else}}
-        out_msg->{{.CName}} = (uint8_t*)malloc(out_msg->{{.CName}}_len);
-        if (!out_msg->{{.CName}}) {
+        memcpy(out_msg->{{$field.CName}}, in_buf + dyn_off, out_msg->{{$field.CName}}_len);
+        out_msg->{{$field.CName}}[out_msg->{{$field.CName}}_len] = '\0';
+{{- else}}{{/* not (eq ($field.Type.GoType) "string") */}}
+        out_msg->{{$field.CName}} = (uint8_t*)malloc(out_msg->{{$field.CName}}_len);
+        if (!out_msg->{{$field.CName}}) {
             {{snakeLower $msg.Name}}_free(out_msg);
             return -1;
         }
-        memcpy(out_msg->{{.CName}}, in_buf + dyn_off, out_msg->{{.CName}}_len);
-{{- end}}
-        dyn_off += out_msg->{{.CName}}_len;
+        memcpy(out_msg->{{$field.CName}}, in_buf + dyn_off, out_msg->{{$field.CName}}_len);
+{{- end}}{{/* eq ($field.Type.GoType) "string" */}}
+        dyn_off += out_msg->{{$field.CName}}_len;
     }
-{{- end}}
+{{- end}}{{/* range $msg.VariableFields */}}
 
     (void)dyn_off;
     return 0;
 }
 
 /**
- * {{snakeLower .Name}}_free - Release heap memory owned by a {{snakeLower .Name}}_t struct.
+ * {{snakeLower $msg.Name}}_free - Release heap memory owned by a {{snakeLower $msg.Name}}_t struct.
  */
-void {{snakeLower .Name}}_free({{snakeLower .Name}}_t* msg) {
+void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t* msg) {
     if (!msg) {
         return;
     }
-{{- range .VariableFields}}
+{{- range $msg.VariableFields}}{{$field := .}}
 
-    if (msg->{{.CName}}) {
-        free(msg->{{.CName}});
-        msg->{{.CName}} = NULL;
+    if (msg->{{$field.CName}}) {
+        free(msg->{{$field.CName}});
+        msg->{{$field.CName}} = NULL;
     }
-    msg->{{.CName}}_len = 0;
-{{- end}}
+    msg->{{$field.CName}}_len = 0;
+{{- end}}{{/* range $msg.VariableFields */}}
 }
 
-{{end}}
+{{end}}{{/* range .Messages */}}
 `

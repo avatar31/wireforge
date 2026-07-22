@@ -308,7 +308,8 @@ func TestCompile(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			actualCSchema := Compile(tc.schema, packageName)
+			actualCSchema, err := Compile(tc.schema, packageName)
+			assert.NoError(t, err)
 			assert.NotNil(t, actualCSchema)
 			assert.Equal(t, tc.expectedCSchema.PackageName, actualCSchema.PackageName)
 			assert.Equal(t, len(tc.expectedCSchema.Messages), len(actualCSchema.Messages))

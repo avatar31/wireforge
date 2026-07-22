@@ -66,7 +66,10 @@ func run(inputFile, outputDir, packageName string) error {
 		return fmt.Errorf("no message schemas found in %s", inputFile)
 	}
 
-	cs := compiler.Compile(s, packageName)
+	cs, err := compiler.Compile(s, packageName)
+	if err != nil {
+		return fmt.Errorf("compile error: %w", err)
+	}
 
 	goOutputDir := filepath.Join(outputDir, "go")
 	if err := os.MkdirAll(goOutputDir, 0o755); err != nil {
@@ -115,12 +118,14 @@ func run(inputFile, outputDir, packageName string) error {
 	}
 	fmt.Printf("  generated: %s\n", cSourcePath)
 	fmt.Printf("\nwireforge: successfully generated %d message type(s)\n", len(cs.Messages))
+
 	return nil
 }
 
 // TODO's:
 // - Add documentation for all packages and functions in the codegen and compiler packages
 // - Add support for more complex types (arrays, nested objects)
+// - Test Padding logic after implementing more complex types like arrays and nested objects
 // - C TODO's:
 // 		- Add better error handling in C code. Like instead of returning -1,
 // 		define error code in header template and return accordingly.
