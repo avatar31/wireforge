@@ -17,18 +17,39 @@ import (
 var cHeaderTemplate = template.Must(template.New("cheader").Funcs(template.FuncMap{
 	"upper":       strings.ToUpper,
 	"lower":       strings.ToLower,
-	"cType":       func(ft schema.FieldType) string { return ft.CType() },
+	"cBaseType":   func (f *compiler.CompiledField) string { return f.Type.CType() },
+	"cType":       cType,
 	"isVariable":  func(ft schema.FieldType) bool { return ft.IsVariable() },
-	"isByteArray": func(ft schema.FieldType) bool { return ft.GoType() == "[]byte" },
 	"add":         func(a, b int) int { return a + b },
 	"snakeUpper":  func(name string) string { return strings.ToUpper(compiler.ToSnakeCase(name)) },
-	"snakeLower":  func(name string) string { return strings.ToLower(compiler.ToSnakeCase(name)) },
+	"snakeLower":  snakeLower,
 	"padFields":   generatePadFields,
 }).Parse(cHeaderTemplateSource))
 
 // GenerateCHeader writes the generated C header to w.
 func GenerateCHeader(w io.Writer, cs *compiler.CompiledSchema) error {
 	return cHeaderTemplate.Execute(w, cs)
+}
+
+func snakeLower(name string) string {
+	return strings.ToLower(compiler.ToSnakeCase(name))
+}
+
+func cType(f *compiler.CompiledField, messages []*compiler.CompiledMessage) string {
+	switch f.Type {
+	case schema.FieldTypeObject:
+		for _, msg := range messages {
+			if msg.TypeID == f.NestedMessageId {
+				return snakeLower(msg.Name) + "_t"
+			}
+		}
+	case schema.FieldTypeArray:
+		return "dynamic_array_t*"
+	default:
+		return f.Type.CType()
+	}
+
+	return ""
 }
 
 const cHeaderTemplateSource = `/*
@@ -88,6 +109,9 @@ extern "C" {
 #define WIRE_FRAME_MSG_TYPE_SIZE 2
 #define WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE 2
 #define WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE 4
+#define TYPE_MARKER_SIZE 2
+#define ARRAY_COUNT_PREFIX_SIZE 2
+#define STRING_OR_BYTE_LEN_PREFIX_SIZE 4
 
 /**
  * Size of the wire frame header:
@@ -95,13 +119,62 @@ extern "C" {
  */
 #define WIRE_FRAME_HEADER_SIZE 8
 
-uint16_t get_message_type(const uint8_t* buf);
-uint16_t get_message_fixed_payload_length(const uint8_t* buf);
-uint32_t get_message_overall_payload_length(const uint8_t* buf);
+typedef enum {
+    TAG_NONE        = 0x0000,
+    TAG_UINT8       = 0x0001,
+    TAG_INT8        = 0x0002,
+    TAG_BOOL        = 0x0003,
+    TAG_UINT16      = 0x0004,
+    TAG_INT16       = 0x0005,
+    TAG_UINT32      = 0x0006,
+    TAG_INT32       = 0x0007,
+    TAG_FLOAT32     = 0x0008,
+    TAG_UINT64      = 0x0009,
+    TAG_INT64       = 0x000A,
+    TAG_FLOAT64     = 0x000B,
+    TAG_STRING      = 0x000C,
+    TAG_BYTES       = 0x000D,
+    TAG_ARRAY       = 0x000E,
+    TAG_2D_ARRAY    = 0x000F,
+    TAG_3D_ARRAY    = 0x0010,
+{{- range $i, $msg := .Messages }}
+    TAG_{{snakeUpper $msg.Name}}       = {{ printf "0x%04X" (add $i 32) }},
+{{- end }}
+} element_type_t;
+
+typedef struct {
+	char *data;
+	uint32_t len;
+} string_t;
+
+typedef struct {
+	uint8_t *data;
+	uint32_t len;
+} byte_array_t;
+
+typedef struct {
+    void *data;
+    size_t elem_size;
+    
+    // User dimensions
+    uint8_t num_dims; // 1, 2, or 3
+    size_t x;
+    size_t y;
+    size_t z;
+    
+    // The total maximum flat elements the current memory can hold
+    size_t capacity; 
+	element_type_t ele_type; // element type for dynamic arrays
+} dynamic_array_t;
+
+uint16_t get_message_type(const uint8_t *buf);
+uint16_t get_message_fixed_payload_length(const uint8_t *buf);
+uint32_t get_message_overall_payload_length(const uint8_t *buf);
 
 {{range .Messages}}{{$msg := .}}
 typedef struct {{snakeLower $msg.Name}} {{snakeLower $msg.Name}}_t;
 {{end}}{{/* range .Messages */}}
+{{$overallMessages := .Messages}}
 {{range .Messages}}{{$msg := .}}
 /* ===========================================================================
  * {{$msg.Name}}
@@ -135,17 +208,21 @@ struct {{snakeLower $msg.Name}} {
 {{- if $pad_field.Field.Description}}
     /** {{$pad_field.Field.Description}} */
 {{- end}} {{/* $pad_field.Field.Description */}}
+{{- if eq (cBaseType $pad_field.Field) "struct"}}
+	{{snakeLower (cType $pad_field.Field $overallMessages)}}_t *{{$pad_field.Field.CName}};
+{{- else if eq (cBaseType $pad_field.Field) "[]any"}}
+	dynamic_array_t {{$pad_field.Field.CName}};
+{{- else if eq (cBaseType $pad_field.Field) "string"}}
+	string_t {{$pad_field.Field.CName}};
+{{- else if eq (cBaseType $pad_field.Field) "[]byte"}}
+	byte_array_t {{$pad_field.Field.CName}};
+{{end}}{{/* eq (cBaseType $pad_field.Field) */}}
 
-
-    uint32_t {{$pad_field.Field.CName}}_len;
-    {{cType $pad_field.Field.Type}} {{$pad_field.Field.CName}};
-
-	
 {{- else}} {{/* not (isVariable $pad_field.Field.Type) */}}
 {{- if $pad_field.Field.Description}}
     /** {{$pad_field.Field.Description}} */
 {{- end}} {{/* $pad_field.Field.Description */}}
-    {{cType $pad_field.Field.Type}} {{$pad_field.Field.CName}};
+    {{cBaseType $pad_field.Field}} {{$pad_field.Field.CName}};
 {{- end}} {{/* isVariable $pad_field.Field.Type */}}
 {{- end}} {{/* $pad_field.IsPadding */}}
 {{- end}} {{/* range padFields . */}}
@@ -162,15 +239,23 @@ _Static_assert(sizeof({{snakeLower $msg.Name}}_t) >= {{.TotalFixedSize}},
  * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
 {{- if isVariable $field.Type}}
-{{- if isByteArray $field.Type}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len);
-{{- else}}{{/* not (isByteArray $field.Type) */}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value);
-{{- end}}{{/* isByteArray $field.Type */}}
+{{- if eq (cBaseType $field) "[]any"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value);
+{{- else if eq (cBaseType $field) "struct"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cType $field $overallMessages}} *value);
+{{- else if eq (cBaseType $field) "string"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const char *value, const size_t len);
+{{- else if eq (cBaseType $field) "[]byte"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const uint8_t *value, const size_t len);
+{{- end}}{{/* if (cBaseType $field) */}}
 {{- else}}{{/* not (isVariable $field.Type) */}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cType $field.Type}} value);
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cBaseType $field}} value);
 {{- end}}{{/* isVariable $field.Type */}}
 {{- end}}{{/* range $msg.Fields */}}
+
+size_t {{snakeLower $msg.Name}}_dynamic_payload_size(void);
+
+size_t {{snakeLower $msg.Name}}_size(void);
 
 /**
  * Serialize a {{$msg.Name}} message into out_buf in wire format.
@@ -182,7 +267,7 @@ void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* m
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t* msg, uint8_t** out_buf);
+int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t *msg, uint8_t **out_buf);
 
 /**
  * Deserialize a {{$msg.Name}} message from a contiguous buffer.
@@ -197,8 +282,8 @@ int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t* msg, uint
  * On success, caller MUST call {{snakeLower $msg.Name}}_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t* out_msg);
+int {{snakeLower $msg.Name}}_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t *out_msg);
 
 /**
  * Free all dynamically allocated fields in a {{snakeLower $msg.Name}}_t struct.
@@ -208,9 +293,28 @@ int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_pay
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t* msg);
+void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t *msg);
 
 {{end}}{{/* range .Messages */}}
+
+/**
+ * Internal Helpers
+ */
+
+typedef size_t (*custom_size_fn)(const void *item);
+
+size_t calc_type_size(
+    const void *item,
+    element_type_t ele_type,
+    custom_size_fn size_fn
+);
+
+size_t calc_array_size(
+    const dynamic_array_t *arr,
+    element_type_t ele_type,
+    custom_size_fn size_fn
+);
+
 #ifdef __cplusplus
 }
 #endif

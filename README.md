@@ -101,6 +101,68 @@ Every wireforge message uses this frame layout:
 | **Dynamic Payload** | M bytes | Concatenated variable-length data (strings, byte arrays) in field order |
 
 
+### Array Format in Dynamic Payload
+
+Every array inside the dynamic payload will be formatted as flat bytes as follows:
+
+```
+    Offset
+      m        m+2        m+4      m+6            m+N
+      +---------+---------+--------+---------------+
+      | ArrType | Element | Oveall |  Sub-Arrays   |
+      |  Marker |  Type   | Count  | Variable Size |
+      +---------+---------+--------+---------------+
+```
+
+**Sub Array Format**
+Each sub-array is serialized as:
+
+```
+    (m+6)  (m+6)+2   m+N
+      +-------+-------+
+      | Count | Items |
+      +-------+-------+
+```
+For multidimensional arrays, the Items field contains one or more serialized sub-arrays. For a 1D array, Items contains the serialized element values.
+
+| Section | Size | Contents |
+|---|---|---|
+| **ArrType Marker** | 2 bytes | Indicates the array dimension (Big-Endian uint16) |
+| **Arr Element Type** | 2 bytes | Indicate the data type of each array element (Big-Endian uint16) |
+| **Overall Count** | 2 bytes | Total number of elements in the array (Big-Endian uint16) For example: `x` (1D), `x × y` (2D), or `x × y × z` (3D). |
+| **Sub Array** | N bytes | Serialized array contents. Each sub-array begins with a 2-byte element count followed by its contents. Nested arrays are serialized recursively using the same sub-array format. |
+
+**Example 3D Array**
+
+```
+  3D Array: [ [ [1, 2], [3, 4] ], [ [5, 6], [7, 8] ] ]
+  ArrType Marker: 0x0010 (3D array)
+  Arr Element Type: 0x0007 (int32)
+  Overall Count: 0x0008 (8 elements)
+  Sub Array: 
+    Sub-Array (count = 2)
+      ├── Sub-Array (count = 2)
+      │   ├── Sub-Array (count = 2): [1, 2]
+      │   └── Sub-Array (count = 2): [3, 4]
+      └── Sub-Array (count = 2)
+          ├── Sub-Array (count = 2): [5, 6]
+          └── Sub-Array (count = 2): [7, 8]
+
+```
+
+#### String Or Bytes Format in Array
+
+Strings and bytes stored as array elements are serialized as a 4-byte length prefix (big-endian `uint32`) followed by the raw byte data.
+
+```
+    Offset
+      m        m+4       m+4+N
+      +---------+----------+
+      | Length  |   Data   |
+      |  (4B)   | (N bytes)|
+      +---------+----------+
+```
+
 ## Alignment & Padding
 
 `wireforge` computes natural alignment for each field and inserts explicit padding bytes where needed. It has following precedence order for field layout:

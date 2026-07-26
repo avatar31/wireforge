@@ -162,13 +162,13 @@ const (
 	TagInt64     uint16 = 0x000A
 	TagFloat64   uint16 = 0x000B
 	TagString    uint16 = 0x000C
-    TagByteSlice uint16 = 0x000D
+    TagBytes 	 uint16 = 0x000D
     TagArray     uint16 = 0x000E
 	Tag2DArray 	 uint16 = 0x000F
 	Tag3DArray 	 uint16 = 0x0010
-    {{- range $i, $msg := .Messages }}
+{{- range $i, $msg := .Messages }}
     Tag{{$msg.Name}} uint16 = {{ printf "0x%04X" (add $i 32) }}
-    {{- end }}
+{{- end }}
 )
 
 // Compile-time import usage guarantees.
@@ -421,7 +421,7 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader,
 		if err != nil {
 			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} type marker: %w", err)
 		}
-		eleType, err := readUint16(reader)
+		_, err = readUint16(reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} element type marker: %w", err)
 		}
@@ -432,19 +432,19 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader,
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
 		}
 
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readOneDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, eleType)
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readOneDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 {{- else if eq (arrayDimension $field) 2}}
 		if arrType != Tag2DArray {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
 		}
 
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readTwoDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, eleType)
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readTwoDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 {{- else if eq (arrayDimension $field) 3}}
 		if arrType != Tag3DArray {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
 		}
 
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readThreeDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, eleType)
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readThreeDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 {{- else}}
 		err := fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} has unsupported array type")
 {{- end}}
@@ -514,7 +514,7 @@ func calcArraySize[T any](elements ...T) int {
 	// Primitive slices
 	switch any(elements).(type) {
 	case []bool, []int8, []uint8:
-		return size + (len(elements) * 1)
+		return size + len(elements)
 	case []int16, []uint16:
 		return size + (len(elements) * 2)
 	case []int32, []uint32, []float32:
@@ -554,8 +554,6 @@ func calcTypeSize(ele any) int {
 		return StrOrByteLenPrefixSize + len(val)
 
 {{range .Messages}}{{$msg := .}}
-	case {{$msg.Name}}:
-		return val.Size()
 	case *{{$msg.Name}}:
 		if val != nil {
 			return val.Size()
@@ -594,218 +592,274 @@ func calcTypeSize(ele any) int {
 func sliceToBytes[T any](eleType uint16, elements any) ([]byte, error) {	
 	switch arr := elements.(type) {
 	case []T:
-		result := binary.BigEndian.AppendUint16(nil, TagArray)
-		result = binary.BigEndian.AppendUint16(result, eleType)
-		arrBytes, err := oneDimensionalSliceToBytes(arr)
+		overallItemsCount, arrBytes, err := oneDimensionalSliceToBytes(arr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize 1D slice: %w", err)
 		}
-		result = append(result, arrBytes...)
+		result := make([]byte, (TypeMarkerSize * 2) + ArrayCountPrefixSize + len(arrBytes))
+		binary.BigEndian.PutUint16(result[0:], TagArray)
+		binary.BigEndian.PutUint16(result[2:], eleType)
+		binary.BigEndian.PutUint16(result[4:], uint16(overallItemsCount))
+		copy(result[6:], arrBytes)
 		return result, nil
+
 	case [][]T:
-		result := binary.BigEndian.AppendUint16(nil, Tag2DArray)
-		result = binary.BigEndian.AppendUint16(result, eleType)
-		arrBytes, err := twoDimensionalSliceToBytes(arr)
+		overallItemsCount, arrBytes, err := twoDimensionalSliceToBytes(arr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize 2D slice: %w", err)
 		}
-		result = append(result, arrBytes...)
+		result := make([]byte, (TypeMarkerSize * 2) + ArrayCountPrefixSize + len(arrBytes))
+		binary.BigEndian.PutUint16(result[0:], Tag2DArray)
+		binary.BigEndian.PutUint16(result[2:], eleType)
+		binary.BigEndian.PutUint16(result[4:], uint16(overallItemsCount))
+		copy(result[6:], arrBytes)
 		return result, nil
+
 	case [][][]T:
-		result := binary.BigEndian.AppendUint16(nil, Tag3DArray)
-		result = binary.BigEndian.AppendUint16(result, eleType)
-		arrBytes, err := threeDimensionalSliceToBytes(arr)
+		overallItemsCount, arrBytes, err := threeDimensionalSliceToBytes(arr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize 3D slice: %w", err)
 		}
-		result = append(result, arrBytes...)
+		result := make([]byte, (TypeMarkerSize * 2) + ArrayCountPrefixSize + len(arrBytes))
+		binary.BigEndian.PutUint16(result[0:], Tag3DArray)
+		binary.BigEndian.PutUint16(result[2:], eleType)
+		binary.BigEndian.PutUint16(result[4:], uint16(overallItemsCount))
+		copy(result[6:], arrBytes)
 		return result, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported slice type: %T", arr)
 	}
 }
 
-func threeDimensionalSliceToBytes[T any](elements [][][]T) ([]byte, error) {
+func threeDimensionalSliceToBytes[T any](elements [][][]T) (int, []byte, error) {
 	count := len(elements)
 	if count == 0 {
-		return binary.BigEndian.AppendUint16(nil, 0), nil
+		return 0, binary.BigEndian.AppendUint16(nil, 0), nil
 	}
 
 	if count > int(MaxArrayElements) {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
+		return 0, nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
-	result := make([]byte, 0, 2) // Initial capacity for the count
-	result = binary.BigEndian.AppendUint16(result, uint16(count))
-
+	itemsCount := 0
+	buf := make([]byte, ArrayCountPrefixSize, 512)
+	binary.BigEndian.PutUint16(buf[0:], uint16(count))
 	for i, v := range elements {
-		bytes, err := twoDimensionalSliceToBytes(v)
+		n, bytes, err := twoDimensionalSliceToBytes(v)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize 2D slice at index %d: %w", i, err)
+			return 0, nil, fmt.Errorf("failed to serialize 2D slice at index %d: %w", i, err)
 		}
-		result = append(result, bytes...)
+		buf = append(buf, bytes...)
+		itemsCount += n
+		
 	}
-	return result, nil
+	return itemsCount, buf, nil
 }
 
-func twoDimensionalSliceToBytes[T any](elements [][]T) ([]byte, error) {
+func twoDimensionalSliceToBytes[T any](elements [][]T) (int, []byte, error) {
 	count := len(elements)
 	if count == 0 {
-		return binary.BigEndian.AppendUint16(nil, 0), nil
+		return 0, binary.BigEndian.AppendUint16(nil, 0), nil
 	}
 
 	if count > int(MaxArrayElements) {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
+		return 0, nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
-	result := make([]byte, 0, 2) // Initial capacity for the count
-	result = binary.BigEndian.AppendUint16(result, uint16(count))
+	itemsCount := 0
+	buf := make([]byte, ArrayCountPrefixSize, 256)
+	binary.BigEndian.PutUint16(buf[0:], uint16(count))
 	for i, v := range elements {
-		bytes, err := oneDimensionalSliceToBytes(v)
+		n, bytes, err := oneDimensionalSliceToBytes(v)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize 1D slice at index %d: %w", i, err)
+			return 0, nil, fmt.Errorf("failed to serialize 1D slice at index %d: %w", i, err)
 		}
-		result = append(result, bytes...)
+		buf = append(buf, bytes...)
+		itemsCount += n
 	}
-	return result, nil
+	return itemsCount, buf, nil
 }
 
-func oneDimensionalSliceToBytes[T any](elements []T) ([]byte, error) {
+func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 	count := len(elements)
 	if count == 0 {
-		return binary.BigEndian.AppendUint16(nil, 0), nil
+		return 0, binary.BigEndian.AppendUint16(nil, 0), nil
 	}
 
 	if count > int(MaxArrayElements) {
-		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
+		return 0, nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
-	var zero T
 	switch sl := any(elements).(type) {
+	// --- 1-Byte Primitives ---
 	case []bool:
-		combinedBuf := make([]byte, 0, count * 1)	// 1 byte per bool
-		for _, v := range sl {
+		buf := make([]byte, ArrayCountPrefixSize+count)
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
 			if v {
-				combinedBuf = append(combinedBuf, 1)
+				buf[ArrayCountPrefixSize+i] = 1
 			} else {
-				combinedBuf = append(combinedBuf, 0)
+				buf[ArrayCountPrefixSize+i] = 0
 			}
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case []uint8:
-		combinedBuf := make([]byte, 0, count * 1)	// 1 byte per uint8
-		combinedBuf = append(combinedBuf, sl...)
-		return combinedBuf, nil
+		buf := make([]byte, ArrayCountPrefixSize+count)
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		copy(buf[ArrayCountPrefixSize:], sl)
+		return count, buf, nil
+
 	case []int8:
-		combinedBuf := make([]byte, 0, count * 1)	// 1 byte per int8
-		for _, v := range sl {
-			combinedBuf = append(combinedBuf, byte(v))
+		buf := make([]byte, ArrayCountPrefixSize+count)
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			buf[ArrayCountPrefixSize+i] = byte(v)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
+	// --- 2-Byte Primitives ---
 	case []uint16:
-		combinedBuf := make([]byte, 0, count * 2)	// 2 bytes per uint16
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint16(combinedBuf, v)
+		buf := make([]byte, ArrayCountPrefixSize+(count*2))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint16(buf[ArrayCountPrefixSize+i*2:], v)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case []int16:
-		combinedBuf := make([]byte, 0, count * 2)	// 2 bytes per int16
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint16(combinedBuf, uint16(v))
+		buf := make([]byte, ArrayCountPrefixSize+(count*2))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint16(buf[ArrayCountPrefixSize+i*2:], uint16(v))
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
+	// --- 4-Byte Primitives ---
 	case []uint32:
-		combinedBuf := make([]byte, 0, count * 4)	// 4 bytes per uint32
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, v)
+		buf := make([]byte, ArrayCountPrefixSize+(count*4))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint32(buf[ArrayCountPrefixSize+i*4:], v)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case []int32:
-		combinedBuf := make([]byte, 0, count * 4)	// 4 bytes per int32
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, uint32(v))
+		buf := make([]byte, ArrayCountPrefixSize+(count*4))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint32(buf[ArrayCountPrefixSize+i*4:], uint32(v))
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case []float32:
-		combinedBuf := make([]byte, 0, count * 4)	// 4 bytes per float32
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, math.Float32bits(v))
+		buf := make([]byte, ArrayCountPrefixSize+(count*4))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint32(buf[ArrayCountPrefixSize+i*4:], math.Float32bits(v))
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
+	// --- 8-Byte Primitives ---
 	case []uint64:
-		combinedBuf := make([]byte, 0, count * 8)	// 8 bytes per uint64
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint64(combinedBuf, v)
+		buf := make([]byte, ArrayCountPrefixSize+(count*8))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint64(buf[ArrayCountPrefixSize+i*8:], v)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case []int64:
-		combinedBuf := make([]byte, 0, count * 8)	// 8 bytes per int64
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint64(combinedBuf, uint64(v))
+		buf := make([]byte, ArrayCountPrefixSize+(count*8))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint64(buf[ArrayCountPrefixSize+i*8:], uint64(v))
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case []float64:
-		combinedBuf := make([]byte, 0, count * 8)	// 8 bytes per float64
-		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint64(combinedBuf, math.Float64bits(v))
+		buf := make([]byte, ArrayCountPrefixSize+(count*8))
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		for i, v := range sl {
+			binary.BigEndian.PutUint64(buf[ArrayCountPrefixSize+i*8:], math.Float64bits(v))
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
+	// --- Variable-Length Sequences ---
 	case []string:
 		totalSize := 0
 		for _, v := range sl {
 			totalSize += StrOrByteLenPrefixSize + len(v)
 		}
-		combinedBuf := make([]byte, 0, totalSize)
+		buf := make([]byte, ArrayCountPrefixSize+totalSize)
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, uint32(len(v)))
-			combinedBuf = append(combinedBuf, v...)
+			binary.BigEndian.PutUint32(buf[dynOff:], uint32(len(v)))
+			dynOff += StrOrByteLenPrefixSize
+			copy(buf[dynOff:], v)
+			dynOff += len(v)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
+
 	case [][]byte:
 		totalSize := 0
 		for _, v := range sl {
 			totalSize += StrOrByteLenPrefixSize + len(v)
 		}
-		combinedBuf := make([]byte, 0, totalSize)
+		buf := make([]byte, ArrayCountPrefixSize+totalSize)
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
-			combinedBuf = binary.BigEndian.AppendUint32(combinedBuf, uint32(len(v)))
-			combinedBuf = append(combinedBuf, v...)
+			binary.BigEndian.PutUint32(buf[dynOff:], uint32(len(v)))
+			dynOff += StrOrByteLenPrefixSize
+			copy(buf[dynOff:], v)
+			dynOff += len(v)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
 {{range .Messages}}{{$msg := .}}
 	case []*{{$msg.Name}}:
 		totalSize := 0
-		for _, v := range sl {
+		for i, v := range sl {
 			if v == nil {
-				return nil, fmt.Errorf("cannot serialize nil *{{$msg.Name}} element in array")
+				return 0, nil, fmt.Errorf("cannot serialize nil *{{$msg.Name}} element at index %d", i)
 			}
 			totalSize += v.Size()
 		}
-		combinedBuf := make([]byte, 0, totalSize)
+		buf := make([]byte, ArrayCountPrefixSize+totalSize)
+		binary.BigEndian.PutUint16(buf[0:], uint16(count))
+		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
-			bytes, err := v.Marshal()
+			b, err := v.Marshal()
 			if err != nil {
-				return nil, fmt.Errorf("failed to serialize *{{$msg.Name}} element in array: %w", err)
+				return 0, nil, fmt.Errorf("failed to serialize *{{$msg.Name}} element: %w", err)
 			}
-			combinedBuf = append(combinedBuf, bytes...)
+			copy(buf[dynOff:], b)
+			dynOff += len(b)
 		}
-		return combinedBuf, nil
+		return count, buf, nil
 {{end}} {{/* range .Messages */}}
 	default:
-		return nil, fmt.Errorf("unsupported primitive type: %T", zero)
+		var zero T
+		return 0, nil, fmt.Errorf("unsupported primitive type: %T", zero)
 	}
 }
 
-func readThreeDimensionalSlice[T any](r io.Reader, eleType uint16) ([][][]T, error) {
+func readThreeDimensionalSlice[T any](r io.Reader) ([][][]T, error) {
 	count, err := readUint16(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read 3D array count: %w", err)
 	}
 
+	if count > MaxArrayElements {
+		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
+	}
+
 	// Read the 3D array elements
 	slice := make([][][]T, count)
 	for i := 0; i < int(count); i++ {
-		innerSlice, err := readTwoDimensionalSlice[T](r, eleType)
+		innerSlice, err := readTwoDimensionalSlice[T](r)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read 3D array element at index %d: %w", i, err)
 		}
@@ -815,16 +869,20 @@ func readThreeDimensionalSlice[T any](r io.Reader, eleType uint16) ([][][]T, err
 	return slice, nil
 }
 
-func readTwoDimensionalSlice[T any](r io.Reader, eleType uint16) ([][]T, error) {
+func readTwoDimensionalSlice[T any](r io.Reader) ([][]T, error) {
 	count, err := readUint16(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read 2D array count: %w", err)
+	}
+
+	if count > MaxArrayElements {
+		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 	
 	// Read the 2D array elements
 	slice := make([][]T, count)
 	for i := 0; i < int(count); i++ {
-		innerSlice, err := readOneDimensionalSlice[T](r, eleType)
+		innerSlice, err := readOneDimensionalSlice[T](r)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read 2D array element at index %d: %w", i, err)
 		}
@@ -834,22 +892,29 @@ func readTwoDimensionalSlice[T any](r io.Reader, eleType uint16) ([][]T, error) 
 	return slice, nil
 }
 
-func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
+func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 	count, err := readUint16(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read 1D array count: %w", err)
+	}
+	
+	if count == 0 {
+		return []T{}, nil
+	}
+	
+	if count > MaxArrayElements {
+		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
 	slice := make([]T, count)
 
 	// Read the 1D array elements
 	switch sl := any(slice).(type) {
+	// --- 1-Byte Primitives ---
 	case []uint8:
-		data := make([]byte, count)
-		if _, err := io.ReadFull(r, data); err != nil {
+		if _, err := io.ReadFull(r, sl); err != nil {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
-		copy(sl, data)
 	case []int8:
 		data := make([]byte, count)
 		if _, err := io.ReadFull(r, data); err != nil {
@@ -866,13 +931,15 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 		for i := range sl {
 			sl[i] = data[i] != 0
 		}
+	
+	// --- 2-Byte Primitives ---
 	case []uint16:
 		data := make([]byte, count * 2)
 		if _, err := io.ReadFull(r, data); err != nil {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = binary.BigEndian.Uint16(data[i*2:i*2+2])
+			sl[i] = binary.BigEndian.Uint16(data[i*2:])
 		}
 	case []int16:
 		data := make([]byte, count * 2)
@@ -880,15 +947,17 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = int16(binary.BigEndian.Uint16(data[i*2:i*2+2]))
+			sl[i] = int16(binary.BigEndian.Uint16(data[i*2:]))
 		}
+
+	// --- 4-Byte Primitives ---
 	case []uint32:
 		data := make([]byte, count * 4)
 		if _, err := io.ReadFull(r, data); err != nil {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = binary.BigEndian.Uint32(data[i*4:i*4+4])
+			sl[i] = binary.BigEndian.Uint32(data[i*4:])
 		}
 	case []int32:
 		data := make([]byte, count * 4)
@@ -896,7 +965,7 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = int32(binary.BigEndian.Uint32(data[i*4:i*4+4]))
+			sl[i] = int32(binary.BigEndian.Uint32(data[i*4:]))
 		}
 	case []float32:
 		data := make([]byte, count * 4)
@@ -904,15 +973,17 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = math.Float32frombits(binary.BigEndian.Uint32(data[i*4:i*4+4]))
+			sl[i] = math.Float32frombits(binary.BigEndian.Uint32(data[i*4:]))
 		}
+
+	// --- 8-Byte Primitives ---
 	case []uint64:
 		data := make([]byte, count * 8)
 		if _, err := io.ReadFull(r, data); err != nil {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = binary.BigEndian.Uint64(data[i*8:i*8+8])
+			sl[i] = binary.BigEndian.Uint64(data[i*8:])
 		}
 	case []int64:
 		data := make([]byte, count * 8)
@@ -920,7 +991,7 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = int64(binary.BigEndian.Uint64(data[i*8:i*8+8]))
+			sl[i] = int64(binary.BigEndian.Uint64(data[i*8:]))
 		}
 	case []float64:
 		data := make([]byte, count * 8)
@@ -928,8 +999,10 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 			return nil, fmt.Errorf("failed to read array elements: %w", err)
 		}
 		for i := range sl {
-			sl[i] = math.Float64frombits(binary.BigEndian.Uint64(data[i*8:i*8+8]))
+			sl[i] = math.Float64frombits(binary.BigEndian.Uint64(data[i*8:]))
 		}
+
+	// --- Variable-Length Sequences ---
 	case []string:
 		for i := range sl {
 			length, err := readUint32(r)
@@ -983,7 +1056,7 @@ func readOneDimensionalSlice[T any](r io.Reader, eleType uint16) ([]T, error) {
 		}
 {{end}} {{/* range .Messages */}}
 	default:
-		return nil, fmt.Errorf("unsupported 1D array element type: %d", eleType)
+		return nil, fmt.Errorf("unsupported array element type")
 	}
 
 	return slice, nil
@@ -1016,7 +1089,7 @@ func getElementType(item any) (uint16, error) {
 	case string:
 		return TagString, nil
 	case []byte:
-		return TagByteSlice, nil
+		return TagBytes, nil
 {{range .Messages}}{{$msg := .}}
 	case *{{$msg.Name}}:
 		return Tag{{$msg.Name}}, nil

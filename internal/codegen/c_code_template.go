@@ -15,15 +15,16 @@ import (
 )
 
 var cTemplate = template.Must(template.New("c").Funcs(template.FuncMap{
-	"lower":       strings.ToLower,
-	"upper":       strings.ToUpper,
-	"snakeUpper":  func(name string) string { return strings.ToUpper(compiler.ToSnakeCase(name)) },
-	"snakeLower":  func(name string) string { return strings.ToLower(compiler.ToSnakeCase(name)) },
-	"cBaseType":   func(f *compiler.CompiledField) string { return f.Type.CType() },
-	"isVariable":  func(ft schema.FieldType) bool { return ft.IsVariable() },
-	"isByteArray": func(ft schema.FieldType) bool { return ft.GoType() == "[]byte" },
-	"add":         func(a, b int) int { return a + b },
-	"sub":         func(a, b int) int { return a - b },
+	"lower":             strings.ToLower,
+	"upper":             strings.ToUpper,
+	"snakeUpper":        func(name string) string { return strings.ToUpper(compiler.ToSnakeCase(name)) },
+	"snakeLower":        snakeLowerCase,
+	"cBaseType":         func(f *compiler.CompiledField) string { return f.Type.CType() },
+	"cType":             cType,
+	"isVariable":        func(ft schema.FieldType) bool { return ft.IsVariable() },
+	"add":               func(a, b int) int { return a + b },
+	"arrayRootType":     arrayRootType,
+	"arrayRootBaseType": arrayRootBaseType,
 }).Parse(cTemplateSource))
 
 // GenerateC writes the generated C implementation to w.
@@ -50,19 +51,19 @@ const cTemplateSource = `/*
  * These ensure consistent wire format regardless of host CPU byte order.
  * ---------------------------------------------------------------------------*/
 
-static inline void put_u16_be(uint8_t* buf, uint16_t val) {
+static inline void put_u16_be(uint8_t *buf, uint16_t val) {
     buf[0] = (uint8_t)(val >> 8);
     buf[1] = (uint8_t)(val);
 }
 
-static inline void put_u32_be(uint8_t* buf, uint32_t val) {
+static inline void put_u32_be(uint8_t *buf, uint32_t val) {
     buf[0] = (uint8_t)(val >> 24);
     buf[1] = (uint8_t)(val >> 16);
     buf[2] = (uint8_t)(val >> 8);
     buf[3] = (uint8_t)(val);
 }
 
-static inline void put_u64_be(uint8_t* buf, uint64_t val) {
+static inline void put_u64_be(uint8_t *buf, uint64_t val) {
     buf[0] = (uint8_t)(val >> 56);
     buf[1] = (uint8_t)(val >> 48);
     buf[2] = (uint8_t)(val >> 40);
@@ -73,34 +74,1227 @@ static inline void put_u64_be(uint8_t* buf, uint64_t val) {
     buf[7] = (uint8_t)(val);
 }
 
-static inline uint16_t get_u16_be(const uint8_t* buf) {
+static inline uint16_t get_u16_be(const uint8_t *buf) {
     return (uint16_t)((uint16_t)buf[0] << 8 | (uint16_t)buf[1]);
 }
 
-static inline uint32_t get_u32_be(const uint8_t* buf) {
+static inline uint32_t get_u32_be(const uint8_t *buf) {
     return (uint32_t)buf[0] << 24 | (uint32_t)buf[1] << 16 |
            (uint32_t)buf[2] << 8  | (uint32_t)buf[3];
 }
 
-static inline uint64_t get_u64_be(const uint8_t* buf) {
+static inline uint64_t get_u64_be(const uint8_t *buf) {
     return (uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48 |
            (uint64_t)buf[2] << 40 | (uint64_t)buf[3] << 32 |
            (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16 |
            (uint64_t)buf[6] << 8  | (uint64_t)buf[7];
 }
 
-uint16_t get_message_type(const uint8_t* buf) {
+uint16_t get_message_type(const uint8_t *buf) {
     return get_u16_be(buf);
 }
 
-uint16_t get_message_fixed_payload_length(const uint8_t* buf) {
-    return get_u16_be(buf + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
+uint16_t get_message_fixed_payload_length(const uint8_t *buf) {
+    return get_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE);
 }
 
-uint32_t get_message_overall_payload_length(const uint8_t* buf) {
-    return get_u32_be(buf + WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE);
+uint32_t get_message_overall_payload_length(const uint8_t *buf) {
+    return get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
 }
 
+
+// Standard status codes for error handling
+typedef enum {
+    DYN_ARR_OK = 0,
+    DYN_ARR_ERR_INVALID_PARAM,
+    DYN_ARR_ERR_OUT_OF_BOUNDS,
+    DYN_ARR_ERR_NO_MEMORY,
+    DYN_ARR_ERR_OVERFLOW,
+    DYN_ARR_ERR_FAIL
+} dyn_arr_status_t;
+
+/* =========================================================================
+ * HELPER: Calculate flat index from 3D coordinates (Row-Major Order)
+ * ========================================================================= */
+static inline size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
+    return (i * arr->y * arr->z) + (j * arr->z) + k;
+}
+
+/* =========================================================================
+ * CREATE: Allocate & Initialize Array
+ * ========================================================================= */
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
+                                    element_type_t ele_type,
+                                    size_t elem_size, 
+                                    uint8_t num_dims, 
+                                    size_t x, size_t y, size_t z) 
+{
+    if (!arr || elem_size == 0 || num_dims < 1 || num_dims > 3) {
+        return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    // Check integer overflow for element calculation
+    size_t total_elements = dim_x * dim_y * dim_z;
+    if (total_elements / dim_x / dim_y != dim_z) {
+        return DYN_ARR_ERR_OVERFLOW;
+    }
+
+    // Normalize inactive dimensions to 1
+    size_t dim_x = x;
+    size_t dim_y = (num_dims >= 2) ? y : 1;
+    size_t dim_z = (num_dims == 3) ? z : 1;
+
+    if (dim_x == 0 || dim_y == 0 || dim_z == 0) {
+        return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    arr->data = malloc(total_elements * elem_size);
+    if (!arr->data) {
+        return DYN_ARR_ERR_NO_MEMORY;
+    }
+
+    arr->elem_size = elem_size;
+    arr->num_dims = num_dims;
+    arr->x = dim_x;
+    arr->y = dim_y;
+    arr->z = dim_z;
+    arr->capacity = total_elements;
+    arr->ele_type = ele_type;
+
+    return DYN_ARR_OK;
+}
+
+/* =========================================================================
+ * READ: Get element or direct pointer
+ * ========================================================================= */
+
+// Get a pointer directly to the element at (i, j, k)
+void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
+    if (!arr || !arr->data) return NULL;
+
+    // Bounds checking
+    if (i >= arr->x || j >= arr->y || k >= arr->z) {
+        return NULL;
+    }
+
+    size_t flat_index = get_flat_index(arr, i, j, k);
+    return (uint8_t*)arr->data + (flat_index * arr->elem_size);
+}
+
+// Copy element data at (i, j, k) safely into out_val buffer
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val) {
+    if (!out_val) return DYN_ARR_ERR_INVALID_PARAM;
+
+    void *elem_ptr = dynamic_array_get_ptr(arr, i, j, k);
+    if (!elem_ptr) {
+        return DYN_ARR_ERR_OUT_OF_BOUNDS;
+    }
+
+    memcpy(out_val, elem_ptr, arr->elem_size);
+    return DYN_ARR_OK;
+}
+
+/* =========================================================================
+ * UPDATE / SET: Set element value at (i, j, k)
+ * ========================================================================= */
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val) {
+    if (!in_val) return DYN_ARR_ERR_INVALID_PARAM;
+
+    void *elem_ptr = dynamic_array_get_ptr(arr, i, j, k);
+    if (!elem_ptr) {
+        return DYN_ARR_ERR_OUT_OF_BOUNDS;
+    }
+
+    memcpy(elem_ptr, in_val, arr->elem_size);
+    return DYN_ARR_OK;
+}
+
+/* =========================================================================
+ * RESIZE: Grow or reshape internal storage capacity
+ * ========================================================================= */
+dyn_arr_status_t dynamic_array_resize(dynamic_array_t *arr, size_t new_x, size_t new_y, size_t new_z) {
+    if (!arr) return DYN_ARR_ERR_INVALID_PARAM;
+
+    size_t dim_x = new_x;
+    size_t dim_y = (arr->num_dims >= 2) ? new_y : 1;
+    size_t dim_z = (arr->num_dims == 3) ? new_z : 1;
+
+    size_t total_elements = dim_x * dim_y * dim_z;
+
+    if (total_elements > arr->capacity) {
+        void *new_data = realloc(arr->data, total_elements * arr->elem_size);
+        if (!new_data) {
+            return DYN_ARR_ERR_NO_MEMORY;
+        }
+        arr->data = new_data;
+        arr->capacity = total_elements;
+    }
+
+    arr->x = dim_x;
+    arr->y = dim_y;
+    arr->z = dim_z;
+
+    return DYN_ARR_OK;
+}
+
+/* =========================================================================
+ * DESTROY / CLEANUP: Free dynamically allocated memory
+ * ========================================================================= */
+void dynamic_array_destroy(dynamic_array_t *arr) {
+    if (arr) {
+        if (arr->data) {
+            free(arr->data);
+            arr->data = NULL;
+        }
+        arr->x = 0;
+        arr->y = 0;
+        arr->z = 0;
+        arr->capacity = 0;
+        arr->elem_size = 0;
+        arr->num_dims = 0;
+    }
+}
+
+static dyn_arr_status_t one_dimensional_array_to_bytes(
+    const dynamic_array_t *arr,
+    element_type_t ele_type,
+    size_t flat_offset, // starting index inside flattened arr->data
+    custom_size_fn size_fn,
+    custom_marshal_fn marshal_fn,
+    size_t *out_items_count,
+    uint8_t **out_buf,
+    size_t *out_len)
+{
+    size_t count = arr->x;
+    if (count == 0) {
+        uint8_t *buf = (uint8_t*)malloc(ARRAY_COUNT_PREFIX_SIZE);
+        if (!buf) {
+            return (DYN_ARR_ERR_NO_MEMORY);
+        }
+
+        put_u16_be(buf, (uint16_t)count);
+
+        *out_items_count = 0;
+        *out_buf = buf;
+        *out_len = ARRAY_COUNT_PREFIX_SIZE;
+        return (DYN_ARR_OK);
+    }
+
+    if (count > MAX_ARRAY_ELEMENTS) {
+        return (DYN_ARR_ERR_OVERFLOW);
+    }
+
+    *out_buf = NULL;
+    uint8_t *buf = NULL;
+    size_t total_payload_size = 0;
+
+    switch (ele_type) {
+        // --- 1-Byte Primitives ---
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: {
+            total_payload_size = count * 1;
+            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
+            if (!buf) {
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+
+            put_u16_be(buf, (uint16_t)count);
+            const uint8_t *src = (const uint8_t*)arr->data + flat_offset;
+            memcpy(buf + ARRAY_COUNT_PREFIX_SIZE, src, count);
+            break;
+        }
+
+        // --- 2-Byte Primitives ---
+        case TAG_UINT16:
+        case TAG_INT16: {
+            total_payload_size = count * 2;
+            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
+            if (!buf) {
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+
+            put_u16_be(buf, (uint16_t)count);
+            const uint16_t *src = (const uint16_t*)((const uint8_t*)arr->data + flat_offset);
+            uint8_t *dst = buf + ARRAY_COUNT_PREFIX_SIZE;
+            for (size_t i = 0; i < count; i++) {
+                put_u16_be(dst + (i * 2), src[i]);
+            }
+            break;
+        }
+
+        // --- 4-Byte Primitives ---
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: {
+            total_payload_size = count * 4;
+            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
+            if (!buf) {
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+
+            put_u16_be(buf, (uint16_t)count);
+            const uint32_t *src = (const uint32_t*)((const uint8_t*)arr->data + flat_offset);
+            uint8_t *dst = buf + ARRAY_COUNT_PREFIX_SIZE;
+            for (size_t i = 0; i < count; i++) {
+                put_u32_be(dst + (i * 4), src[i]);
+            }
+            break;
+        }
+
+        // --- 8-Byte Primitives ---
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: {
+            total_payload_size = count * 8;
+            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
+            if (!buf) {
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+
+            put_u16_be(buf, (uint16_t)count);
+            const uint64_t *src = (const uint64_t*)((const uint8_t*)arr->data + flat_offset);
+            uint8_t *dst = buf + ARRAY_COUNT_PREFIX_SIZE;
+            for (size_t i = 0; i < count; i++) {
+                put_u64_be(dst + (i * 8), src[i]);
+            }
+            break;
+        }
+
+        // --- Variable-Length Sequences (Strings & Bytes) ---
+        case TAG_STRING:
+        case TAG_BYTES: {
+            // Memory layout of string_t and byte_array_t are identical in memory:
+            // { void *data; uint32_t len; }
+            typedef struct {
+                const uint8_t *data;
+                uint32_t len;
+            } var_len_item_t;
+
+            const var_len_item_t *src = (const var_len_item_t*)((const uint8_t*)arr->data + flat_offset);
+            for (size_t i = 0; i < count; i++) {
+                size_t item_len = (src[i].data != NULL) ? src[i].len : 0;
+                total_payload_size += STR_LEN_PREFIX_SIZE + item_len;
+            }
+
+            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
+            if (!buf) {
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+
+            put_u16_be(buf, (uint16_t)count);
+            size_t dyn_off = ARRAY_COUNT_PREFIX_SIZE;
+            for (size_t i = 0; i < count; i++) {
+                uint32_t item_len = (src[i].data != NULL) ? src[i].len : 0;
+
+                put_u32_be(buf + dyn_off, item_len);
+                dyn_off += STR_LEN_PREFIX_SIZE;
+
+                if (item_len > 0) {
+                    memcpy(buf + dyn_off, src[i].data, item_len);
+                    dyn_off += item_len;
+                }
+            }
+            break;
+        }
+        
+        // --- Custom Structs ---
+{{- range $i, $msg := .Messages }}
+        case TAG_{{snakeUpper $msg.Name}}:
+{{- end }}
+        {
+            if (!size_fn || !marshal_fn) {
+                return (DYN_ARR_ERR_INVALID_PARAM);
+            }
+
+            const uint8_t *src_bytes = (const uint8_t*)arr->data + flat_offset;
+            for (size_t i = 0; i < count; i++) {
+                const void *item = src_bytes + (i * arr->elem_size);
+                total_payload_size += size_fn(item);
+            }
+
+            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
+            if (!buf) {
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+
+            put_u16_be(buf, (uint16_t)count);
+            size_t dyn_off = ARRAY_COUNT_PREFIX_SIZE;
+            for (size_t i = 0; i < count; i++) {
+                const void *item = src_bytes + (i * arr->elem_size);
+                uint8_t* item_buf = NULL;
+
+                int written = marshal_fn(item, &item_buf);
+                if (written < 0) {
+                    free(buf);
+                    return (DYN_ARR_ERR_FAIL);
+                }
+
+                memcpy(buf + dyn_off, item_buf, written);
+                dyn_off += written;
+                free(item_buf);
+            }
+            break;
+        }
+
+        default:
+            return (DYN_ARR_ERR_INVALID_PARAM);
+    }
+
+    *out_items_count = count;
+    *out_buf = buf;
+    *out_len = ARRAY_COUNT_PREFIX_SIZE + total_payload_size;
+    return (DYN_ARR_OK);
+}
+
+static dyn_arr_status_t two_dimensional_array_to_bytes(
+    const dynamic_array_t *arr,
+    element_type_t ele_type,
+    size_t flat_offset,
+    custom_size_fn size_fn,
+    custom_marshal_fn marshal_fn,
+    size_t *out_items_count,
+    uint8_t **out_buf,
+    size_t *out_len)
+{
+    size_t x_count = arr->x;
+
+    if (x_count == 0) {
+        uint8_t *buf = (uint8_t*)malloc(ARRAY_COUNT_PREFIX_SIZE);
+        if (!buf) {
+            return (DYN_ARR_ERR_NO_MEMORY);
+        }
+
+        put_u16_be(buf, 0);
+
+        *out_items_count = 0;
+        *out_buf = buf;
+        *out_len = ARRAY_COUNT_PREFIX_SIZE;
+        return (DYN_ARR_OK);
+    }
+
+    if (x_count > MAX_ARRAY_ELEMENTS) {
+        return (DYN_ARR_ERR_OVERFLOW);
+    }
+
+    size_t total_items = 0;
+    size_t buf_cap = 256;
+    size_t buf_len = ARRAY_COUNT_PREFIX_SIZE;
+    uint8_t *buf = (uint8_t*) malloc(buf_cap);
+    if (!buf) {
+        return (DYN_ARR_ERR_NO_MEMORY);
+    }
+
+    // Write top-level 2D row count prefix (x_count)
+    put_u16_be(buf, (uint16_t)x_count);
+
+    // Create a 1D sub-array descriptor (width = arr->y)
+    dynamic_array_t sub_arr = *arr;
+    sub_arr.num_dims = 1;
+    sub_arr.x = arr->y;
+
+    // Row stride: total byte size of one complete 1D row
+    size_t row_stride_bytes = arr->y * arr->elem_size;
+
+    // Loop through each row and serialize via 1D helper
+    for (size_t i = 0; i < x_count; i++) {
+        size_t row_offset = flat_offset + (i * row_stride_bytes);
+        size_t sub_items_count = 0;
+        size_t sub_len = 0;
+        uint8_t *sub_bytes = NULL;
+
+        int status = one_dimensional_array_to_bytes(
+            &sub_arr,
+            ele_type,
+            row_offset,
+            size_fn,
+            marshal_fn,
+            &sub_items_count,
+            &sub_bytes,
+            &sub_len
+        );
+
+        if (status != DYN_ARR_OK) {
+            free(buf);
+            return status;
+        }
+
+        // Expand destination buffer if needed
+        if (buf_len + sub_len > buf_cap) {
+            size_t new_cap = (buf_len + sub_len) * 2;
+            uint8_t *new_buf = (uint8_t*)realloc(buf, new_cap);
+            if (!new_buf) {
+                free(buf);
+                free(sub_bytes);
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+            buf = new_buf;
+            buf_cap = new_cap;
+        }
+
+        // Append sub-array bytes into 2D output stream
+        memcpy(buf + buf_len, sub_bytes, sub_len);
+        buf_len += sub_len;
+        total_items += sub_items_count;
+
+        free(sub_bytes); // Free temporary row buffer
+    }
+
+    *out_items_count = total_items;
+    *out_buf = buf;
+    *out_len = buf_len;
+    return (DYN_ARR_OK);
+}
+
+static dyn_arr_status_t three_dimensional_array_to_bytes(
+    const dynamic_array_t *arr,
+    element_type_t ele_type,
+    size_t flat_offset,
+    custom_size_fn size_fn,
+    custom_marshal_fn marshal_fn,
+    size_t *out_items_count,
+    uint8_t **out_buf,
+    size_t *out_len)
+{
+    size_t x_count = arr->x;
+
+    if (x_count == 0) {
+        uint8_t *buf = (uint8_t*)malloc(ARRAY_COUNT_PREFIX_SIZE);
+        if (!buf) {
+            return (DYN_ARR_ERR_NO_MEMORY);
+        }
+
+        put_u16_be(buf, 0);
+
+        *out_items_count = 0;
+        *out_buf = buf;
+        *out_len = ARRAY_COUNT_PREFIX_SIZE;
+        return (DYN_ARR_OK);
+    }
+
+    if (x_count > MAX_ARRAY_ELEMENTS) {
+        return (DYN_ARR_ERR_OVERFLOW);
+    }
+
+    size_t total_items = 0;
+    size_t buf_cap = 512;
+    size_t buf_len = ARRAY_COUNT_PREFIX_SIZE;
+    uint8_t *buf = (uint8_t*)malloc(buf_cap);
+    if (!buf) {
+        return (DYN_ARR_ERR_NO_MEMORY);
+    }
+
+    // Write top-level 3D outer count prefix (x_count)
+    put_u16_be(buf, (uint16_t)x_count);
+
+    // Create a 2D sub-array descriptor (dimensions: y x z)
+    dynamic_array_t sub_arr = *arr;
+    sub_arr.num_dims = 2;
+    sub_arr.x = arr->y;
+    sub_arr.y = arr->z;
+
+    // Slice stride: total byte size of one 2D block (y * z * elem_size)
+    size_t block_stride_bytes = arr->y * arr->z * arr->elem_size;
+
+    // Loop through outer dimension and delegate each block to 2D helper
+    for (size_t i = 0; i < x_count; i++) {
+        size_t block_offset = flat_offset + (i * block_stride_bytes);
+        size_t sub_items_count = 0;
+        size_t sub_len = 0;
+        uint8_t *sub_bytes = NULL;
+
+        int status = two_dimensional_array_to_bytes(
+            &sub_arr,
+            ele_type,
+            block_offset,
+            size_fn,
+            marshal_fn,
+            &sub_items_count,
+            &sub_bytes,
+            &sub_len
+        );
+
+        if (status != DYN_ARR_OK) {
+            free(buf);
+            return status;
+        }
+
+        // Expand output buffer dynamically
+        if (buf_len + sub_len > buf_cap) {
+            size_t new_cap = (buf_len + sub_len) * 2;
+            uint8_t *new_buf = (uint8_t*)realloc(buf, new_cap);
+            if (!new_buf) {
+                free(buf);
+                free(sub_bytes);
+                return (DYN_ARR_ERR_NO_MEMORY);
+            }
+            buf = new_buf;
+            buf_cap = new_cap;
+        }
+
+        // Append 2D sub-array byte payload
+        memcpy(buf + buf_len, sub_bytes, sub_len);
+        buf_len += sub_len;
+        total_items += sub_items_count;
+
+        free(sub_bytes);
+    }
+
+    *out_items_count = total_items;
+    *out_buf = buf;
+    *out_len = buf_len;
+    return (DYN_ARR_OK);
+}
+
+/**
+ * Wire Format for Multi-Dimensional Arrays:
+ *
+ *  +------------------+------------------+------------------+------------------------------------+
+ *  | Wire Tag (2B)    | Wire EleType(2B) | Total Items (2B) | Serialized Dimension Stream        |
+ *  | e.g. TAG_2D_ARR  | e.g. TAG_UINT32  | Total flattened  | (Includes per-dimension count      |
+ *  |                  |                  | item count       |  prefixes & payload items)         |
+ *  +------------------+------------------+------------------+------------------------------------+
+ */
+dyn_arr_status_t array_to_bytes(
+    const dynamic_array_t *arr,
+    uint8_t **out_buf,
+    size_t *out_size,
+    custom_size_fn size_fn,
+    custom_marshal_fn marshal_fn
+)
+{
+    if (!arr || !arr->data || !out_buf || !out_size) {
+        return (DYN_ARR_ERR_INVALID_PARAM);
+    }
+
+    size_t overall_items_count = 0;
+    uint8_t *arr_bytes = NULL;
+    size_t arr_bytes_len = 0;
+    uint16_t wire_tag = 0;
+    int status = DYN_ARR_OK;
+
+    // Dispatch based on array dimensions
+    switch (arr->num_dims) {
+        case 1:
+            wire_tag = TAG_ARRAY;
+            status = one_dimensional_array_to_bytes(
+                arr, arr->ele_type, 0, size_fn, marshal_fn,
+                &overall_items_count, &arr_bytes, &arr_bytes_len
+            );
+            break;
+
+        case 2:
+            wire_tag = TAG_2D_ARRAY;
+            status = two_dimensional_array_to_bytes(
+                arr, arr->ele_type, 0, size_fn, marshal_fn,
+                &overall_items_count, &arr_bytes, &arr_bytes_len
+            );
+            break;
+
+        case 3:
+            wire_tag = TAG_3D_ARRAY;
+            status = three_dimensional_array_to_bytes(
+                arr, arr->ele_type, 0, size_fn, marshal_fn,
+                &overall_items_count, &arr_bytes, &arr_bytes_len
+            );
+            break;
+
+        default:
+            return (DYN_ARR_ERR_INVALID_PARAM);
+    }
+
+    if (status != DYN_ARR_OK) {
+        return status;
+    }
+
+    if (overall_items_count > MAX_ARRAY_ELEMENTS) {
+        free(arr_bytes);
+        return (DYN_ARR_ERR_OVERFLOW);
+    }
+
+    // Build Wire Format Header
+    // Header Layout: [TAG (2B)] + [WIRE_ELEMENT_TYPE (2B)] + [OVERALL_COUNT (2B)]
+    size_t header_len = TYPE_MARKER_SIZE + TYPE_MARKER_SIZE + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
+    size_t total_len = header_len + arr_bytes_len;
+
+    uint8_t *final_buf = (uint8_t*)malloc(total_len);
+    if (!final_buf) {
+        free(arr_bytes);
+        return (DYN_ARR_ERR_NO_MEMORY);
+    }
+
+    // Write Top-Level Wire Header
+    put_u16_be(final_buf + 0, wire_tag);
+    put_u16_be(final_buf + 2, arr->ele_type);
+    put_u16_be(final_buf + 4, (uint16_t)overall_items_count);
+
+    // Copy Serialized Dimension Payload
+    memcpy(final_buf + header_len, arr_bytes, arr_bytes_len);
+
+    free(arr_bytes);
+
+    *out_buf = final_buf;
+    *out_size = total_len;
+    return (DYN_ARR_OK);
+}
+
+static dyn_arr_status_t read_one_dimensional_array(
+    const uint8_t **stream,
+    size_t *remaining,
+    element_type_t ele_type,
+    dynamic_array_t *arr,
+    size_t flat_offset,
+    custom_unmarshal_fn unmarshal_fn,
+    size_t *out_count)
+{
+    if (*remaining < ARRAY_COUNT_PREFIX_SIZE) {
+        return DYN_ARR_ERR_EOF;
+    }
+
+    uint16_t count = get_u16_be(*stream);
+    *stream += ARRAY_COUNT_PREFIX_SIZE;
+    *remaining -= ARRAY_COUNT_PREFIX_SIZE;
+
+    if (count > MAX_ARRAY_ELEMENTS) {
+        return DYN_ARR_ERR_OVERFLOW;
+    }
+
+    *out_count = count;
+    if (count == 0) {
+        return DYN_ARR_OK;
+    }
+
+    uint8_t *dst_base = (uint8_t*)arr->data + flat_offset;
+
+    switch (ele_type) {
+        // --- 1-Byte Primitives ---
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: {
+            size_t req_bytes = count * 1;
+            if (*remaining < req_bytes) {
+                return DYN_ARR_ERR_EOF;
+            }
+
+            memcpy(dst_base, *stream, req_bytes);
+            *stream += req_bytes;
+            *remaining -= req_bytes;
+            break;
+        }
+
+        // --- 2-Byte Primitives ---
+        case TAG_UINT16:
+        case TAG_INT16: {
+            size_t req_bytes = count * 2;
+            if (*remaining < req_bytes) {
+                return DYN_ARR_ERR_EOF;
+            }
+
+            uint16_t *dst = (uint16_t*)dst_base;
+            for (size_t i = 0; i < count; i++) {
+                dst[i] = get_u16_be(*stream + (i * 2));
+            }
+            *stream += req_bytes;
+            *remaining -= req_bytes;
+            break;
+        }
+
+        // --- 4-Byte Primitives ---
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: {
+            size_t req_bytes = count * 4;
+            if (*remaining < req_bytes) {
+                return DYN_ARR_ERR_EOF;
+            }
+
+            uint32_t *dst = (uint32_t*)dst_base;
+            for (size_t i = 0; i < count; i++) {
+                dst[i] = get_u32_be(*stream + (i * 4));
+            }
+            *stream += req_bytes;
+            *remaining -= req_bytes;
+            break;
+        }
+
+        // --- 8-Byte Primitives ---
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: {
+            size_t req_bytes = count * 8;
+            if (*remaining < req_bytes) {
+                return DYN_ARR_ERR_EOF;
+            }
+
+            uint64_t *dst = (uint64_t*)dst_base;
+            for (size_t i = 0; i < count; i++) {
+                dst[i] = get_u64_be(*stream + (i * 8));
+            }
+            *stream += req_bytes;
+            *remaining -= req_bytes;
+            break;
+        }
+
+        // --- Variable-Length Sequences (Strings & Byte Arrays) ---
+        case TAG_STRING:{
+            string_t *dst = (string_t*)dst_base;
+
+            for (size_t i = 0; i < count; i++) {
+                if (*remaining < STR_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+
+                uint32_t len = get_u32_be(*stream);
+                *stream += STR_LEN_PREFIX_SIZE;
+                *remaining -= STR_LEN_PREFIX_SIZE;
+
+                if (len > MAX_ALLOWED_PACKET) return DYN_ARR_ERR_OVERFLOW;
+
+                dst[i].len = len;
+                if (len > 0) {
+                    if (*remaining < len) return DYN_ARR_ERR_EOF;
+
+                    // Allocate +1 byte for '\0' so it behaves like a standard C string
+                    dst[i].data = (char*)malloc(len + 1);
+                    if (!dst[i].data) return DYN_ARR_ERR_NO_MEMORY;
+
+                    memcpy(dst[i].data, *stream, len);
+                    dst[i].data[len] = '\0'; // Safe null-terminator for string_t
+
+                    *stream += len;
+                    *remaining -= len;
+                } else {
+                    dst[i].data = NULL;
+                }
+            }
+            break;
+        }
+        case TAG_BYTES: {
+            byte_array_t *dst = (byte_array_t*)dst_base;
+
+            for (size_t i = 0; i < count; i++) {
+                if (*remaining < STR_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+
+                uint32_t len = get_u32_be(*stream);
+                *stream += STR_LEN_PREFIX_SIZE;
+                *remaining -= STR_LEN_PREFIX_SIZE;
+
+                if (len > MAX_ALLOWED_PACKET) return DYN_ARR_ERR_OVERFLOW;
+
+                dst[i].len = len;
+                if (len > 0) {
+                    if (*remaining < len) return DYN_ARR_ERR_EOF;
+
+                    // Exact allocation: NO extra byte, NO null terminator
+                    dst[i].data = (uint8_t*)malloc(len);
+                    if (!dst[i].data) return DYN_ARR_ERR_NO_MEMORY;
+
+                    memcpy(dst[i].data, *stream, len);
+
+                    *stream += len;
+                    *remaining -= len;
+                } else {
+                    dst[i].data = NULL;
+                }
+            }
+            break;
+        }
+
+        // --- Custom Structs ---
+{{- range $i, $msg := .Messages }}
+        case TAG_{{snakeUpper $msg.Name}}:
+{{- end }}
+        {
+            if (!unmarshal_fn) {
+                return DYN_ARR_ERR_INVALID_PARAM;
+            }
+
+            for (size_t i = 0; i < count; i++) {
+                if (*remaining < WIRE_FRAME_HEADER_SIZE) {
+                    return DYN_ARR_ERR_EOF;
+                }
+
+                uint16_t fixed_len = get_message_fixed_payload_length(*stream);
+                uint32_t full_payload_len = get_message_overall_payload_length(*stream);
+
+                *stream    += WIRE_FRAME_HEADER_SIZE;
+                *remaining -= WIRE_FRAME_HEADER_SIZE;
+
+                if (*remaining < full_payload_len) {
+                    return DYN_ARR_ERR_EOF;
+                }
+
+                void *item_dst = dst_base + (i * arr->elem_size);
+                int status = unmarshal_fn(*stream, full_payload_len, item_dst);
+                if (status != 0) {
+                    return DYN_ARR_ERR_FAIL;
+                }
+
+                *stream    += WIRE_FRAME_HEADER_SIZE;
+                *remaining -= WIRE_FRAME_HEADER_SIZE;
+            }
+
+            break;
+        }
+
+        default:
+            return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    return DYN_ARR_OK;
+}
+
+static dyn_arr_status_t read_two_dimensional_array(
+    const uint8_t **stream,
+    size_t *remaining,
+    element_type_t ele_type,
+    dynamic_array_t *arr,
+    size_t flat_offset,
+    custom_unmarshal_fn unmarshal_fn,
+    size_t *out_x_count,
+    size_t *out_y_count)
+{
+    // Read 2D outer dimension count prefix
+    if (*remaining < ARRAY_COUNT_PREFIX_SIZE) {
+        return DYN_ARR_ERR_EOF;
+    }
+
+    uint16_t x_count = get_u16_be(*stream);
+    *stream += ARRAY_COUNT_PREFIX_SIZE;
+    *remaining -= ARRAY_COUNT_PREFIX_SIZE;
+
+    if (x_count > MAX_ARRAY_ELEMENTS) {
+        return DYN_ARR_ERR_OVERFLOW;
+    }
+
+    *out_x_count = x_count;
+    *out_y_count = 0;
+
+    if (x_count == 0) {
+        return DYN_ARR_OK;
+    }
+
+    size_t first_row_y = 0;
+
+    for (size_t i = 0; i < x_count; i++) {
+        size_t y_count = 0;
+        
+        // Calculate offset in target flattened buffer
+        // Note: For non-uniform 2D reading, flat_offset assumes equal row sizes equal to first row
+        size_t row_offset = flat_offset + (i * first_row_y * arr->elem_size);
+
+        int status = read_one_dimensional_array(
+            stream, remaining, ele_type, arr,
+            row_offset, unmarshal_fn, &y_count
+        );
+
+        if (status != DYN_ARR_OK) {
+            return status;
+        }
+
+        if (i == 0) {
+            first_row_y = y_count;
+            *out_y_count = y_count;
+        }
+    }
+
+    return DYN_ARR_OK;
+}
+
+static dyn_arr_status_t read_three_dimensional_array(
+    const uint8_t **stream,
+    size_t *remaining,
+    element_type_t ele_type,
+    dynamic_array_t *arr,
+    size_t flat_offset,
+    custom_unmarshal_fn unmarshal_fn,
+    size_t *out_x_count,
+    size_t *out_y_count,
+    size_t *out_z_count)
+{
+    // Read 3D outer dimension count prefix
+    if (*remaining < ARRAY_COUNT_PREFIX_SIZE) {
+        return DYN_ARR_ERR_EOF;
+    }
+
+    uint16_t x_count = get_u16_be(*stream);
+    *stream += ARRAY_COUNT_PREFIX_SIZE;
+    *remaining -= ARRAY_COUNT_PREFIX_SIZE;
+
+    if (x_count > MAX_ARRAY_ELEMENTS) {
+        return DYN_ARR_ERR_OVERFLOW;
+    }
+
+    *out_x_count = x_count;
+    *out_y_count = 0;
+    *out_z_count = 0;
+
+    if (x_count == 0) {
+        return DYN_ARR_OK;
+    }
+
+    size_t first_y = 0;
+    size_t first_z = 0;
+
+    for (size_t i = 0; i < x_count; i++) {
+        size_t y_count = 0;
+        size_t z_count = 0;
+
+        size_t block_offset = flat_offset + (i * first_y * first_z * arr->elem_size);
+
+        int status = read_two_dimensional_array(
+            stream, remaining, ele_type, arr,
+            block_offset, unmarshal_fn, &y_count, &z_count
+        );
+
+        if (status != DYN_ARR_OK) {
+            return status;
+        }
+
+        if (i == 0) {
+            first_y = y_count;
+            first_z = z_count;
+            *out_y_count = y_count;
+            *out_z_count = z_count;
+        }
+    }
+
+    return DYN_ARR_OK;
+}
+
+dyn_arr_status_t bytes_to_array(
+    const uint8_t *in_buf,
+    size_t in_size,
+    dynamic_array_t *out_arr,
+    custom_unmarshal_fn unmarshal_fn
+)
+{
+    if (!in_buf || !out_arr) {
+        return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    // Header size = [WIRE_TAG (2B)] + [WIRE_ELE_TYPE (2B)] + [TOTAL_ITEMS (2B)]
+    size_t header_len = TYPE_MARKER_SIZE + TYPE_MARKER_SIZE + ARRAY_COUNT_PREFIX_SIZE;
+    if (in_size < header_len) {
+        return DYN_ARR_ERR_EOF;
+    }
+
+    const uint8_t *stream = in_buf;
+    size_t remaining = in_size;
+
+    uint16_t wire_tag = get_u16_be(stream);
+    uint16_t ele_type = get_u16_be(stream + 2);
+    uint16_t total_items = get_u16_be(stream + 4);
+
+    stream += header_len;
+    remaining -= header_len;
+
+    switch (ele_type) {
+    case TAG_BOOL:
+    case TAG_UINT8:
+    case TAG_INT8:
+        out_arr->elem_size = 1;
+        break;
+    case TAG_UINT16:
+    case TAG_INT16:
+        out_arr->elem_size = 2;
+        break;
+    case TAG_UINT32:
+    case TAG_INT32:
+    case TAG_FLOAT32:
+        out_arr->elem_size = 4;
+        break;
+    case TAG_UINT64:
+    case TAG_INT64:
+    case TAG_FLOAT64:
+        out_arr->elem_size = 8;
+        break;
+    case TAG_STRING:
+        out_arr->elem_size = sizeof(string_t);
+        break;
+    case TAG_BYTES:
+        out_arr->elem_size = sizeof(byte_array_t);
+        break;
+{{- range $i, $msg := .Messages }}
+    case TAG_{{snakeUpper $msg.Name}}:
+        out_arr->elem_size = sizeof({{snakeLower $msg.Name}}_t);
+        break;
+{{- end }}
+    default:
+        return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    size_t x = 0, y = 0, z = 0;
+    int status = DYN_ARR_OK;
+
+    switch (wire_tag) {
+        case TAG_ARRAY: {
+            out_arr->num_dims = 1;
+            status = read_one_dimensional_array(
+                &stream, &remaining, ele_type, out_arr, 0, unmarshal_fn, &x
+            );
+            y = 1; z = 1;
+            break;
+        }
+
+        case TAG_2D_ARRAY: {
+            out_arr->num_dims = 2;
+            status = read_two_dimensional_array(
+                &stream, &remaining, ele_type, out_arr, 0, unmarshal_fn, &x, &y
+            );
+            z = 1;
+            break;
+        }
+
+        case TAG_3D_ARRAY: {
+            out_arr->num_dims = 3;
+            status = read_three_dimensional_array(
+                &stream, &remaining, ele_type, out_arr, 0, unmarshal_fn, &x, &y, &z
+            );
+            break;
+        }
+
+        default:
+            return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    if (status != DYN_ARR_OK) {
+        return status;
+    }
+
+    out_arr->x = x;
+    out_arr->y = y;
+    out_arr->z = z;
+
+    return DYN_ARR_OK;
+}
+
+/**
+ * Calculates the size of a single element (including variable-length prefixes).
+ * Corresponds to Go's calcTypeSize(ele any)
+ */
+size_t calc_type_size(
+    const void *item,
+    element_type_t ele_type,
+    custom_size_fn size_fn)
+{
+    if (!item) {
+        return 0;
+    }
+
+    switch (ele_type) {
+        // --- Primitives ---
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8:
+            return 1;
+
+        case TAG_UINT16:
+        case TAG_INT16:
+            return 2;
+
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32:
+            return 4;
+
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64:
+            return 8;
+
+        // --- Strings & Byte Slices ---
+        case TAG_STRING:
+        case TAG_BYTES: {
+            // Memory layout: typedef struct { void *data; uint32_t len; }
+            typedef struct {
+                const uint8_t *data;
+                uint32_t len;
+            } var_len_item_t;
+
+            const var_len_item_t *v = (const var_len_item_t*)item;
+            return STR_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
+        }
+
+        // --- Custom Structs ---
+{{- range $i, $msg := .Messages }}
+        case TAG_{{snakeUpper $msg.Name}}:
+{{- end }}
+        {
+            if (size_fn) {
+                return size_fn(item);
+            }
+            return 0;
+        }
+
+        default:
+            return 0;
+    }
+}
+
+/**
+ * Calculates the total binary wire size of a dynamic_array_t.
+ * Corresponds to Go's calcArraySize(elements ...T)
+ */
+size_t calc_array_size(
+    const dynamic_array_t *arr,
+    element_type_t ele_type,
+    custom_size_fn size_fn)
+{
+    if (!arr || !arr->data || arr->x == 0) {
+        return ARRAY_COUNT_PREFIX_SIZE; // 2 bytes
+    }
+
+    size_t elem_bytes = 0;
+
+    // Check if primitive fixed size
+    switch (ele_type) {
+        case TAG_BOOL:   case TAG_UINT8:  case TAG_INT8:   elem_bytes = 1; break;
+        case TAG_UINT16: case TAG_INT16:                   elem_bytes = 2; break;
+        case TAG_UINT32: case TAG_INT32:  case TAG_FLOAT32:elem_bytes = 4; break;
+        case TAG_UINT64: case TAG_INT64:  case TAG_FLOAT64:elem_bytes = 8; break;
+        default: elem_bytes = 0; break;
+    }
+
+    // --- PRIMITIVE MULTI-DIMENSIONAL SIZES ---
+    if (elem_bytes > 0) {
+        size_t x = arr->x;
+        size_t y = (arr->num_dims >= 2) ? arr->y : 1;
+        size_t z = (arr->num_dims == 3) ? arr->z : 1;
+
+        if (arr->num_dims == 1) {
+            // [Count X (2B)] + Payload
+            return ARRAY_COUNT_PREFIX_SIZE + (x * elem_bytes);
+        } 
+        else if (arr->num_dims == 2) {
+            // [Count X (2B)] + X * ([Count Y (2B)] + Payload)
+            size_t row_size = ARRAY_COUNT_PREFIX_SIZE + (y * elem_bytes);
+            return ARRAY_COUNT_PREFIX_SIZE + (x * row_size);
+        } 
+        else if (arr->num_dims == 3) {
+            // [Count X (2B)] + X * ([Count Y (2B)] + Y * ([Count Z (2B)] + Payload))
+            size_t z_block = ARRAY_COUNT_PREFIX_SIZE + (z * elem_bytes);
+            size_t y_block = ARRAY_COUNT_PREFIX_SIZE + (y * z_block);
+            return ARRAY_COUNT_PREFIX_SIZE + (x * y_block);
+        }
+    }
+
+    // --- NON-PRIMITIVE & VARIABLE-LENGTH SIZES (Strings, Bytes, Structs) ---
+    // Includes top-level TypeMarker (2B)
+    size_t total_size = ARRAY_COUNT_PREFIX_SIZE + TYPE_MARKER_SIZE;
+    size_t total_elements = arr->x;
+    if (arr->num_dims >= 2) total_elements *= arr->y;
+    if (arr->num_dims == 3) total_elements *= arr->z;
+
+    const uint8_t *src_bytes = (const uint8_t*)arr->data;
+
+    for (size_t i = 0; i < total_elements; i++) {
+        const void *item = src_bytes + (i * arr->elem_size);
+        total_size += calc_type_size(item, ele_type, size_fn);
+    }
+
+    return total_size;
+}
+
+{{$overallMessages := .Messages}}
 {{range .Messages}}{{$msg := .}}
 /* ===========================================================================
  * {{$msg.Name}} (Type ID: {{$msg.TypeID}}, Fixed Payload: {{$msg.TotalFixedSize}} bytes)
@@ -112,42 +1306,92 @@ uint32_t get_message_overall_payload_length(const uint8_t* buf) {
  * Sets the value of the {{$field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
  */
 {{- if isVariable $field.Type}}
-{{- if isByteArray $field.Type}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const uint8_t* value, size_t len) {
-    if (!msg || !value || len == 0) return;
-    if (msg->{{$field.CName}} != NULL) {
-        free(msg->{{$field.CName}});
-    }
-
-    uint8_t* new_value = (uint8_t*) malloc(len);
-    if (!new_value) return;
-
-    memcpy(new_value, value, len);
-    msg->{{$field.CName}} = new_value;
-    msg->{{$field.CName}}_len = (uint32_t)len;
-}
-{{- else}}{{/* not (isByteArray $field.Type) */}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const char* value) {
+{{- if eq (cBaseType $field) "[]any"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    if (msg->{{$field.CName}} != NULL) {
+    dynamic_array_destroy(&msg->{{$field.CName}});
+
+    if (value.data != NULL && value.capacity > 0) {
+        dyn_arr_status_t status = dynamic_array_init(&msg->{{$field.CName}}, value->elem_size,
+            value->num_dims, value->x, value->y, value->z);
+        if (status != DYN_ARR_OK) {
+            dynamic_array_destroy(&msg->{{$field.CName}});
+            return;
+        }
+
+        size_t total_size = value->x * value->y * value->z * value->elem_size;
+        memcpy(msg->{{$field.CName}}.data, value.data, total_size);
+    }
+}
+{{- else if eq (cBaseType $field) "struct"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cType $field $overallMessages}} *value) {
+    if (!msg || !value) return;
+    if (msg->{{$field.CName}}) {
         free(msg->{{$field.CName}});
+        msg->{{$field.CName}} = NULL;
     }
 
-    size_t len = strlen(value);
-    char* new_value = (char*) malloc(len + 1);
-    if (!new_value) return;
+    msg->{{$field.CName}} = malloc(sizeof({{cType $field $overallMessages}}));
+    if (!msg->{{$field.CName}}) return;
 
-    memcpy(new_value, value, len + 1);
-    msg->{{$field.CName}} = new_value;
-    msg->{{$field.CName}}_len = (uint32_t)len;
+    *msg->{{$field.CName}} = *value;
 }
-{{- end}}{{/* isByteArray $field.Type */}}
+{{- else if eq (cBaseType $field) "string"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const char *value, const size_t len) {
+    if (!msg || !value || len == 0) return;
+
+    msg->{{$field.CName}}.len = (uint32_t)len;
+    if (msg->{{$field.CName}}.data != NULL) {
+        free(msg->{{$field.CName}}.data);
+    }
+
+    msg->{{$field.CName}}.data = (char *) malloc(len + 1);
+    if (!msg->{{$field.CName}}.data) return;
+
+    memcpy(msg->{{$field.CName}}.data, value, len);
+    msg->{{$field.CName}}.data[len] = '\0';
+}
+{{- else if eq (cBaseType $field) "[]byte"}}
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const uint8_t *value, const size_t len) {
+    if (!msg || !value || len == 0) return;
+
+    msg->{{$field.CName}}.len = (uint32_t)len;
+    if (msg->{{$field.CName}}.data != NULL) {
+        free(msg->{{$field.CName}}.data);
+    }
+
+    msg->{{$field.CName}}.data = (uint8_t *) malloc(len);
+    if (!msg->{{$field.CName}}.data) return;
+
+    memcpy(msg->{{$field.CName}}.data, value, len);
+}
+{{- end}}{{/* if eq (cBaseType $field) */}}
 {{- else}}{{/* not (isVariable $field.Type) */}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cBaseType $field}} value) {
+void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* msg, const {{cType $field $overallMessages}} value) {
     if (msg) msg->{{$field.CName}} = value;
 }
 {{- end}}{{/* isVariable $field.Type */}}
 {{- end}}{{/* range $msg.Fields */}}
+
+size_t {{snakeLower $msg.Name}}_dynamic_payload_size(void) {
+    size_t dyn_size = 0;
+{{- range $msg.VariableFields}}{{$field := .}}
+{{- if eq (cBaseType $field) "[]any"}}
+{{- else if eq (cBaseType $field) "struct"}}
+    if (msg->{{$field.CName}}) {
+        dyn_size += calc_type_size(msg->{{$field.CName}}, TAG_, {{snakeLower (cType $field $overallMessages)}}_size);
+    }
+{{- else}}{{/* if eq (cBaseType $field) */}}
+    dyn_size += msg->{{$field.CName}}.len
+{{- end}}{{/* if eq (cBaseType $field) */}}
+{{- end}}{{/* range $msg.VariableFields */}}
+    return dyn_size;
+}
+
+size_t {{snakeLower $msg.Name}}_size(void) {
+    return WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE + {{snakeLower $msg.Name}}_dynamic_payload_size();
+}
+
 
 /**
  * {{snakeLower $msg.Name}}_marshal - Serialize {{$msg.Name}} to wire format.
@@ -162,75 +1406,89 @@ void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t* m
 int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t* msg, uint8_t** out_buf) {
     if (!msg || !out_buf) return -1;
 
-    /* Calculate total dynamic payload size from all variable-length fields */
-    size_t dyn_size = 0;
-{{- range $msg.VariableFields}}{{$field := .}}
-    dyn_size += msg->{{$field.CName}}_len;
-{{- end}}{{/* range $msg.VariableFields */}}
-
-    uint32_t payload_size = {{snakeUpper $msg.Name}}_FIXED_SIZE + dyn_size;
+    size_t payload_size = {{snakeUpper $msg.Name}}_FIXED_SIZE + {{snakeLower $msg.Name}}_dynamic_payload_size();
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
-    uint8_t* buf = (uint8_t*) malloc(total_size);
+    uint8_t *buf = (uint8_t *) malloc(total_size);
     if (!buf) {
         return -1;
     }
 
-    memset(buf, 0, WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE);
+    memset(buf, 0, total_size);
 
     /* Write wire frame header identifiers */
     put_u16_be(buf, {{snakeUpper $msg.Name}}_TYPE_ID);
-    put_u16_be(buf + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, {{snakeUpper $msg.Name}}_FIXED_SIZE);
-    put_u32_be(buf + WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE, payload_size);
+    put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, {{snakeUpper $msg.Name}}_FIXED_SIZE);
+    put_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, payload_size);
 
-    uint8_t* hdr = buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t *hdr = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE;
 
 {{- range $msg.Fields}}{{$field := .}}
-{{- if isVariable $field.Type}}
 
+    // {{snakeLower $msg.Name}}_t -> {{$field.CName}} (offset: {{$field.Offset}}, size: {{$field.Size}})
+{{- if isVariable $field.Type}}
+{{- if eq (cBaseType $field) "[]any"}}
+    size_t {{$field.CName}}_len = 0;
+    uint8_t* {{$field.CName}}_buf = NULL;
+{{- if eq (arrayRootBaseType $field "c") "struct"}}
+    dyn_arr_status_t {{$field.CName}}_status = array_to_bytes(&msg->{{$field.CName}}, &{{$field.CName}}_buf, &{{$field.CName}}_len, {{snakeLower (cType $field $overallMessages)}}_size, {{snakeLower (cType $field $overallMessages)}}_marshal);
+{{- else}}{{/* not eq (arrayRootBaseType $field) "struct" */}}
+    dyn_arr_status_t {{$field.CName}}_status = array_to_bytes(&msg->{{$field.CName}}, &{{$field.CName}}_buf, &{{$field.CName}}_len, NULL, NULL);
+{{- end}}{{/* if eq (arrayRootBaseType $field) "struct" */}}
+    if ({{$field.CName}}_status != DYN_ARR_OK) {
+        free(buf);
+        return -1;
+    }
+    put_u32_be(hdr + {{$field.Offset}}, {{$field.CName}}_len);
+    memcpy(buf + dyn_off, {{$field.CName}}_buf, {{$field.CName}}_len);
+    dyn_off += {{$field.CName}}_len;
+    free({{$field.CName}}_buf);
+{{- else if eq (cBaseType $field) "struct"}}
+    uint8_t* {{snakeLower (cType $field $overallMessages)}}_buf = NULL;
+    int {{snakeLower (cType $field $overallMessages)}}_len = {{snakeLower (cType $field $overallMessages)}}_marshal(&msg->{{$field.CName}}, &{{snakeLower (cType $field $overallMessages)}}_buf);
+    if ({{snakeLower (cType $field $overallMessages)}}_len < 0) {
+        free(buf);
+        return -1;
+    }
+    put_u32_be(hdr + {{$field.Offset}}, {{snakeLower (cType $field $overallMessages)}}_len);
+    memcpy(buf + dyn_off, {{snakeLower (cType $field $overallMessages)}}_buf, {{snakeLower (cType $field $overallMessages)}}_len);
+    dyn_off += {{snakeLower (cType $field $overallMessages)}}_len;
+    free({{snakeLower (cType $field $overallMessages)}}_buf);
+{{- else}}{{/* if eq (cBaseType $field) */}}
     put_u32_be(hdr + {{$field.Offset}}, msg->{{$field.CName}}_len);
     if (msg->{{$field.CName}}_len > 0 && msg->{{$field.CName}}) {
         memcpy(buf + dyn_off, msg->{{$field.CName}}, msg->{{$field.CName}}_len);
         dyn_off += msg->{{$field.CName}}_len;
     }
+{{- end}}{{/* if eq (cBaseType $field) */}}
 {{- else}}{{/* not (isVariable $field.Type) */}}
 {{- if eq (cBaseType $field) "uint8_t"}}
-
     hdr[{{$field.Offset}}] = msg->{{$field.CName}};
 {{- else if eq (cBaseType $field) "int8_t"}}
-
     hdr[{{$field.Offset}}] = (uint8_t)msg->{{$field.CName}};
 {{- else if eq (cBaseType $field) "uint16_t"}}
-
     put_u16_be(hdr + {{$field.Offset}}, msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "int16_t"}}
-
     put_u16_be(hdr + {{$field.Offset}}, (uint16_t)msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "uint32_t"}}
-
     put_u32_be(hdr + {{$field.Offset}}, msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "int32_t"}}
-
     put_u32_be(hdr + {{$field.Offset}}, (uint32_t)msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "uint64_t"}}
-
     put_u64_be(hdr + {{$field.Offset}}, msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "int64_t"}}
-
     put_u64_be(hdr + {{$field.Offset}}, (uint64_t)msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "float"}}
-
     {
         uint32_t tmp;
         memcpy(&tmp, &msg->{{$field.CName}}, sizeof(tmp));
         put_u32_be(hdr + {{$field.Offset}}, tmp);
     }
 {{- else if eq (cBaseType $field) "double"}}
-
     {
         uint64_t tmp;
         memcpy(&tmp, &msg->{{$field.CName}}, sizeof(tmp));
@@ -252,8 +1510,8 @@ int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t* msg, uint
  * Variable-length fields are malloc'd; caller must call {{snakeLower $msg.Name}}_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t* out_msg) {
+int {{snakeLower $msg.Name}}_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t *out_msg) {
     if (!in_buf || !out_msg ||
         fixed_payload_len < {{snakeUpper $msg.Name}}_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
@@ -263,17 +1521,16 @@ int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_pay
 
     memset(out_msg, 0, sizeof({{snakeLower $msg.Name}}_t));
 
-    const uint8_t* hdr = in_buf;
+    const uint8_t *hdr = in_buf;
     size_t dyn_off = fixed_payload_len;
 
     /* Decode fixed-size primitives from structural block offsets */
 {{- range $msg.Fields}}{{$field := .}}
 {{- if isVariable $field.Type}}
-
-
-    out_msg->{{$field.CName}}_len = get_u32_be(hdr + {{$field.Offset}});
-
-
+    {{$field.CName}}_len = get_u32_be(hdr + {{$field.Offset}});
+    if ({{$field.CName}}_len > MAX_ALLOWED_PACKET) {
+        return -1;
+    }
 {{- else}} {{/* not (isVariable $field.Type) */}}
 {{- if eq (cBaseType $field) "uint8_t"}}
     out_msg->{{$field.CName}} = hdr[{{$field.Offset}}];
@@ -307,31 +1564,53 @@ int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_pay
 
     /* Decode variable-length dynamic fields safely */
 {{- range $msg.VariableFields}}{{$field := .}}
-    if (out_msg->{{$field.CName}}_len > 0) {
-        if (out_msg->{{$field.CName}}_len > MAX_ALLOWED_PACKET ||
-            dyn_off + out_msg->{{$field.CName}}_len > overall_payload_len) {
+    if ({{$field.CName}}_len > 0) {
+        
+{{- if eq (cBaseType $field) "[]any"}}
+{{- if eq (arrayRootBaseType $field "c") "struct"}}
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, {{$field.CName}}_len,
+            &out_msg->{{$field.CName}}, {{snakeLower (arrayRootType $field $overallMessages "c")}}_unmarshal);
+{{- else}}{{/* not eq (arrayRootBaseType $field) "struct" */}}
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, {{$field.CName}}_len,
+            &out_msg->{{$field.CName}}, NULL);
+{{- end}}{{/* if eq (arrayRootBaseType $field) "struct" */}}
+        if ({{$field.CName}}_status != DYN_ARR_OK) {
             {{snakeLower $msg.Name}}_free(out_msg);
             return -1;
         }
-
-{{- if eq ($field.Type.GoType) "string"}}
-        out_msg->{{$field.CName}} = (char*) malloc(out_msg->{{$field.CName}}_len + 1);
+{{- else if eq (cBaseType $field) "struct"}}
+        out_msg->{{$field.CName}} = malloc(sizeof({{cType $field $overallMessages}}));
         if (!out_msg->{{$field.CName}}) {
             {{snakeLower $msg.Name}}_free(out_msg);
             return -1;
         }
 
-        memcpy(out_msg->{{$field.CName}}, in_buf + dyn_off, out_msg->{{$field.CName}}_len);
-        out_msg->{{$field.CName}}[out_msg->{{$field.CName}}_len] = '\0';
-{{- else}}{{/* not (eq ($field.Type.GoType) "string") */}}
-        out_msg->{{$field.CName}} = (uint8_t*)malloc(out_msg->{{$field.CName}}_len);
-        if (!out_msg->{{$field.CName}}) {
+        int status = {{snakeLower (cType $field $overallMessages)}}_unmarshal(in_buf + dyn_off, {{$field.CName}}_len, out_msg->{{$field.CName}});
+        if (status != 0) {
             {{snakeLower $msg.Name}}_free(out_msg);
             return -1;
         }
-        memcpy(out_msg->{{$field.CName}}, in_buf + dyn_off, out_msg->{{$field.CName}}_len);
-{{- end}}{{/* eq ($field.Type.GoType) "string" */}}
-        dyn_off += out_msg->{{$field.CName}}_len;
+{{- else if eq (cBaseType $field) "string"}}
+        out_msg->{{$field.CName}}.len = {{$field.CName}}_len;
+        out_msg->{{$field.CName}}.data = (char*) malloc({{$field.CName}}_len + 1);
+        if (!out_msg->{{$field.CName}}.data) {
+            {{snakeLower $msg.Name}}_free(out_msg);
+            return -1;
+        }
+
+        memcpy(out_msg->{{$field.CName}}.data, in_buf + dyn_off, {{$field.CName}}_len);
+        out_msg->{{$field.CName}}.data[{{$field.CName}}_len] = '\0';
+{{- else}}{{/* if eq (cBaseType $field) */}}
+        out_msg->{{$field.CName}}.len = {{$field.CName}}_len;
+        out_msg->{{$field.CName}}.data = (char*) malloc({{$field.CName}}_len);
+        if (!out_msg->{{$field.CName}}.data) {
+            {{snakeLower $msg.Name}}_free(out_msg);
+            return -1;
+        }
+
+        memcpy(out_msg->{{$field.CName}}.data, in_buf + dyn_off, {{$field.CName}}_len);
+{{- end}}{{/* if eq (cBaseType $field) */}}
+        dyn_off += {{$field.CName}}_len;
     }
 {{- end}}{{/* range $msg.VariableFields */}}
 
@@ -342,17 +1621,26 @@ int {{snakeLower $msg.Name}}_unmarshal(const uint8_t* in_buf, uint16_t fixed_pay
 /**
  * {{snakeLower $msg.Name}}_free - Release heap memory owned by a {{snakeLower $msg.Name}}_t struct.
  */
-void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t* msg) {
+void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t *msg) {
     if (!msg) {
         return;
     }
 {{- range $msg.VariableFields}}{{$field := .}}
-
+{{- if eq (cBaseType $field) "[]any"}}
+    dynamic_array_destroy(&msg->{{$field.CName}});
+{{- else if eq (cBaseType $field) "struct"}}
+    if (msg->{{$field.CName}}) {
+        {{snakeLower (cType $field $overallMessages)}}_free(msg->{{$field.CName}});
+        free(msg->{{$field.CName}});
+        msg->{{$field.CName}} = NULL;
+    }
+{{- else}}{{/* if eq (cBaseType $field) */}}
     if (msg->{{$field.CName}}) {
         free(msg->{{$field.CName}});
         msg->{{$field.CName}} = NULL;
     }
     msg->{{$field.CName}}_len = 0;
+{{- end}}{{/* if eq (cBaseType $field) */}}
 {{- end}}{{/* range $msg.VariableFields */}}
 }
 

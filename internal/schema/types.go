@@ -39,8 +39,8 @@ type Field struct {
 	Description     string
 	Type            FieldType
 	Format          string
-	NestedMessageId uint16 // object element id (FieldTypeObject)
-	ArrElem         *Field // array element descriptor (FieldTypeArray)
+	NestedMessageId uint16   // object element id (FieldTypeObject)
+	ArrElem         *Field   // array element descriptor (FieldTypeArray)
 	EnumValues      []string // allowed values for enum fields (rendered as constants)
 	IsVariable      bool
 }
@@ -171,9 +171,13 @@ func (ft FieldType) CType() string {
 	case FieldTypeBool:
 		return "uint8_t"
 	case FieldTypeString:
-		return "char*"
+		return "string"
 	case FieldTypeBytes:
-		return "uint8_t*"
+		return "[]byte"
+	case FieldTypeObject:
+		return "struct"
+	case FieldTypeArray:
+		return "[]any"
 	default:
 		return "uint8_t"
 	}
