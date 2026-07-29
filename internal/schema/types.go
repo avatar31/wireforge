@@ -150,26 +150,26 @@ func (ft FieldType) CType() string {
 	switch ft {
 	case FieldTypeUint8:
 		return "uint8_t"
-	case FieldTypeUint16:
-		return "uint16_t"
-	case FieldTypeUint32:
-		return "uint32_t"
-	case FieldTypeUint64:
-		return "uint64_t"
 	case FieldTypeInt8:
 		return "int8_t"
-	case FieldTypeInt16:
-		return "int16_t"
-	case FieldTypeInt32:
-		return "int32_t"
-	case FieldTypeInt64:
-		return "int64_t"
-	case FieldTypeFloat32:
-		return "float"
-	case FieldTypeFloat64:
-		return "double"
 	case FieldTypeBool:
 		return "uint8_t"
+	case FieldTypeUint16:
+		return "uint16_t"
+	case FieldTypeInt16:
+		return "int16_t"
+	case FieldTypeUint32:
+		return "uint32_t"
+	case FieldTypeInt32:
+		return "int32_t"
+	case FieldTypeFloat32:
+		return "float"
+	case FieldTypeUint64:
+		return "uint64_t"
+	case FieldTypeInt64:
+		return "int64_t"
+	case FieldTypeFloat64:
+		return "double"
 	case FieldTypeString:
 		return "string"
 	case FieldTypeBytes:
@@ -179,7 +179,7 @@ func (ft FieldType) CType() string {
 	case FieldTypeArray:
 		return "[]any"
 	default:
-		return "uint8_t"
+		return ""
 	}
 }
 

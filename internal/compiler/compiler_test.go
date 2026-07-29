@@ -353,3 +353,128 @@ func TestCompile(t *testing.T) {
 		})
 	}
 }
+
+
+// ---------------------------------------------------------------------------
+// TestCompile_PackageName verifies that the PackageName argument is propagated
+// to CompiledSchema unchanged.
+// ---------------------------------------------------------------------------
+
+func TestCompile_PackageName(t *testing.T) {
+	msg := &schema.Message{
+		Name:       "PkgMsg",
+		TypeID:     1,
+		Fields:     []*schema.Field{int32Field},
+		Properties: map[string]*schema.Field{"int32Field": int32Field},
+	}
+
+	tests := []string{"messages", "mypackage", "proto"}
+	for _, pkg := range tests {
+		t.Run(pkg, func(t *testing.T) {
+			cs, err := Compile(&schema.Schema{Messages: []*schema.Message{msg}}, pkg)
+			assert.NoError(t, err)
+			assert.Equal(t, pkg, cs.PackageName)
+		})
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+// TestCompileMessage_NilArrElem verifies the error path when an array field has
+// no element type descriptor.
+// ---------------------------------------------------------------------------
+
+func TestCompileMessage_NilArrElem(t *testing.T) {
+	badArrayField := &schema.Field{
+		Name:       "brokenArr",
+		Type:       schema.FieldTypeArray,
+		IsVariable: true,
+		ArrElem:    nil, // intentionally missing
+	}
+	msg := &schema.Message{
+		Name:       "BadMsg",
+		TypeID:     1,
+		Fields:     []*schema.Field{badArrayField},
+		Properties: map[string]*schema.Field{"brokenArr": badArrayField},
+	}
+
+	_, err := CompileMessage(msg)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "array field must have an element type defined")
+}
+
+// ---------------------------------------------------------------------------
+// TestToGoName verifies the camelCase/snake_case → PascalCase conversion and
+// the acronym-preservation rules.
+// ---------------------------------------------------------------------------
+
+func TestToGoName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Basic camelCase
+		{"stringField", "StringField"},
+		{"boolField", "BoolField"},
+		{"fooBar", "FooBar"},
+		// snake_case
+		{"foo_bar", "FooBar"},
+		{"my_field_name", "MyFieldName"},
+		// Single word
+		{"name", "Name"},
+		{"x", "X"},
+		// Whole-word acronyms
+		{"id", "ID"},
+		{"url", "URL"},
+		{"uri", "URI"},
+		{"userId", "UserID"},
+		{"requestUrl", "RequestURL"},
+		// Mixed acronym prefix (e.g. aclField → splits at 'F' → ["acl","field"])
+		{"aclField", "AclField"},
+		{"httpRequest", "HTTPRequest"},
+		// Already PascalCase passes through deterministically
+		{"UserName", "UserName"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			assert.Equal(t, tc.want, toGoName(tc.input))
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestToSnakeCase verifies the PascalCase/camelCase → snake_case conversion.
+// ---------------------------------------------------------------------------
+
+func TestToSnakeCase(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Basic conversions
+		{"FooBar", "foo_bar"},
+		{"fooBar", "foo_bar"},
+		{"SimpleField", "simple_field"},
+		// All lowercase is unchanged
+		{"alreadylower", "alreadylower"},
+		// Already snake_case is unchanged (no uppercase letters)
+		{"string_field", "string_field"},
+		// Empty string
+		{"", ""},
+		// Single uppercase letter
+		{"X", "x"},
+		// Each uppercase letter gets its own underscore prefix
+		{"ACLField", "a_c_l_field"},
+		{"UserID", "user_i_d"},
+		// Mixed with digits (digits are unchanged)
+		{"int64Field", "int64_field"},
+		{"uint32Value", "uint32_value"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			assert.Equal(t, tc.want, ToSnakeCase(tc.input))
+		})
+	}
+}

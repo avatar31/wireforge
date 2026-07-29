@@ -109,8 +109,8 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 			},
 		},
 		{
-			name:          "Test integer type with int16 format",
-			yamlContent:   generateSingleFieldSpec("id", "integer", "int16"),
+			name:          "Test integer type with uint8 format",
+			yamlContent:   generateSingleFieldSpec("id", "integer", "uint8"),
 			expectErr:     false,
 			expectedCount: 1,
 			validateFunc: func(t *testing.T, schema *Schema) {
@@ -119,12 +119,12 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 
 				assert.Len(t, msg.Fields, 1, "expected exactly one field")
 				assert.Len(t, msg.Properties, 1, "expected exactly one property")
-				validateField(t, msg.Properties, "id", FieldTypeInt16)
+				validateField(t, msg.Properties, "id", FieldTypeUint8)
 			},
 		},
 		{
-			name:          "Test integer type with int32 format",
-			yamlContent:   generateSingleFieldSpec("id", "integer", "int32"),
+			name:          "Test integer type with int8 format",
+			yamlContent:   generateSingleFieldSpec("id", "integer", "int8"),
 			expectErr:     false,
 			expectedCount: 1,
 			validateFunc: func(t *testing.T, schema *Schema) {
@@ -133,21 +133,7 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 
 				assert.Len(t, msg.Fields, 1, "expected exactly one field")
 				assert.Len(t, msg.Properties, 1, "expected exactly one property")
-				validateField(t, msg.Properties, "id", FieldTypeInt32)
-			},
-		},
-		{
-			name:          "Test integer type with int64 format",
-			yamlContent:   generateSingleFieldSpec("id", "integer", "int64"),
-			expectErr:     false,
-			expectedCount: 1,
-			validateFunc: func(t *testing.T, schema *Schema) {
-				msg := schema.Messages[0]
-				assert.Equal(t, "Message", msg.Name, "message name mismatch")
-
-				assert.Len(t, msg.Fields, 1, "expected exactly one field")
-				assert.Len(t, msg.Properties, 1, "expected exactly one property")
-				validateField(t, msg.Properties, "id", FieldTypeInt64)
+				validateField(t, msg.Properties, "id", FieldTypeInt8)
 			},
 		},
 		{
@@ -165,6 +151,20 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 			},
 		},
 		{
+			name:          "Test integer type with int16 format",
+			yamlContent:   generateSingleFieldSpec("id", "integer", "int16"),
+			expectErr:     false,
+			expectedCount: 1,
+			validateFunc: func(t *testing.T, schema *Schema) {
+				msg := schema.Messages[0]
+				assert.Equal(t, "Message", msg.Name, "message name mismatch")
+
+				assert.Len(t, msg.Fields, 1, "expected exactly one field")
+				assert.Len(t, msg.Properties, 1, "expected exactly one property")
+				validateField(t, msg.Properties, "id", FieldTypeInt16)
+			},
+		},
+		{
 			name:          "Test integer type with uint32 format",
 			yamlContent:   generateSingleFieldSpec("id", "integer", "uint32"),
 			expectErr:     false,
@@ -179,6 +179,20 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 			},
 		},
 		{
+			name:          "Test integer type with int32 format",
+			yamlContent:   generateSingleFieldSpec("id", "integer", "int32"),
+			expectErr:     false,
+			expectedCount: 1,
+			validateFunc: func(t *testing.T, schema *Schema) {
+				msg := schema.Messages[0]
+				assert.Equal(t, "Message", msg.Name, "message name mismatch")
+
+				assert.Len(t, msg.Fields, 1, "expected exactly one field")
+				assert.Len(t, msg.Properties, 1, "expected exactly one property")
+				validateField(t, msg.Properties, "id", FieldTypeInt32)
+			},
+		},
+		{
 			name:          "Test integer type with uint64 format",
 			yamlContent:   generateSingleFieldSpec("id", "integer", "uint64"),
 			expectErr:     false,
@@ -190,6 +204,20 @@ func TestParseAndMapOpenAPIWithIntegerType(t *testing.T) {
 				assert.Len(t, msg.Fields, 1, "expected exactly one field")
 				assert.Len(t, msg.Properties, 1, "expected exactly one property")
 				validateField(t, msg.Properties, "id", FieldTypeUint64)
+			},
+		},
+		{
+			name:          "Test integer type with int64 format",
+			yamlContent:   generateSingleFieldSpec("id", "integer", "int64"),
+			expectErr:     false,
+			expectedCount: 1,
+			validateFunc: func(t *testing.T, schema *Schema) {
+				msg := schema.Messages[0]
+				assert.Equal(t, "Message", msg.Name, "message name mismatch")
+
+				assert.Len(t, msg.Fields, 1, "expected exactly one field")
+				assert.Len(t, msg.Properties, 1, "expected exactly one property")
+				validateField(t, msg.Properties, "id", FieldTypeInt64)
 			},
 		},
 		{
@@ -752,4 +780,401 @@ Message:
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_FileErrors covers I/O and structural failures before any schema
+// parsing occurs.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_FileErrors(t *testing.T) {
+	t.Run("non-existent file path", func(t *testing.T) {
+		_, err := ParseFile("/nonexistent/path/to/spec.yaml")
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "failed to load/parse YAML file")
+	})
+
+	t.Run("file contains invalid YAML syntax", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "bad.yaml")
+		err := os.WriteFile(tmpFile, []byte("[[[not: valid: {{{{"), 0644)
+		if err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		_, parseErr := ParseFile(tmpFile)
+		assert.Error(t, parseErr)
+		assert.ErrorContains(t, parseErr, "failed to load/parse YAML file")
+	})
+
+	t.Run("valid YAML but not a valid OpenAPI spec", func(t *testing.T) {
+		notOpenAPI := "name: John\nage: 30\n"
+		tmpFile := filepath.Join(t.TempDir(), "notapi.yaml")
+		err := os.WriteFile(tmpFile, []byte(notOpenAPI), 0644)
+		if err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		_, parseErr := ParseFile(tmpFile)
+		assert.Error(t, parseErr)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_MessageIDValidation covers all x-message-id validation paths.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_MessageIDValidation(t *testing.T) {
+	writeAndParse := func(t *testing.T, yamlContent string) error {
+		t.Helper()
+		tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+		if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yamlContent)), 0644); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		_, err := ParseFile(tmpFile)
+		return err
+	}
+
+	t.Run("missing x-message-id", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  properties:
+    name:
+      type: string
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "missing the required x-message-id")
+	})
+
+	t.Run("x-message-id below minimum (0)", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 0
+  properties:
+    name:
+      type: string
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "invalid x-message-id")
+	})
+
+	t.Run("x-message-id above maximum (65001)", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 65001
+  properties:
+    name:
+      type: string
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "invalid x-message-id")
+	})
+
+	t.Run("x-message-id is a string value", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: "not-a-number"
+  properties:
+    name:
+      type: string
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "invalid x-message-id")
+	})
+
+	t.Run("duplicate x-message-id across two schemas", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+MessageA:
+  type: object
+  x-message-id: 1
+  properties:
+    name:
+      type: string
+MessageB:
+  type: object
+  x-message-id: 1
+  properties:
+    age:
+      type: integer
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "duplicate x-message-id")
+	})
+
+	t.Run("minimum valid x-message-id (1)", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    name:
+      type: string
+`)
+		err := writeAndParse(t, yaml)
+		assert.NoError(t, err)
+	})
+
+	t.Run("maximum valid x-message-id (65000)", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 65000
+  properties:
+    name:
+      type: string
+`)
+		err := writeAndParse(t, yaml)
+		assert.NoError(t, err)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_FieldErrors covers type-resolution error paths in parseField.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_FieldErrors(t *testing.T) {
+	writeAndParse := func(t *testing.T, yamlContent string) error {
+		t.Helper()
+		tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+		if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yamlContent)), 0644); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		_, err := ParseFile(tmpFile)
+		return err
+	}
+
+	t.Run("field with no type defined", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    myField:
+      description: this field has no type
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "has no type defined")
+	})
+
+	t.Run("unsupported field type", func(t *testing.T) {
+		// OpenAPI 3.1 allows "null" as a standalone type; wireforge rejects it.
+		yaml := `openapi: "3.1.0"
+info:
+  version: "1.0.0"
+  title: Test API
+paths: {}
+components:
+  schemas:
+    Message:
+      type: object
+      x-message-id: 1
+      properties:
+        myField:
+          type: "null"
+`
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "unsupported type")
+	})
+
+	t.Run("integer with unsupported format", func(t *testing.T) {
+		err := writeAndParse(t, generateSingleFieldSpec("count", "integer", "bigint"))
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "unsupported integer format")
+	})
+
+	t.Run("number with unsupported format", func(t *testing.T) {
+		err := writeAndParse(t, generateSingleFieldSpec("price", "number", "bigdecimal"))
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "unsupported number format")
+	})
+
+	t.Run("Empty message", func(t *testing.T) {
+		yaml := `openapi: "3.1.0"
+info:
+  version: "1.0.0"
+  title: Test API
+paths: {}
+components:
+  schemas:
+    EmptyMessage:
+      type: object
+      x-message-id: 1
+`
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "schema \"EmptyMessage\" has no properties defined")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_ArrayErrors covers error paths specific to array fields.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_ArrayErrors(t *testing.T) {
+	t.Run("array missing items schema", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    tags:
+      type: array
+`)
+		tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+		if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yaml)), 0644); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		_, err := ParseFile(tmpFile)
+		assert.Error(t, err)
+		// kin-openapi validation intercepts this before parseField; both paths mention "items".
+		assert.ErrorContains(t, err, "items")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_EnumErrors covers error paths in parseEnumValues.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_EnumErrors(t *testing.T) {
+	writeAndParse := func(t *testing.T, yamlContent string) error {
+		t.Helper()
+		tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+		if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yamlContent)), 0644); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		_, err := ParseFile(tmpFile)
+		return err
+	}
+
+	t.Run("empty enum values list is silently ignored", func(t *testing.T) {
+		// enum: [] produces an empty sv.Enum slice in kin-openapi.
+		// The guard `if len(sv.Enum) > 0` in parseField skips enum validation,
+		// so the field parses successfully with no enum constraint.
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    status:
+      type: string
+      enum: []
+`)
+		tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+		if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yaml)), 0644); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		result, err := ParseFile(tmpFile)
+		assert.NoError(t, err)
+		if err == nil {
+			assert.Empty(t, result.Messages[0].Properties["status"].EnumValues,
+				"empty enum: [] should produce a field with no enum values")
+		}
+	})
+
+	t.Run("duplicate enum values", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+        - ACTIVE
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "duplicate enum value")
+	})
+
+	t.Run("enum on boolean field", func(t *testing.T) {
+		yaml := wrapInOpenAPIBoilerplate(`
+Message:
+  type: object
+  x-message-id: 1
+  properties:
+    flag:
+      type: boolean
+      enum:
+        - true
+        - false
+`)
+		err := writeAndParse(t, yaml)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "only supported for string base types")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_MultipleMessagesSorted verifies that the output messages slice
+// is ordered by TypeID ascending regardless of YAML source order.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_MultipleMessagesSorted(t *testing.T) {
+	yaml := wrapInOpenAPIBoilerplate(`
+MessageHighID:
+  type: object
+  x-message-id: 5
+  properties:
+    name:
+      type: string
+MessageLowID:
+  type: object
+  x-message-id: 2
+  properties:
+    age:
+      type: integer
+MessageMidID:
+  type: object
+  x-message-id: 3
+  properties:
+    active:
+      type: boolean
+`)
+	tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+	if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yaml)), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	result, err := ParseFile(tmpFile)
+	assert.NoError(t, err)
+	assert.Len(t, result.Messages, 3)
+	assert.Equal(t, uint16(2), result.Messages[0].TypeID, "first message should have the lowest TypeID")
+	assert.Equal(t, uint16(3), result.Messages[1].TypeID, "second message should have the middle TypeID")
+	assert.Equal(t, uint16(5), result.Messages[2].TypeID, "third message should have the highest TypeID")
+}
+
+// ---------------------------------------------------------------------------
+// TestParseFile_EmptySchema verifies that a schema with no properties produces
+// a Message with zero fields rather than an error.
+// ---------------------------------------------------------------------------
+
+func TestParseFile_EmptySchema(t *testing.T) {
+	yaml := wrapInOpenAPIBoilerplate(`
+EmptyMessage:
+  type: object
+  x-message-id: 1
+`)
+	tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
+	if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yaml)), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	result, err := ParseFile(tmpFile)
+	assert.NoError(t, err)
+	assert.Len(t, result.Messages, 1)
+	msg := result.Messages[0]
+	assert.Equal(t, "EmptyMessage", msg.Name)
+	assert.Equal(t, uint16(1), msg.TypeID)
+	assert.Empty(t, msg.Fields, "message with no properties should have no fields")
 }

@@ -19,8 +19,8 @@ const (
 	// MinAllowedMessageId is set to 1 to reserve 0 for special cases (e.g. "no message").
 	MinAllowedMessageId = 1
 
-	// MaxAllowedMessageId is set to 65500 to leave some room for future reserved message IDs.
-	MaxAllowedMessageId = 65500
+	// MaxAllowedMessageId is set to 65000 to leave some room for future reserved message IDs.
+	MaxAllowedMessageId = 65000
 
 	MaxArrayDimensions = 3
 )
@@ -39,7 +39,7 @@ func ParseFile(path string) (*Schema, error) {
 
 	doc, err := loader.LoadFromFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load/parse YAML file: %w", err)
+		return nil, err
 	}
 
 	// Explicitly validate against the OpenAPI specification rules.
@@ -67,6 +67,10 @@ func ParseFile(path string) (*Schema, error) {
 		fields, fieldList, err := parseFields(schemaValue.Properties, schemaName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse properties of schema %q: %w", schemaName, err)
+		}
+
+		if len(fields) == 0 {
+			return nil, fmt.Errorf("schema %q has no properties defined", schemaName)
 		}
 
 		message := &Message{

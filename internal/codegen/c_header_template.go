@@ -40,7 +40,7 @@ func cType(f *compiler.CompiledField, messages []*compiler.CompiledMessage) stri
 	case schema.FieldTypeObject:
 		for _, msg := range messages {
 			if msg.TypeID == f.NestedMessageId {
-				return snakeLower(msg.Name) + "_t"
+				return snakeLower(msg.Name)
 			}
 		}
 	case schema.FieldTypeArray:
@@ -112,6 +112,7 @@ extern "C" {
 #define TYPE_MARKER_SIZE 2
 #define ARRAY_COUNT_PREFIX_SIZE 2
 #define STRING_OR_BYTE_LEN_PREFIX_SIZE 4
+#define MAX_ARRAY_ELEMENTS 65535
 
 /**
  * Size of the wire frame header:
@@ -171,6 +172,7 @@ uint16_t get_message_type(const uint8_t *buf);
 uint16_t get_message_fixed_payload_length(const uint8_t *buf);
 uint32_t get_message_overall_payload_length(const uint8_t *buf);
 
+{{$overallMessages := .Messages}}
 {{range .Messages}}{{$msg := .}}
 typedef struct {{snakeLower $msg.Name}} {{snakeLower $msg.Name}}_t;
 {{end}}{{/* range .Messages */}}
@@ -240,22 +242,22 @@ _Static_assert(sizeof({{snakeLower $msg.Name}}_t) >= {{.TotalFixedSize}},
  */
 {{- if isVariable $field.Type}}
 {{- if eq (cBaseType $field) "[]any"}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value);
+void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value);
 {{- else if eq (cBaseType $field) "struct"}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cType $field $overallMessages}} *value);
+void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cType $field $overallMessages}}_t *value);
 {{- else if eq (cBaseType $field) "string"}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const char *value, const size_t len);
+void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const char *value, const size_t len);
 {{- else if eq (cBaseType $field) "[]byte"}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const uint8_t *value, const size_t len);
+void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const uint8_t *value, const size_t len);
 {{- end}}{{/* if (cBaseType $field) */}}
 {{- else}}{{/* not (isVariable $field.Type) */}}
-void {{snakeLower $msg.Name}}_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cBaseType $field}} value);
+void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cBaseType $field}} value);
 {{- end}}{{/* isVariable $field.Type */}}
 {{- end}}{{/* range $msg.Fields */}}
 
-size_t {{snakeLower $msg.Name}}_dynamic_payload_size(void);
+size_t {{snakeLower $msg.Name}}_t_dynamic_payload_size(const {{snakeLower $msg.Name}}_t *msg);
 
-size_t {{snakeLower $msg.Name}}_size(void);
+size_t {{snakeLower $msg.Name}}_t_size(const {{snakeLower $msg.Name}}_t *msg);
 
 /**
  * Serialize a {{$msg.Name}} message into out_buf in wire format.
@@ -267,7 +269,7 @@ size_t {{snakeLower $msg.Name}}_size(void);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t *msg, uint8_t **out_buf);
+int {{snakeLower $msg.Name}}_t_marshal(const {{snakeLower $msg.Name}}_t *msg, uint8_t **out_buf);
 
 /**
  * Deserialize a {{$msg.Name}} message from a contiguous buffer.
@@ -279,10 +281,10 @@ int {{snakeLower $msg.Name}}_marshal(const {{snakeLower $msg.Name}}_t *msg, uint
  * @return						0 on success, -1 on error (truncated data, allocation failure,
  *                          		length exceeds MAX_ALLOWED_PACKET).
  *
- * On success, caller MUST call {{snakeLower $msg.Name}}_free(out_msg) when done to release
+ * On success, caller MUST call {{snakeLower $msg.Name}}_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int {{snakeLower $msg.Name}}_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
+int {{snakeLower $msg.Name}}_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
 		uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t *out_msg);
 
 /**
@@ -293,7 +295,7 @@ int {{snakeLower $msg.Name}}_unmarshal(const uint8_t *in_buf, uint16_t fixed_pay
  *
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
-void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t *msg);
+void {{snakeLower $msg.Name}}_t_free({{snakeLower $msg.Name}}_t *msg);
 
 {{end}}{{/* range .Messages */}}
 
@@ -302,6 +304,9 @@ void {{snakeLower $msg.Name}}_free({{snakeLower $msg.Name}}_t *msg);
  */
 
 typedef size_t (*custom_size_fn)(const void *item);
+typedef int (*custom_marshal_fn)(const void *item, uint8_t **out_buf);
+typedef int (*custom_unmarshal_fn)(const uint8_t *buf, uint16_t buf_len,
+	uint32_t overall_payload_len, void *out_item);
 
 size_t calc_type_size(
     const void *item,

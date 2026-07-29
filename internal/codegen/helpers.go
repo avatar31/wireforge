@@ -110,7 +110,7 @@ func arrayRootType(f *compiler.CompiledField, messages []*compiler.CompiledMessa
 					if outputType == "go" {
 						return "*"+msg.Name
 					}
-					return snakeLowerCase(msg.Name)
+					return snakeLower(msg.Name)
 				}
 			}
 

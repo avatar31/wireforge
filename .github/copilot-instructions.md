@@ -85,6 +85,8 @@ Every message on the wire follows this frame structure:
 - All multi-byte integers are Big-Endian (network byte order)
 - Padding is inserted between fields for natural alignment
 
+For detailed layout format, see [README](../README.md#wire-protocol-format).
+
 ---
 
 ## Supported Type Mappings
@@ -102,8 +104,10 @@ Every message on the wire follows this frame structure:
 | `number` | `float` / (empty) | `float32` | `float` | 4 | 4 |
 | `number` | `double` | `float64` | `double` | 8 | 8 |
 | `boolean` | — | `bool` | `uint8_t` | 1 | 1 |
-| `string` | — | `string` | `uint32_t len + char*` | 4 (prefix) | 4 |
-| `string` | `binary` / `byte` | `[]byte` | `uint32_t len + uint8_t*` | 4 (prefix) | 4 |
+| `string` | — | `string` | `string_t` | 4 (prefix) | 4 |
+| `string` | `binary` / `byte` | `[]byte` | `byte_array_t` | 4 (prefix) | 4 |
+| `object` | — | `struct` | `struct` | 4 (prefix) | 4 |
+| `array` | — | `[]<type>` | `dynamic_array_t` | 4 (prefix) | 4 |
 
 ---
 
@@ -111,7 +115,7 @@ Every message on the wire follows this frame structure:
 
 1. **Alignment/Padding:** Compiler inserts explicit `_padN` fields; no `__attribute__((packed))`
 2. **Endianness:** All wire data is Big-Endian via explicit byte manipulation
-3. **Malloc Bombs:** `MAX_ALLOWED_PACKET` (16 MB) validated before every allocation
+3. **Malloc Bombs:** `MAX_ALLOWED_PACKET` (16 MB) validated before every allocation, `MAX_ARRAY_ELEMENTS` (65535) validated before every array allocation
 4. **Memory Leaks:** Every message type has a generated `*_free()` function
 5. **Generic/Untyped Fields:** Rejected at parse time with a clear error message
 
@@ -168,8 +172,7 @@ wireforge/
         +-- c_header_template.go        # C header generation template
         +-- c_code_template.go          # C implementation generation template
 +-- examples/
-    +-- client-server/                  # Example of single socket client-server chatapp using generated code
-    +-- peer-to-peer/                   # Example of dual socket peer-to-peer chatapp using generated code
+    +-- p2p-chatapp/                    # Example of dual socket peer-to-peer chatapp using generated code
 ```
 
 ---
@@ -184,7 +187,7 @@ wireforge/
 
 4. **`init()` validation in Go:** Uses `unsafe.Sizeof` to verify the Go compiler agrees with our computed field sizes at program startup.
 
-5. **Forward compatibility:** Unmarshal accepts a `fixedHeaderLen` from the wire, allowing newer senders to add trailing fields that older receivers skip gracefully.
+5. **Forward compatibility:** Unmarshal accepts a `fixedPayloadSize` and `overallPayloadSize` from the wire, allowing newer senders to add trailing fields that older receivers skip gracefully.
 
 ---
 
@@ -195,9 +198,6 @@ Inside Go templates, `$msg` is used to capture the current message in `{{range .
 ---
 
 ## Active TODOs
-
-**P0:**
-- No support for nested object or array types (only primitives + strings/blobs)
 
 **P1:**
 - Format C code after code generation (e.g., `clang-format` or `astyle`)

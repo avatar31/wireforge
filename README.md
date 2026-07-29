@@ -101,6 +101,10 @@ Every wireforge message uses this frame layout:
 | **Dynamic Payload** | M bytes | Concatenated variable-length data (strings, byte arrays) in field order |
 
 
+### Nested Object Format
+Nested objects are serialized as a flat byte array with the same layout as the parent object i.e. each nested object is serailized with message type ID, fixed payload length, overall payload length, fixed payload, and dynamic payload. Then the serialized nested object is appended to the dynamic payload of the parent object. The parent object will have a uint32 length prefix for each nested object in its fixed payload.
+
+
 ### Array Format in Dynamic Payload
 
 Every array inside the dynamic payload will be formatted as flat bytes as follows:
