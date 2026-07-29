@@ -1,0 +1,601 @@
+openapi: "3.1.0"
+info:
+  version: "1.0.0"
+  title: All Types Test Schema
+  description: >
+    Comprehensive schema that exercises all 15 wireforge field types, string
+    enums, variable-length fields, nested object references, and multi-
+    dimensional arrays.  Used for codegen golden-file tests.
+paths: {}
+components:
+  schemas:
+
+    # ── OnlyScalarTypesMsg ────────────────────────────────────────────────────────────
+    # Contains one field of every scalar FieldType (all 10 numeric types + bool)
+    # plus a string enum.  The compiler sorts by FieldType index (size-desc),
+    # then alphabetically within each bucket.
+    #
+    # Resulting fixed-block layout (compiler order):
+    #   valUint64 @  0 (8)  valInt64  @  8 (8)  valDouble @ 16 (8)
+    #   valUint32 @ 24 (4)  valInt32  @ 28 (4)  valFloat  @ 32 (4)
+    #   statusEnum@ 36 (4)  valUint16 @ 40 (2)  valInt16  @ 42 (2)
+    #   valUint8  @ 44 (1)  valInt8   @ 45 (1)  valBool   @ 46 (1)
+    #   _pad0[1]  @ 47                          (TotalFixedSize = 48)
+    OnlyScalarTypesMsg:
+      type: object
+      x-message-id: 1
+      properties:
+        valBool:
+          description: Boolean field.
+          type: boolean
+        valDouble:
+          description: 64-bit IEEE 754 float.
+          type: number
+          format: double
+        valFloat:
+          description: 32-bit IEEE 754 float.
+          type: number
+          format: float
+        valInt8:
+          description: Signed 8-bit integer.
+          type: integer
+          format: int8
+        valInt16:
+          description: Signed 16-bit integer.
+          type: integer
+          format: int16
+        valInt32:
+          description: Signed 32-bit integer.
+          type: integer
+          format: int32
+        valInt64:
+          description: Signed 64-bit integer.
+          type: integer
+          format: int64
+        valUint8:
+          description: Unsigned 8-bit integer.
+          type: integer
+          format: uint8
+        valUint16:
+          description: Unsigned 16-bit integer.
+          type: integer
+          format: uint16
+        valUint32:
+          description: Unsigned 32-bit integer.
+          type: integer
+          format: uint32
+        valUint64:
+          description: Unsigned 64-bit integer.
+          type: integer
+          format: uint64
+        statusEnum:
+          description: String field restricted to an enum of allowed values.
+          type: string
+          enum:
+            - ACTIVE
+            - INACTIVE
+            - PENDING
+
+    # ── OnlyVariableTypesMsg ─────────────────────────────────────────────────────────
+    # Contains all variable-length FieldTypes: string, bytes, object-ref,
+    # 1-D array, and 2-D array.
+    #
+    # Resulting fixed-block layout (all have 4-byte length prefix):
+    #   name   @  0 (4)  byteArray @  4 (4)  data @  8 (4)
+    #   nested @ 12 (4)  matrix    @ 16 (4)  tags @ 20 (4)  (TotalFixedSize = 24)
+    OnlyVariableTypesMsg:
+      type: object
+      x-message-id: 2
+      properties:
+        name:
+          description: UTF-8 string.
+          type: string
+        data:
+          description: Raw binary blob.
+          type: string
+          format: binary
+        byteArray:
+          description: 1-D array of bytes.
+          type: array
+          items:
+            type: string
+            format: byte
+        nested:
+          description: Nested reference to OnlyScalarTypesMsg.
+          $ref: '#/components/schemas/OnlyScalarTypesMsg'
+        tags:
+          description: 1-D array of strings.
+          type: array
+          items:
+            type: string
+        matrix:
+          description: 2-D array of int32 values.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int32
+
+    # ── AllTypesFieldsMsg ───────────────────────────────────────────────────────────
+    # Contains all 15 wireforge FieldTypes, plus a string enum, nested object
+    # reference, and multi-dimensional arrays.  The compiler sorts by FieldType
+    # index (size-desc), then alphabetically within each bucket.
+    # Resulting fixed-block layout (compiler order):
+    #   valUint64  @  0 (8)  valInt64  @  8 (8)  valDouble @ 16 (8)
+    #   valUint32  @ 24 (4)  valInt32  @ 28 (4)  valFloat  @ 32 (4)
+    #   statusEnum @ 36 (4)  name      @ 40 (4)  data      @ 44 (4)
+    #   byteArray  @ 48 (4)  nested    @ 52 (4)  tags      @ 56 (4)
+    #   matrix     @ 60 (4)  valUint16 @ 64 (2)  valInt16  @ 66 (2)
+    #   valUint8   @ 68 (1)  valInt8   @ 69 (1)  valBool   @ 70 (1)
+    #   _pad0[1]   @ 71                          (TotalFixedSize = 72)
+    allTypesFieldsMsg:
+      type: object
+      x-message-id: 3
+      properties:
+        valBool:
+          description: Boolean field.
+          type: boolean
+        valDouble:
+          description: 64-bit IEEE 754 float.
+          type: number
+          format: double
+        valFloat:
+          description: 32-bit IEEE 754 float.
+          type: number
+          format: float
+        valInt8:
+          description: Signed 8-bit integer.
+          type: integer
+          format: int8
+        valInt16:
+          description: Signed 16-bit integer.
+          type: integer
+          format: int16
+        valInt32:
+          description: Signed 32-bit integer.
+          type: integer
+          format: int32
+        valInt64:
+          description: Signed 64-bit integer.
+          type: integer
+          format: int64
+        valUint8:
+          description: Unsigned 8-bit integer.
+          type: integer
+          format: uint8
+        valUint16:
+          description: Unsigned 16-bit integer.
+          type: integer
+          format: uint16
+        valUint32:
+          description: Unsigned 32-bit integer.
+          type: integer
+          format: uint32
+        valUint64:
+          description: Unsigned 64-bit integer.
+          type: integer
+          format: uint64
+        statusEnum:
+          description: String field restricted to an enum of allowed values.
+          type: string
+          enum:
+            - ACTIVE
+            - INACTIVE
+            - PENDING
+        name:
+          description: UTF-8 string.
+          type: string
+        data:
+          description: Raw binary blob.
+          type: string
+          format: binary
+        byteArray:
+          description: 1-D array of bytes.
+          type: array
+          items:
+            type: string
+            format: byte
+        nested:
+          description: Nested reference to OnlyScalarTypesMsg.
+          $ref: '#/components/schemas/OnlyScalarTypesMsg'
+        tags:
+          description: 1-D array of strings.
+          type: array
+          items:
+            type: string
+        matrix:
+          description: 2-D array of int32 values.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int32
+
+    # ── RecursiveNestedMsg ─────────────────────────────────────────────────────────
+    # Contains a recursive reference to itself.  The compiler sorts by FieldType
+    # index (size-desc), then alphabetically within each bucket.
+    # Resulting fixed-block layout (compiler order):
+    #   name   @  0 (4)  nested @  4 (4)  (TotalFixedSize = 8)
+    recursiveNestedMsg:
+      type: object
+      x-message-id: 4
+      properties:
+        name:
+          description: UTF-8 string.
+          type: string
+        nested:
+          description: Recursive reference to recursiveNestedMsg.
+          $ref: '#/components/schemas/recursiveNestedMsg'
+
+    # ── AllTypesOfArraysMsg ────────────────────────────────────────────────────────
+    # Contains 1-D, 2-D, and 3-D arrays of all scalar FieldTypes, plus arrays of strings, bytes, and nested objects.
+    # Resulting fixed-block layout (compiler order):
+    #   arr1DBool  @  0 (4)  arr2DBool  @  4 (4)  arr3DBool  @  8 (4)
+    #   arr1DUint8 @ 12 (4)  arr2DUint8 @ 16 (4)  arr3DUint8 @ 20 (4)
+    #   arr1DInt8  @ 24 (4)  arr2DInt8  @ 28 (4)  arr3DInt8  @ 32 (4)
+    #   arr1DUint16@ 36 (4)  arr2DUint16@ 40 (4)  arr3DUint16@ 44 (4)
+    #   arr1DInt16 @ 48 (4)  arr2DInt16 @ 52 (4)  arr3DInt16 @ 56 (4)
+    #   arr1DUint32@ 60 (4)  arr2DUint32@ 64 (4)  arr3DUint32@ 68 (4)
+    #   arr1DInt32 @ 72 (4)  arr2DInt32 @ 76 (4)  arr3DInt32 @ 80 (4)
+    #   arr1DUint64@ 84 (4)  arr2DUint64@ 88 (4)  arr3DUint64@ 92 (4)
+    #   arr1DInt64 @ 96 (4)  arr2DInt64 @100 (4)  arr3DInt64 @104 (4)
+    #   arr1DFloat @108 (4)  arr2DFloat @112 (4)  arr3DFloat @116 (4)
+    #   arr1DDouble@120 (4)  arr2DDouble@124 (4)  arr3DDouble@128 (4)
+    #   arr1DString@132 (4)  arr2DString@136 (4)  arr3DString@140 (4)
+    #   arr1DBytes @144 (4)  arr2DBytes @148 (4)  arr3DBytes @152 (4)
+    #   arr1DObject@156 (4)  arr2DObject@160 (4)  arr3DObject@164 (4)
+    #   arr1DNested@168 (4)  arr2DNested@172 (4)  arr3DNested@176 (4)  (TotalFixedSize = 180)
+    allTypesOfArraysMsg:
+      type: object
+      x-message-id: 5
+      properties:
+        arr1DBool:
+          description: 1-D array of booleans.
+          type: array
+          items:
+            type: boolean
+        arr2DBool:
+          description: 2-D array of booleans.
+          type: array
+          items:
+            type: array
+            items:
+              type: boolean
+        arr3DBool:
+          description: 3-D array of booleans.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: boolean
+        arr1DUint8:
+          description: 1-D array of unsigned 8-bit integers.
+          type: array
+          items:
+            type: integer
+            format: uint8
+        arr2DUint8:
+          description: 2-D array of unsigned 8-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: uint8
+        arr3DUint8:
+          description: 3-D array of unsigned 8-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: uint8
+        arr1DInt8:
+          description: 1-D array of signed 8-bit integers.
+          type: array
+          items:
+            type: integer
+            format: int8
+        arr2DInt8:
+          description: 2-D array of signed 8-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int8
+        arr3DInt8:
+          description: 3-D array of signed 8-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: int8
+        arr1DUint16:
+          description: 1-D array of unsigned 16-bit integers.
+          type: array
+          items:
+            type: integer
+            format: uint16
+        arr2DUint16:
+          description: 2-D array of unsigned 16-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: uint16
+        arr3DUint16:
+          description: 3-D array of unsigned 16-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: uint16
+        arr1DInt16:
+          description: 1-D array of signed 16-bit integers.
+          type: array
+          items:
+            type: integer
+            format: int16
+        arr2DInt16:
+          description: 2-D array of signed 16-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int16
+        arr3DInt16:
+          description: 3-D array of signed 16-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: int16
+        arr1DUint32:
+          description: 1-D array of unsigned 32-bit integers.
+          type: array
+          items:
+            type: integer
+            format: uint32
+        arr2DUint32:
+          description: 2-D array of unsigned 32-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: uint32
+        arr3DUint32:
+          description: 3-D array of unsigned 32-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: uint32
+        arr1DInt32:
+          description: 1-D array of signed 32-bit integers.
+          type: array
+          items:
+            type: integer
+            format: int32
+        arr2DInt32:
+          description: 2-D array of signed 32-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int32
+        arr3DInt32:
+          description: 3-D array of signed 32-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: int32
+        arr1DUint64:
+          description: 1-D array of unsigned 64-bit integers.
+          type: array
+          items:
+            type: integer
+            format: uint64
+        arr2DUint64:
+          description: 2-D array of unsigned 64-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: uint64
+        arr3DUint64:
+          description: 3-D array of unsigned 64-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: uint64
+        arr1DInt64:
+          description: 1-D array of signed 64-bit integers.
+          type: array
+          items:
+            type: integer
+            format: int64
+        arr2DInt64:
+          description: 2-D array of signed 64-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+              format: int64
+        arr3DInt64:
+          description: 3-D array of signed 64-bit integers.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: integer
+                format: int64
+        arr1DFloat:
+          description: 1-D array of 32-bit IEEE 754 floats.
+          type: array
+          items:
+            type: number
+            format: float
+        arr2DFloat:
+          description: 2-D array of 32-bit IEEE 754 floats.
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+              format: float
+        arr3DFloat:
+          description: 3-D array of 32-bit IEEE 754 floats.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+                format: float
+        arr1DDouble:
+          description: 1-D array of 64-bit IEEE 754 floats.
+          type: array
+          items:
+            type: number
+            format: double
+        arr2DDouble:
+          description: 2-D array of 64-bit IEEE 754 floats.
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+              format: double
+        arr3DDouble:
+          description: 3-D array of 64-bit IEEE 754 floats.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+                format: double
+        arr1DString:
+          description: 1-D array of strings.
+          type: array
+          items:
+            type: string
+        arr2DString:
+          description: 2-D array of strings.
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+        arr3DString:
+          description: 3-D array of strings.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: string
+        arr1DBytes:
+          description: 1-D array of binary blobs.
+          type: array
+          items:
+            type: string
+            format: binary
+        arr2DBytes:
+          description: 2-D array of binary blobs.
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+              format: binary
+        arr3DBytes:
+          description: 3-D array of binary blobs.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: string
+                format: binary
+        arr1DObject:
+          description: 1-D array of OnlyScalarTypesMsg objects.
+          type: array
+          items:
+            $ref: '#/components/schemas/OnlyScalarTypesMsg'
+        arr2DObject:
+          description: 2-D array of OnlyScalarTypesMsg objects.
+          type: array
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/OnlyScalarTypesMsg'
+        arr3DObject:
+          description: 3-D array of OnlyScalarTypesMsg objects.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OnlyScalarTypesMsg'
+        arr1DNested:
+          description: 1-D array of OnlyVariableTypesMsg objects.
+          type: array
+          items:
+            $ref: '#/components/schemas/OnlyVariableTypesMsg'
+        arr2DNested:
+          description: 2-D array of OnlyVariableTypesMsg objects.
+          type: array
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/OnlyVariableTypesMsg'
+        arr3DNested:
+          description: 3-D array of OnlyVariableTypesMsg objects.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OnlyVariableTypesMsg'

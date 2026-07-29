@@ -106,7 +106,7 @@ func arrayRootType(f *compiler.CompiledField, messages []*compiler.CompiledMessa
     for {
         if arrElem.Type != schema.FieldTypeArray {
 			for _, msg := range messages {
-				if msg.TypeID == f.ArrElem.NestedMessageId {
+				if msg.TypeID == arrElem.NestedMessageId {
 					if outputType == "go" {
 						return "*"+msg.Name
 					}

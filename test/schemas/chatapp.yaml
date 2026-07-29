@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  version: 1.0.0
+  title: Chatapp Message Schemas
+paths: {}
+components:
+  schemas:
+    UserMessage:
+      type: object
+      x-message-id: 1
+      properties:
+        content:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        attachment:
+          type: string
+          format: binary
+    HeartbeatMessage:
+      type: object
+      x-message-id: 2
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+    UserJoinedMessage:
+      type: object
+      x-message-id: 3
+      properties:
+        username:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+    UserLeftMessage:
+      type: object
+      x-message-id: 4
+      properties:
+        username:
+          type: string
+        timestamp:
+          type: integer
+          format: int64

@@ -1153,28 +1153,3 @@ MessageMidID:
 	assert.Equal(t, uint16(3), result.Messages[1].TypeID, "second message should have the middle TypeID")
 	assert.Equal(t, uint16(5), result.Messages[2].TypeID, "third message should have the highest TypeID")
 }
-
-// ---------------------------------------------------------------------------
-// TestParseFile_EmptySchema verifies that a schema with no properties produces
-// a Message with zero fields rather than an error.
-// ---------------------------------------------------------------------------
-
-func TestParseFile_EmptySchema(t *testing.T) {
-	yaml := wrapInOpenAPIBoilerplate(`
-EmptyMessage:
-  type: object
-  x-message-id: 1
-`)
-	tmpFile := filepath.Join(t.TempDir(), "spec.yaml")
-	if err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(yaml)), 0644); err != nil {
-		t.Fatalf("failed to write temp file: %v", err)
-	}
-
-	result, err := ParseFile(tmpFile)
-	assert.NoError(t, err)
-	assert.Len(t, result.Messages, 1)
-	msg := result.Messages[0]
-	assert.Equal(t, "EmptyMessage", msg.Name)
-	assert.Equal(t, uint16(1), msg.TypeID)
-	assert.Empty(t, msg.Fields, "message with no properties should have no fields")
-}

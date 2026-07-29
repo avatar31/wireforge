@@ -1,0 +1,89 @@
+openapi: "3.1.0"
+info:
+  version: "1.0.0"
+  title: Padding & Alignment Test Schema
+  description: >
+    This schema is intentionally crafted to exercise all distinct padding
+    scenarios in the wireforge compiler and code generator. Each message
+    represents a different padding outcome so that tests can assert precise
+    struct-layout properties in both the generated Go and C output.
+paths: {}
+components:
+  schemas:
+
+    # ── Case 1: Zero padding ──────────────────────────────────────────────────
+    # A single int64 field (8 bytes, align-8).  The struct size is already a
+    # multiple of 8, so no trailing padding is required.
+    # Expected: TotalFixedSize=8, PaddingBlocks=0
+    # C struct : { int64_t value; }   — no _padN field
+    NoPaddingMsg:
+      type: object
+      x-message-id: 1
+      properties:
+        value:
+          description: A single 8-byte field; no padding required.
+          type: integer
+          format: int64
+
+    # ── Case 2: 1-byte trailing pad ──────────────────────────────────────────
+    # Three 1-byte fields (uint8 + int8 + bool = 3 bytes).  The minimum struct
+    # alignment is 4, so 1 trailing byte must be added.
+    # Compiler sort order by FieldType index: uint8(12), int8(13), bool(14).
+    # Expected: TotalFixedSize=4, PaddingBlocks=1
+    # C struct : { uint8_t alpha; int8_t beta; uint8_t gamma; uint8_t _pad0[1]; }
+    SmallFieldsMsg:
+      type: object
+      x-message-id: 2
+      properties:
+        alpha:
+          description: First byte field.
+          type: integer
+          format: uint8
+        beta:
+          description: Second byte field (signed).
+          type: integer
+          format: int8
+        gamma:
+          description: Boolean field (1 byte).
+          type: boolean
+
+    # ── Case 3: 7-byte trailing pad ──────────────────────────────────────────
+    # int64 (8 bytes, align-8) followed by bool (1 byte, align-1).
+    # After bool the offset is 9; the struct alignment is 8, so 7 trailing bytes
+    # must be appended to reach offset 16.
+    # Compiler sort order: int64(1) before bool(14).
+    # Expected: TotalFixedSize=16, PaddingBlocks=1
+    # C struct : { int64_t big; uint8_t flag; uint8_t _pad0[7]; }
+    MixedSizeMsg:
+      type: object
+      x-message-id: 3
+      properties:
+        big:
+          description: 8-byte integer field.
+          type: integer
+          format: int64
+        flag:
+          description: 1-byte boolean field.
+          type: boolean
+
+    # ── Case 4: Perfect alignment — zero padding ─────────────────────────────
+    # int32 + float32 + string (length-prefix) are all 4-byte fields (align-4).
+    # Total = 12 bytes, which is already a multiple of 4.
+    # Compiler sort order: int32(4), float32(5), string(6) — all same size group.
+    # Expected: TotalFixedSize=12, PaddingBlocks=0
+    # C struct : { int32_t count; float rate; uint32_t name_len; char *name; }
+    AlignedMsg:
+      type: object
+      x-message-id: 4
+      properties:
+        count:
+          description: 4-byte integer field.
+          type: integer
+          format: int32
+        rate:
+          description: 4-byte float field.
+          type: number
+          format: float
+        name:
+          description: Variable-length string (4-byte length prefix in fixed block).
+          type: string

@@ -39,7 +39,7 @@ func ParseFile(path string) (*Schema, error) {
 
 	doc, err := loader.LoadFromFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load/parse YAML file %q: %w", path, err)
 	}
 
 	// Explicitly validate against the OpenAPI specification rules.
@@ -49,6 +49,11 @@ func ParseFile(path string) (*Schema, error) {
 
 	messages := make([]*Message, 0)
 	idMap := make(map[uint16]struct{})
+
+	// Guard against a valid OpenAPI document with no components section at all.
+	if doc.Components == nil {
+		return &Schema{Messages: messages}, nil
+	}
 
 	// Iterate over components.schemas; each schema becomes a top-level message.
 	for schemaName, schemaRef := range doc.Components.Schemas {
