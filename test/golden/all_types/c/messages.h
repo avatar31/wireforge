@@ -91,6 +91,17 @@ typedef enum {
     TAG_ALL_TYPES_OF_ARRAYS_MSG       = 0x0024,
 } element_type_t;
 
+// Standard status codes for error handling
+typedef enum {
+    DYN_ARR_OK = 0,
+    DYN_ARR_ERR_INVALID_PARAM,
+    DYN_ARR_ERR_OUT_OF_BOUNDS,
+    DYN_ARR_ERR_NO_MEMORY,
+    DYN_ARR_ERR_OVERFLOW,
+    DYN_ARR_ERR_FAIL,
+    DYN_ARR_ERR_EOF
+} dyn_arr_status_t;
+
 typedef struct {
 	char *data;
 	uint32_t len;
@@ -113,8 +124,42 @@ typedef struct {
     
     // The total maximum flat elements the current memory can hold
     size_t capacity; 
-	element_type_t ele_type; // element type for dynamic arrays
+	uint16_t ele_type; // element type for dynamic arrays
 } dynamic_array_t;
+
+size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
+                                    element_type_t ele_type,
+                                    size_t elem_size, 
+                                    uint8_t num_dims, 
+                                    size_t x, size_t y, size_t z);
+void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val);
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val);
+dyn_arr_status_t dynamic_array_resize(dynamic_array_t *arr, size_t new_x, size_t new_y, size_t new_z);
+void dynamic_array_destroy(dynamic_array_t *arr);
+
+#define FOR_EACH_DYNAMIC_ARRAY_ITEM(arr, type, it)                     \
+    for (type *it = (type *)((arr)->data),                              \
+              *it##_end = it + ((arr)->x * (arr)->y * (arr)->z);         \
+         it < it##_end;                                                  \
+         ++it)
+#define FOR_EACH_DYNAMIC_ARRAY_INDEX(arr, type, i, it)                  \
+    for (size_t i = 0,                                                   \
+                _count = (arr)->x * (arr)->y * (arr)->z;                 \
+         i < _count && (((it) = &((type *)(arr)->data)[i]), 1);          \
+         ++i)
+#define FOR_EACH_1D_DYNAMIC_ARRAY(arr, i, out) \
+    for (size_t i = 0; i < (arr)->x; ++i)
+
+#define FOR_EACH_2D_DYNAMIC_ARRAY(arr, i, j) \
+    for (size_t i = 0; i < (arr)->x; ++i) \
+        for (size_t j = 0; j < (arr)->y; ++j)
+
+#define FOR_EACH_3D_DYNAMIC_ARRAY(arr, i, j, k) \
+    for (size_t i = 0; i < (arr)->x; ++i) \
+        for (size_t j = 0; j < (arr)->y; ++j) \
+            for (size_t k = 0; k < (arr)->z; ++k)
 
 uint16_t get_message_type(const uint8_t *buf);
 uint16_t get_message_fixed_payload_length(const uint8_t *buf);
@@ -169,9 +214,7 @@ struct only_scalar_types_msg {
     /** Signed 32-bit integer. */ 
     int32_t val_int32;    
     /** 32-bit IEEE 754 float. */ 
-    float val_float;   
-    /** String field restricted to an enum of allowed values. */ 
-	string_t status_enum;    
+    float val_float;    
     /** Unsigned 16-bit integer. */ 
     uint16_t val_uint16;    
     /** Signed 16-bit integer. */ 
@@ -182,7 +225,7 @@ struct only_scalar_types_msg {
     int8_t val_int8;    
     /** Boolean field. */ 
     uint8_t val_bool;   
-    uint8_t _pad0[1]; /**< Explicit alignment padding. */  
+    uint8_t _pad0[5]; /**< Explicit alignment padding. */  
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
@@ -224,12 +267,6 @@ void only_scalar_types_msg_t_set_val_int32(only_scalar_types_msg_t *msg, const i
  * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
 void only_scalar_types_msg_t_set_val_float(only_scalar_types_msg_t *msg, const float value);
-
-/**
- * Sets the value of the status_enum field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
- */
-void only_scalar_types_msg_t_set_status_enum(only_scalar_types_msg_t *msg, const char *value, const size_t len);
 
 /**
  * Sets the value of the val_uint16 field in the only_scalar_types_msg_t struct.
@@ -427,16 +464,16 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg);
 
 
 /* ===========================================================================
- * allTypesFieldsMsg
+ * AllTypesFieldsMsg
  * Wire Type ID: 3
  * Fixed Block Length: 72 bytes (including alignment padding)
  * Overall Payload Length: 72 bytes + Runtime dynamic payload
  * ===========================================================================*/
 
-/** Wire protocol message type ID for allTypesFieldsMsg. */
+/** Wire protocol message type ID for AllTypesFieldsMsg. */
 #define ALL_TYPES_FIELDS_MSG_TYPE_ID 3
 
-/** Byte size of the fixed block for allTypesFieldsMsg (padded for alignment). */
+/** Byte size of the fixed block for AllTypesFieldsMsg (padded for alignment). */
 #define ALL_TYPES_FIELDS_MSG_FIXED_SIZE 72
 
 /**
@@ -464,8 +501,6 @@ struct all_types_fields_msg {
     float val_float;   
     /** UTF-8 string. */ 
 	string_t name;   
-    /** String field restricted to an enum of allowed values. */ 
-	string_t status_enum;   
     /** Raw binary blob. */ 
 	byte_array_t data;
    
@@ -487,7 +522,7 @@ struct all_types_fields_msg {
     int8_t val_int8;    
     /** Boolean field. */ 
     uint8_t val_bool;   
-    uint8_t _pad0[1]; /**< Explicit alignment padding. */  
+    uint8_t _pad0[5]; /**< Explicit alignment padding. */  
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
@@ -535,12 +570,6 @@ void all_types_fields_msg_t_set_val_float(all_types_fields_msg_t *msg, const flo
  * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
 void all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value, const size_t len);
-
-/**
- * Sets the value of the status_enum field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
- */
-void all_types_fields_msg_t_set_status_enum(all_types_fields_msg_t *msg, const char *value, const size_t len);
 
 /**
  * Sets the value of the data field in the all_types_fields_msg_t struct.
@@ -607,7 +636,7 @@ size_t all_types_fields_msg_t_dynamic_payload_size(const all_types_fields_msg_t 
 size_t all_types_fields_msg_t_size(const all_types_fields_msg_t *msg);
 
 /**
- * Serialize a allTypesFieldsMsg message into out_buf in wire format.
+ * Serialize a AllTypesFieldsMsg message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
@@ -619,7 +648,7 @@ size_t all_types_fields_msg_t_size(const all_types_fields_msg_t *msg);
 int all_types_fields_msg_t_marshal(const all_types_fields_msg_t *msg, uint8_t **out_buf);
 
 /**
- * Deserialize a allTypesFieldsMsg message from a contiguous buffer.
+ * Deserialize a AllTypesFieldsMsg message from a contiguous buffer.
  *
  * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
@@ -646,16 +675,16 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg);
 
 
 /* ===========================================================================
- * recursiveNestedMsg
+ * RecursiveNestedMsg
  * Wire Type ID: 4
  * Fixed Block Length: 8 bytes (including alignment padding)
  * Overall Payload Length: 8 bytes + Runtime dynamic payload
  * ===========================================================================*/
 
-/** Wire protocol message type ID for recursiveNestedMsg. */
+/** Wire protocol message type ID for RecursiveNestedMsg. */
 #define RECURSIVE_NESTED_MSG_TYPE_ID 4
 
-/** Byte size of the fixed block for recursiveNestedMsg (padded for alignment). */
+/** Byte size of the fixed block for RecursiveNestedMsg (padded for alignment). */
 #define RECURSIVE_NESTED_MSG_FIXED_SIZE 8
 
 /**
@@ -695,7 +724,7 @@ size_t recursive_nested_msg_t_dynamic_payload_size(const recursive_nested_msg_t 
 size_t recursive_nested_msg_t_size(const recursive_nested_msg_t *msg);
 
 /**
- * Serialize a recursiveNestedMsg message into out_buf in wire format.
+ * Serialize a RecursiveNestedMsg message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
@@ -707,7 +736,7 @@ size_t recursive_nested_msg_t_size(const recursive_nested_msg_t *msg);
 int recursive_nested_msg_t_marshal(const recursive_nested_msg_t *msg, uint8_t **out_buf);
 
 /**
- * Deserialize a recursiveNestedMsg message from a contiguous buffer.
+ * Deserialize a RecursiveNestedMsg message from a contiguous buffer.
  *
  * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
@@ -734,16 +763,16 @@ void recursive_nested_msg_t_free(recursive_nested_msg_t *msg);
 
 
 /* ===========================================================================
- * allTypesOfArraysMsg
+ * AllTypesOfArraysMsg
  * Wire Type ID: 5
  * Fixed Block Length: 180 bytes (including alignment padding)
  * Overall Payload Length: 180 bytes + Runtime dynamic payload
  * ===========================================================================*/
 
-/** Wire protocol message type ID for allTypesOfArraysMsg. */
+/** Wire protocol message type ID for AllTypesOfArraysMsg. */
 #define ALL_TYPES_OF_ARRAYS_MSG_TYPE_ID 5
 
-/** Byte size of the fixed block for allTypesOfArraysMsg (padded for alignment). */
+/** Byte size of the fixed block for AllTypesOfArraysMsg (padded for alignment). */
 #define ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE 180
 
 /**
@@ -1128,7 +1157,7 @@ size_t all_types_of_arrays_msg_t_dynamic_payload_size(const all_types_of_arrays_
 size_t all_types_of_arrays_msg_t_size(const all_types_of_arrays_msg_t *msg);
 
 /**
- * Serialize a allTypesOfArraysMsg message into out_buf in wire format.
+ * Serialize a AllTypesOfArraysMsg message into out_buf in wire format.
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
@@ -1140,7 +1169,7 @@ size_t all_types_of_arrays_msg_t_size(const all_types_of_arrays_msg_t *msg);
 int all_types_of_arrays_msg_t_marshal(const all_types_of_arrays_msg_t *msg, uint8_t **out_buf);
 
 /**
- * Deserialize a allTypesOfArraysMsg message from a contiguous buffer.
+ * Deserialize a AllTypesOfArraysMsg message from a contiguous buffer.
  *
  * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.

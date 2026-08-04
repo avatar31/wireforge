@@ -129,3 +129,5 @@ func run(inputFile, outputDir, packageName string) error {
 // 		- Add better error handling in C code. Like instead of returning -1,
 // 		define error code in header template and return accordingly.
 // - Go TODO's:
+// 		- Add better error handling in Go code. Instead returning random error messages,
+// 		define error types and return accordingly.

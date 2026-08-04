@@ -96,7 +96,7 @@ func arrayRootBaseType(f *compiler.CompiledField, outputType string) string {
 	return ""
 }
 
-func arrayRootType(f *compiler.CompiledField, messages []*compiler.CompiledMessage, outputType string) string {
+func arrayRootCType(f *compiler.CompiledField, messages []*compiler.CompiledMessage) string {
     if f.Type != schema.FieldTypeArray {
         return ""
     }
@@ -107,17 +107,40 @@ func arrayRootType(f *compiler.CompiledField, messages []*compiler.CompiledMessa
         if arrElem.Type != schema.FieldTypeArray {
 			for _, msg := range messages {
 				if msg.TypeID == arrElem.NestedMessageId {
-					if outputType == "go" {
-						return "*"+msg.Name
-					}
 					return snakeLower(msg.Name)
 				}
 			}
-
-			if outputType == "go" {
-				return arrElem.Type.GoType()
-			}
             return arrElem.Type.CType()
+        }
+        if dimenstion >= 4 {
+            break
+        }
+        arrElem = arrElem.ArrElem
+        dimenstion++
+    }
+
+    return ""
+}
+
+func arrayRootGoType(f *compiler.CompiledField, messages []*compiler.CompiledMessage, pointerStruct bool) string {
+    if f.Type != schema.FieldTypeArray {
+        return ""
+    }
+
+    dimenstion := 1
+    arrElem := f.ArrElem
+    for {
+        if arrElem.Type != schema.FieldTypeArray {
+			for _, msg := range messages {
+				if msg.TypeID == arrElem.NestedMessageId {
+					if pointerStruct {
+						return "*"+msg.Name
+					}
+					return msg.Name
+				}
+			}
+
+			return arrElem.Type.GoType()
         }
         if dimenstion >= 4 {
             break

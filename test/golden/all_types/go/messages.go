@@ -79,9 +79,9 @@ const (
 	Tag3DArray              uint16 = 0x0010
 	TagOnlyScalarTypesMsg   uint16 = 0x0020
 	TagOnlyVariableTypesMsg uint16 = 0x0021
-	TagallTypesFieldsMsg    uint16 = 0x0022
-	TagrecursiveNestedMsg   uint16 = 0x0023
-	TagallTypesOfArraysMsg  uint16 = 0x0024
+	TagAllTypesFieldsMsg    uint16 = 0x0022
+	TagRecursiveNestedMsg   uint16 = 0x0023
+	TagAllTypesOfArraysMsg  uint16 = 0x0024
 )
 
 // Compile-time import usage guarantees.
@@ -92,6 +92,158 @@ var (
 	_ = unsafe.Sizeof(uint8(0))
 )
 
+type Sizable interface {
+	Size() int
+}
+
+type ArraySizer interface {
+	SetElements(elements any)
+	CalcDimensions() (dimen, x, y, z int)
+	CalcSize() int
+	GetEleType() uint16
+}
+
+type array1D[T any] struct {
+	Elements []T
+	EleType  uint16
+}
+
+func (arr *array1D[T]) SetElements(elements any) {
+	items, ok := elements.([]T)
+	if !ok {
+		panic("array1D: invalid element type")
+	}
+	arr.Elements = items
+}
+
+func (arr *array1D[T]) CalcDimensions() (dimen, x, y, z int) {
+	return 1, len(arr.Elements), 1, 1
+}
+
+func (arr *array1D[T]) CalcSize() int {
+	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
+	legthPrefixSize := 0
+	if arr.EleType == TagString || arr.EleType == TagBytes {
+		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+
+	for _, item := range arr.Elements {
+		size += legthPrefixSize + calcTypeSize(item)
+	}
+	return size
+}
+
+func (arr *array1D[T]) SetEleType(eleType uint16) {
+	arr.EleType = eleType
+}
+
+func (arr *array1D[T]) GetEleType() uint16 {
+	return arr.EleType
+}
+
+type array2D[T any] struct {
+	Elements [][]T
+	EleType  uint16
+}
+
+func (arr *array2D[T]) SetElements(elements any) {
+	items, ok := elements.([][]T)
+	if !ok {
+		panic("array2D: invalid element type")
+	}
+	arr.Elements = items
+}
+
+func (arr *array2D[T]) CalcDimensions() (dimen, x, y, z int) {
+	x = len(arr.Elements)
+	for _, row := range arr.Elements {
+		if len(row) > y {
+			y = len(row)
+		}
+	}
+	return 2, x, y, 1
+}
+
+func (arr *array2D[T]) CalcSize() int {
+	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
+	legthPrefixSize := 0
+	if arr.EleType == TagString || arr.EleType == TagBytes {
+		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+
+	for _, row := range arr.Elements {
+		size += ArrayCountPrefixSize
+		for _, item := range row {
+			size += legthPrefixSize + calcTypeSize(item)
+		}
+	}
+	return size
+}
+
+func (arr *array2D[T]) GetEleType() uint16 {
+	return arr.EleType
+}
+
+type array3D[T any] struct {
+	Elements [][][]T
+	EleType  uint16
+}
+
+func (arr *array3D[T]) SetElements(elements any) {
+	items, ok := elements.([][][]T)
+	if !ok {
+		panic("array3D: invalid element type")
+	}
+	arr.Elements = items
+}
+
+func (arr *array3D[T]) CalcDimensions() (dimen, x, y, z int) {
+	x = len(arr.Elements)
+	for _, plane := range arr.Elements {
+		if len(plane) > y {
+			y = len(plane)
+		}
+		for _, row := range plane {
+			if len(row) > z {
+				z = len(row)
+			}
+		}
+	}
+	return 3, x, y, z
+}
+
+func (arr *array3D[T]) CalcSize() int {
+	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
+	legthPrefixSize := 0
+	if arr.EleType == TagString || arr.EleType == TagBytes {
+		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+
+	for _, plane := range arr.Elements {
+		size += ArrayCountPrefixSize
+		for _, row := range plane {
+			size += ArrayCountPrefixSize
+			for _, item := range row {
+				size += legthPrefixSize + calcTypeSize(item)
+			}
+		}
+	}
+	return size
+}
+
+func (arr *array3D[T]) GetEleType() uint16 {
+	return arr.EleType
+}
+
+// WireMessage defines the interface that all generated message types implement.
+type WireMessage interface {
+	MessageTypeID() uint16
+	Size() int
+	DynamicPayloadSize() int
+	Marshal() ([]byte, error)
+	Unmarshal(reader io.Reader, fixedPayloadSize uint16, overallPayloadSize uint32) error
+}
+
 // ---------------------------------------------------------------------------
 // OnlyScalarTypesMsg
 // ---------------------------------------------------------------------------
@@ -100,34 +252,44 @@ var (
 // Overall Block Length: 48 bytes + Runtime dynamic payload
 // ---------------------------------------------------------------------------
 
+// TODO: Check order of fields in the struct to ensure they are ordered by offset to avoid padding issues.
 // OnlyScalarTypesMsg represents a wire-serializable message.
 // Fields are ordered and padded to match natural alignment requirements,
 // ensuring identical memory layout between Go and C implementations.
 type OnlyScalarTypesMsg struct {
+
 	// Unsigned 64-bit integer.
-	ValUint64 uint64
+	ValUint64 uint64 `json:"valUint64"`
+
 	// Signed 64-bit integer.
-	ValInt64 int64
+	ValInt64 int64 `json:"valInt64"`
+
 	// 64-bit IEEE 754 float.
-	ValDouble float64
+	ValDouble float64 `json:"valDouble"`
+
 	// Unsigned 32-bit integer.
-	ValUint32 uint32
+	ValUint32 uint32 `json:"valUint32"`
+
 	// Signed 32-bit integer.
-	ValInt32 int32
+	ValInt32 int32 `json:"valInt32"`
+
 	// 32-bit IEEE 754 float.
-	ValFloat float32
-	// String field restricted to an enum of allowed values.
-	StatusEnum string
+	ValFloat float32 `json:"valFloat"`
+
 	// Unsigned 16-bit integer.
-	ValUint16 uint16
+	ValUint16 uint16 `json:"valUint16"`
+
 	// Signed 16-bit integer.
-	ValInt16 int16
+	ValInt16 int16 `json:"valInt16"`
+
 	// Unsigned 8-bit integer.
-	ValUint8 uint8
+	ValUint8 uint8 `json:"valUint8"`
+
 	// Signed 8-bit integer.
-	ValInt8 int8
+	ValInt8 int8 `json:"valInt8"`
+
 	// Boolean field.
-	ValBool bool
+	ValBool bool `json:"valBool"`
 }
 
 // OnlyScalarTypesMsgFixedSize is the byte size of the fixed block portion
@@ -188,7 +350,6 @@ func init() {
 
 func (o *OnlyScalarTypesMsg) DynamicPayloadSize() int {
 	dynamicSize := 0
-	dynamicSize += calcTypeSize(o.StatusEnum)
 
 	return dynamicSize
 }
@@ -234,18 +395,14 @@ func (o *OnlyScalarTypesMsg) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint32(hdr[24:28], o.ValUint32)
 	binary.BigEndian.PutUint32(hdr[28:32], uint32(o.ValInt32))
 	binary.BigEndian.PutUint32(hdr[32:36], math.Float32bits(o.ValFloat))
-
-	copy(buf[dynOff:], o.StatusEnum)
-	binary.BigEndian.PutUint32(hdr[36:40], uint32(len(o.StatusEnum)))
-	dynOff += len(o.StatusEnum)
-	binary.BigEndian.PutUint16(hdr[40:42], o.ValUint16)
-	binary.BigEndian.PutUint16(hdr[42:44], uint16(o.ValInt16))
-	hdr[44] = o.ValUint8
-	hdr[45] = uint8(o.ValInt8)
+	binary.BigEndian.PutUint16(hdr[36:38], o.ValUint16)
+	binary.BigEndian.PutUint16(hdr[38:40], uint16(o.ValInt16))
+	hdr[40] = o.ValUint8
+	hdr[41] = uint8(o.ValInt8)
 	if o.ValBool {
-		hdr[46] = 1
+		hdr[42] = 1
 	} else {
-		hdr[46] = 0
+		hdr[42] = 0
 	}
 
 	_ = dynOff
@@ -260,10 +417,11 @@ func (o *OnlyScalarTypesMsg) Marshal() ([]byte, error) {
 // All variable-length fields are validated against MaxAllowedPacket before
 // allocation, and io.ReadFull is used to guarantee complete reads even on
 // streaming sockets that may deliver partial data.
-func (o *OnlyScalarTypesMsg) Unmarshal(reader io.Reader,
-	fixedPayloadSize uint16, _ uint32) error {
-	if int(fixedPayloadSize) < OnlyScalarTypesMsgFixedSize {
-		return fmt.Errorf("OnlyScalarTypesMsg fixed payload size too short: got %d, need %d", fixedPayloadSize, OnlyScalarTypesMsgFixedSize)
+func (o *OnlyScalarTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
+	overallPayloadSize uint32) error {
+	if int(fixedPayloadSize) < OnlyScalarTypesMsgFixedSize || int(overallPayloadSize) > MaxAllowedPacket {
+		return fmt.Errorf("wireforge: OnlyScalarTypesMsg payload size mismatch: fixed %d, overall %d",
+			fixedPayloadSize, overallPayloadSize)
 	}
 
 	hdr := make([]byte, fixedPayloadSize)
@@ -277,26 +435,11 @@ func (o *OnlyScalarTypesMsg) Unmarshal(reader io.Reader,
 	o.ValUint32 = binary.BigEndian.Uint32(hdr[24:28])
 	o.ValInt32 = int32(binary.BigEndian.Uint32(hdr[28:32]))
 	o.ValFloat = math.Float32frombits(binary.BigEndian.Uint32(hdr[32:36]))
-	o_StatusEnum_len := binary.BigEndian.Uint32(hdr[36:40])
-	if o_StatusEnum_len > MaxAllowedPacket {
-		return fmt.Errorf("OnlyScalarTypesMsg.StatusEnum length %d exceeds MaxAllowedPacket", o_StatusEnum_len)
-	}
-	o.ValUint16 = binary.BigEndian.Uint16(hdr[40:42])
-	o.ValInt16 = int16(binary.BigEndian.Uint16(hdr[42:44]))
-	o.ValUint8 = hdr[44]
-	o.ValInt8 = int8(hdr[45])
-	o.ValBool = hdr[46] != 0
-
-	// Read dynamic payload: variable-length fields are appended sequentially
-	// after the fixed payload in the same order as their length prefixes above.
-
-	if o_StatusEnum_len > 0 {
-		o_StatusEnum_buf := make([]byte, o_StatusEnum_len)
-		if _, err := io.ReadFull(reader, o_StatusEnum_buf); err != nil {
-			return fmt.Errorf("wireforge: reading OnlyScalarTypesMsg.StatusEnum payload: %w", err)
-		}
-		o.StatusEnum = string(o_StatusEnum_buf)
-	}
+	o.ValUint16 = binary.BigEndian.Uint16(hdr[36:38])
+	o.ValInt16 = int16(binary.BigEndian.Uint16(hdr[38:40]))
+	o.ValUint8 = hdr[40]
+	o.ValInt8 = int8(hdr[41])
+	o.ValBool = hdr[42] != 0
 
 	return nil
 }
@@ -309,22 +452,29 @@ func (o *OnlyScalarTypesMsg) Unmarshal(reader io.Reader,
 // Overall Block Length: 24 bytes + Runtime dynamic payload
 // ---------------------------------------------------------------------------
 
+// TODO: Check order of fields in the struct to ensure they are ordered by offset to avoid padding issues.
 // OnlyVariableTypesMsg represents a wire-serializable message.
 // Fields are ordered and padded to match natural alignment requirements,
 // ensuring identical memory layout between Go and C implementations.
 type OnlyVariableTypesMsg struct {
+
 	// UTF-8 string.
-	Name string
+	Name string `json:"name"`
+
 	// Raw binary blob.
-	Data []byte
+	Data []byte `json:"data"`
+
 	// Nested reference to OnlyScalarTypesMsg.
-	Nested *OnlyScalarTypesMsg
+	Nested *OnlyScalarTypesMsg `json:"nested"`
+
 	// 1-D array of bytes.
-	ByteArray [][]byte
+	ByteArray [][]byte `json:"byteArray"`
+
 	// 2-D array of int32 values.
-	Matrix [][]int32
+	Matrix [][]int32 `json:"matrix"`
+
 	// 1-D array of strings.
-	Tags []string
+	Tags []string `json:"tags"`
 }
 
 // OnlyVariableTypesMsgFixedSize is the byte size of the fixed block portion
@@ -352,12 +502,30 @@ func init() {
 
 func (o *OnlyVariableTypesMsg) DynamicPayloadSize() int {
 	dynamicSize := 0
-	dynamicSize += calcTypeSize(o.Name)
-	dynamicSize += calcTypeSize(o.Data)
-	dynamicSize += calcTypeSize(o.Nested)
-	dynamicSize += calcTypeSize(o.ByteArray)
-	dynamicSize += calcTypeSize(o.Matrix)
-	dynamicSize += calcTypeSize(o.Tags)
+	if len(o.Name) > 0 {
+		dynamicSize += calcTypeSize(o.Name)
+	}
+	if len(o.Data) > 0 {
+		dynamicSize += calcTypeSize(o.Data)
+	}
+	if o.Nested != nil {
+		dynamicSize += calcTypeSize(o.Nested)
+	}
+	if len(o.ByteArray) > 0 {
+		sizer := getArraySizer[[]byte](1)
+		sizer.SetElements(o.ByteArray)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(o.Matrix) > 0 {
+		sizer := getArraySizer[int32](2)
+		sizer.SetElements(o.Matrix)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(o.Tags) > 0 {
+		sizer := getArraySizer[string](1)
+		sizer.SetElements(o.Tags)
+		dynamicSize += calcArraySize(sizer)
+	}
 
 	return dynamicSize
 }
@@ -417,44 +585,50 @@ func (o *OnlyVariableTypesMsg) Marshal() ([]byte, error) {
 	}
 	binary.BigEndian.PutUint32(hdr[8:12], uint32(o_Nested_len))
 
-	var tmpByteArray [][]byte
-	eleTypeByteArray, err := getElementType(tmpByteArray)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.ByteArray: %v", err)
+	if len(o.ByteArray) > 0 {
+		var zero []byte
+		eleTypeByteArray, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.ByteArray: %v", err)
+		}
+		o_ByteArray_Bytes, err := sliceToBytes[[]byte](eleTypeByteArray, o.ByteArray)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.ByteArray: %v", err)
+		}
+		copy(buf[dynOff:], o_ByteArray_Bytes)
+		binary.BigEndian.PutUint32(hdr[12:16], uint32(len(o_ByteArray_Bytes)))
+		dynOff += len(o_ByteArray_Bytes)
 	}
-	o_ByteArray_Bytes, err := sliceToBytes[[][]byte](eleTypeByteArray, o.ByteArray)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.ByteArray: %v", err)
-	}
-	copy(buf[dynOff:], o_ByteArray_Bytes)
-	binary.BigEndian.PutUint32(hdr[12:16], uint32(len(o_ByteArray_Bytes)))
-	dynOff += len(o_ByteArray_Bytes)
 
-	var tmpMatrix [][]int32
-	eleTypeMatrix, err := getElementType(tmpMatrix)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Matrix: %v", err)
+	if len(o.Matrix) > 0 {
+		var zero int32
+		eleTypeMatrix, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Matrix: %v", err)
+		}
+		o_Matrix_Bytes, err := sliceToBytes[int32](eleTypeMatrix, o.Matrix)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Matrix: %v", err)
+		}
+		copy(buf[dynOff:], o_Matrix_Bytes)
+		binary.BigEndian.PutUint32(hdr[16:20], uint32(len(o_Matrix_Bytes)))
+		dynOff += len(o_Matrix_Bytes)
 	}
-	o_Matrix_Bytes, err := sliceToBytes[[][]int32](eleTypeMatrix, o.Matrix)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Matrix: %v", err)
-	}
-	copy(buf[dynOff:], o_Matrix_Bytes)
-	binary.BigEndian.PutUint32(hdr[16:20], uint32(len(o_Matrix_Bytes)))
-	dynOff += len(o_Matrix_Bytes)
 
-	var tmpTags []string
-	eleTypeTags, err := getElementType(tmpTags)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Tags: %v", err)
+	if len(o.Tags) > 0 {
+		var zero string
+		eleTypeTags, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Tags: %v", err)
+		}
+		o_Tags_Bytes, err := sliceToBytes[string](eleTypeTags, o.Tags)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Tags: %v", err)
+		}
+		copy(buf[dynOff:], o_Tags_Bytes)
+		binary.BigEndian.PutUint32(hdr[20:24], uint32(len(o_Tags_Bytes)))
+		dynOff += len(o_Tags_Bytes)
 	}
-	o_Tags_Bytes, err := sliceToBytes[[]string](eleTypeTags, o.Tags)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal OnlyVariableTypesMsg.Tags: %v", err)
-	}
-	copy(buf[dynOff:], o_Tags_Bytes)
-	binary.BigEndian.PutUint32(hdr[20:24], uint32(len(o_Tags_Bytes)))
-	dynOff += len(o_Tags_Bytes)
 
 	_ = dynOff
 	return buf, nil
@@ -468,10 +642,11 @@ func (o *OnlyVariableTypesMsg) Marshal() ([]byte, error) {
 // All variable-length fields are validated against MaxAllowedPacket before
 // allocation, and io.ReadFull is used to guarantee complete reads even on
 // streaming sockets that may deliver partial data.
-func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader,
-	fixedPayloadSize uint16, _ uint32) error {
-	if int(fixedPayloadSize) < OnlyVariableTypesMsgFixedSize {
-		return fmt.Errorf("OnlyVariableTypesMsg fixed payload size too short: got %d, need %d", fixedPayloadSize, OnlyVariableTypesMsgFixedSize)
+func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
+	overallPayloadSize uint32) error {
+	if int(fixedPayloadSize) < OnlyVariableTypesMsgFixedSize || int(overallPayloadSize) > MaxAllowedPacket {
+		return fmt.Errorf("wireforge: OnlyVariableTypesMsg payload size mismatch: fixed %d, overall %d",
+			fixedPayloadSize, overallPayloadSize)
 	}
 
 	hdr := make([]byte, fixedPayloadSize)
@@ -543,20 +718,25 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader,
 	}
 
 	if o_ByteArray_len > 0 {
-		if o_ByteArray_len < (TypeMarkerSize + ArrayCountPrefixSize) {
+		if int(o_ByteArray_len) < getArrayPrefixSize() {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.ByteArray length %d too short", o_ByteArray_len)
 		}
 
-		arrType, err := readUint16(reader)
+		o_ByteArray_reader := io.LimitReader(reader, int64(o_ByteArray_len))
+		arrType, err := readUint16(o_ByteArray_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.ByteArray type marker: %w", err)
 		}
-		_, err = readUint16(reader)
+		_, err = readUint16(o_ByteArray_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.ByteArray element type marker: %w", err)
 		}
-
-		o_ByteArray_reader := io.LimitReader(reader, int64(o_ByteArray_len))
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(o_ByteArray_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.ByteArray overall items count: %w", err)
+		}
 		if arrType != TagArray {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.ByteArray expected array type marker %d, got %d", TagArray, arrType)
 		}
@@ -570,20 +750,25 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader,
 	}
 
 	if o_Matrix_len > 0 {
-		if o_Matrix_len < (TypeMarkerSize + ArrayCountPrefixSize) {
+		if int(o_Matrix_len) < getArrayPrefixSize() {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Matrix length %d too short", o_Matrix_len)
 		}
 
-		arrType, err := readUint16(reader)
+		o_Matrix_reader := io.LimitReader(reader, int64(o_Matrix_len))
+		arrType, err := readUint16(o_Matrix_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Matrix type marker: %w", err)
 		}
-		_, err = readUint16(reader)
+		_, err = readUint16(o_Matrix_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Matrix element type marker: %w", err)
 		}
-
-		o_Matrix_reader := io.LimitReader(reader, int64(o_Matrix_len))
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(o_Matrix_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Matrix overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Matrix expected array type marker %d, got %d", TagArray, arrType)
 		}
@@ -597,20 +782,25 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader,
 	}
 
 	if o_Tags_len > 0 {
-		if o_Tags_len < (TypeMarkerSize + ArrayCountPrefixSize) {
+		if int(o_Tags_len) < getArrayPrefixSize() {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Tags length %d too short", o_Tags_len)
 		}
 
-		arrType, err := readUint16(reader)
+		o_Tags_reader := io.LimitReader(reader, int64(o_Tags_len))
+		arrType, err := readUint16(o_Tags_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Tags type marker: %w", err)
 		}
-		_, err = readUint16(reader)
+		_, err = readUint16(o_Tags_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Tags element type marker: %w", err)
 		}
-
-		o_Tags_reader := io.LimitReader(reader, int64(o_Tags_len))
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(o_Tags_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Tags overall items count: %w", err)
+		}
 		if arrType != TagArray {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Tags expected array type marker %d, got %d", TagArray, arrType)
 		}
@@ -627,66 +817,82 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader,
 }
 
 // ---------------------------------------------------------------------------
-// allTypesFieldsMsg
+// AllTypesFieldsMsg
 // ---------------------------------------------------------------------------
 // Wire Type ID: 3
 // Fixed Block Length: 72 bytes (includes alignment padding)
 // Overall Block Length: 72 bytes + Runtime dynamic payload
 // ---------------------------------------------------------------------------
 
-// allTypesFieldsMsg represents a wire-serializable message.
+// TODO: Check order of fields in the struct to ensure they are ordered by offset to avoid padding issues.
+// AllTypesFieldsMsg represents a wire-serializable message.
 // Fields are ordered and padded to match natural alignment requirements,
 // ensuring identical memory layout between Go and C implementations.
-type allTypesFieldsMsg struct {
+type AllTypesFieldsMsg struct {
+
 	// Unsigned 64-bit integer.
-	ValUint64 uint64
+	ValUint64 uint64 `json:"valUint64"`
+
 	// Signed 64-bit integer.
-	ValInt64 int64
+	ValInt64 int64 `json:"valInt64"`
+
 	// 64-bit IEEE 754 float.
-	ValDouble float64
+	ValDouble float64 `json:"valDouble"`
+
 	// Unsigned 32-bit integer.
-	ValUint32 uint32
+	ValUint32 uint32 `json:"valUint32"`
+
 	// Signed 32-bit integer.
-	ValInt32 int32
+	ValInt32 int32 `json:"valInt32"`
+
 	// 32-bit IEEE 754 float.
-	ValFloat float32
+	ValFloat float32 `json:"valFloat"`
+
 	// UTF-8 string.
-	Name string
-	// String field restricted to an enum of allowed values.
-	StatusEnum string
+	Name string `json:"name"`
+
 	// Raw binary blob.
-	Data []byte
+	Data []byte `json:"data"`
+
 	// Nested reference to OnlyScalarTypesMsg.
-	Nested *OnlyScalarTypesMsg
+	Nested *OnlyScalarTypesMsg `json:"nested"`
+
 	// 1-D array of bytes.
-	ByteArray [][]byte
+	ByteArray [][]byte `json:"byteArray"`
+
 	// 2-D array of int32 values.
-	Matrix [][]int32
+	Matrix [][]int32 `json:"matrix"`
+
 	// 1-D array of strings.
-	Tags []string
+	Tags []string `json:"tags"`
+
 	// Unsigned 16-bit integer.
-	ValUint16 uint16
+	ValUint16 uint16 `json:"valUint16"`
+
 	// Signed 16-bit integer.
-	ValInt16 int16
+	ValInt16 int16 `json:"valInt16"`
+
 	// Unsigned 8-bit integer.
-	ValUint8 uint8
+	ValUint8 uint8 `json:"valUint8"`
+
 	// Signed 8-bit integer.
-	ValInt8 int8
+	ValInt8 int8 `json:"valInt8"`
+
 	// Boolean field.
-	ValBool bool
+	ValBool bool `json:"valBool"`
 }
 
-// allTypesFieldsMsgFixedSize is the byte size of the fixed block portion
+// AllTypesFieldsMsgFixedSize is the byte size of the fixed block portion
 // (all fixed-width fields including alignment padding, plus uint32 length
 // prefixes for any variable-length fields). This value is encoded in the
 // wire frame header so the receiver knows how many bytes to read before
 // parsing dynamic payload data.
-const allTypesFieldsMsgFixedSize = 72
+const AllTypesFieldsMsgFixedSize = 72
 
-// MessageTypeID returns the unique wire protocol type identifier for allTypesFieldsMsg.
+// MessageTypeID returns the unique wire protocol type identifier for AllTypesFieldsMsg.
 // This ID occupies the first 2 bytes of every framed message on the wire and
 // is used by the receiver to select the correct deserialization codec.
-func (a *allTypesFieldsMsg) MessageTypeID() uint16 {
+func (a *AllTypesFieldsMsg) MessageTypeID() uint16 {
 	return 3
 }
 
@@ -695,61 +901,78 @@ func init() {
 	// If the Go compiler's struct layout disagrees with our computed field
 	// sizes, this panic fires immediately at program startup rather than
 	// allowing silent data corruption on the wire.
-	var msg allTypesFieldsMsg
+	var msg AllTypesFieldsMsg
 	_ = msg
 	if unsafe.Sizeof(msg.ValUint64) != 8 {
-		panic("wireforge: allTypesFieldsMsg.ValUint64 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValUint64 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValInt64) != 8 {
-		panic("wireforge: allTypesFieldsMsg.ValInt64 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValInt64 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValDouble) != 8 {
-		panic("wireforge: allTypesFieldsMsg.ValDouble size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValDouble size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValUint32) != 4 {
-		panic("wireforge: allTypesFieldsMsg.ValUint32 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValUint32 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValInt32) != 4 {
-		panic("wireforge: allTypesFieldsMsg.ValInt32 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValInt32 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValFloat) != 4 {
-		panic("wireforge: allTypesFieldsMsg.ValFloat size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValFloat size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValUint16) != 2 {
-		panic("wireforge: allTypesFieldsMsg.ValUint16 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValUint16 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValInt16) != 2 {
-		panic("wireforge: allTypesFieldsMsg.ValInt16 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValInt16 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValUint8) != 1 {
-		panic("wireforge: allTypesFieldsMsg.ValUint8 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValUint8 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValInt8) != 1 {
-		panic("wireforge: allTypesFieldsMsg.ValInt8 size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValInt8 size mismatch")
 	}
 	if unsafe.Sizeof(msg.ValBool) != 1 {
-		panic("wireforge: allTypesFieldsMsg.ValBool size mismatch")
+		panic("wireforge: AllTypesFieldsMsg.ValBool size mismatch")
 	}
 }
 
-func (a *allTypesFieldsMsg) DynamicPayloadSize() int {
+func (a *AllTypesFieldsMsg) DynamicPayloadSize() int {
 	dynamicSize := 0
-	dynamicSize += calcTypeSize(a.Name)
-	dynamicSize += calcTypeSize(a.StatusEnum)
-	dynamicSize += calcTypeSize(a.Data)
-	dynamicSize += calcTypeSize(a.Nested)
-	dynamicSize += calcTypeSize(a.ByteArray)
-	dynamicSize += calcTypeSize(a.Matrix)
-	dynamicSize += calcTypeSize(a.Tags)
+	if len(a.Name) > 0 {
+		dynamicSize += calcTypeSize(a.Name)
+	}
+	if len(a.Data) > 0 {
+		dynamicSize += calcTypeSize(a.Data)
+	}
+	if a.Nested != nil {
+		dynamicSize += calcTypeSize(a.Nested)
+	}
+	if len(a.ByteArray) > 0 {
+		sizer := getArraySizer[[]byte](1)
+		sizer.SetElements(a.ByteArray)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Matrix) > 0 {
+		sizer := getArraySizer[int32](2)
+		sizer.SetElements(a.Matrix)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Tags) > 0 {
+		sizer := getArraySizer[string](1)
+		sizer.SetElements(a.Tags)
+		dynamicSize += calcArraySize(sizer)
+	}
 
 	return dynamicSize
 }
 
-func (a *allTypesFieldsMsg) Size() int {
-	return FrameHeaderSize + allTypesFieldsMsgFixedSize + a.DynamicPayloadSize()
+func (a *AllTypesFieldsMsg) Size() int {
+	return FrameHeaderSize + AllTypesFieldsMsgFixedSize + a.DynamicPayloadSize()
 }
 
-// Marshal serializes the allTypesFieldsMsg message into wire format and writes the
+// Marshal serializes the AllTypesFieldsMsg message into wire format and writes the
 // complete framed message (header + payload) to writer in a single Write call.
 //
 // Wire layout written:
@@ -761,24 +984,24 @@ func (a *allTypesFieldsMsg) Size() int {
 //	[80:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
-func (a *allTypesFieldsMsg) Marshal() ([]byte, error) {
-	payloadSize := allTypesFieldsMsgFixedSize + a.DynamicPayloadSize()
+func (a *AllTypesFieldsMsg) Marshal() ([]byte, error) {
+	payloadSize := AllTypesFieldsMsgFixedSize + a.DynamicPayloadSize()
 	totalSize := FrameHeaderSize + payloadSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("allTypesFieldsMsg message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("AllTypesFieldsMsg message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
 
 	// Frame header: type ID + fixed payload length + overall payload length
 	binary.BigEndian.PutUint16(buf[0:2], 3)
-	binary.BigEndian.PutUint16(buf[2:4], uint16(allTypesFieldsMsgFixedSize))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(AllTypesFieldsMsgFixedSize))
 	binary.BigEndian.PutUint32(buf[4:8], uint32(payloadSize))
 
 	// Fixed block (starts at offset FrameHeaderSize)
 	hdr := buf[FrameHeaderSize:]
 	// Dynamic payload sections start directly after the fixed wire block
-	dynOff := FrameHeaderSize + allTypesFieldsMsgFixedSize
+	dynOff := FrameHeaderSize + AllTypesFieldsMsgFixedSize
 
 	binary.BigEndian.PutUint64(hdr[0:8], a.ValUint64)
 	binary.BigEndian.PutUint64(hdr[8:16], uint64(a.ValInt64))
@@ -791,79 +1014,81 @@ func (a *allTypesFieldsMsg) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint32(hdr[36:40], uint32(len(a.Name)))
 	dynOff += len(a.Name)
 
-	copy(buf[dynOff:], a.StatusEnum)
-	binary.BigEndian.PutUint32(hdr[40:44], uint32(len(a.StatusEnum)))
-	dynOff += len(a.StatusEnum)
-
 	copy(buf[dynOff:], a.Data)
-	binary.BigEndian.PutUint32(hdr[44:48], uint32(len(a.Data)))
+	binary.BigEndian.PutUint32(hdr[40:44], uint32(len(a.Data)))
 	dynOff += len(a.Data)
 
 	a_Nested_len := 0
 	if a.Nested != nil {
 		a_Nested_Bytes, err := a.Nested.Marshal()
 		if err != nil {
-			return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.Nested: %v", err)
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.Nested: %v", err)
 		}
 		copy(buf[dynOff:], a_Nested_Bytes)
 		dynOff += len(a_Nested_Bytes)
 		a_Nested_len = len(a_Nested_Bytes)
 	}
-	binary.BigEndian.PutUint32(hdr[48:52], uint32(a_Nested_len))
+	binary.BigEndian.PutUint32(hdr[44:48], uint32(a_Nested_len))
 
-	var tmpByteArray [][]byte
-	eleTypeByteArray, err := getElementType(tmpByteArray)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.ByteArray: %v", err)
+	if len(a.ByteArray) > 0 {
+		var zero []byte
+		eleTypeByteArray, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.ByteArray: %v", err)
+		}
+		a_ByteArray_Bytes, err := sliceToBytes[[]byte](eleTypeByteArray, a.ByteArray)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.ByteArray: %v", err)
+		}
+		copy(buf[dynOff:], a_ByteArray_Bytes)
+		binary.BigEndian.PutUint32(hdr[48:52], uint32(len(a_ByteArray_Bytes)))
+		dynOff += len(a_ByteArray_Bytes)
 	}
-	a_ByteArray_Bytes, err := sliceToBytes[[][]byte](eleTypeByteArray, a.ByteArray)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.ByteArray: %v", err)
-	}
-	copy(buf[dynOff:], a_ByteArray_Bytes)
-	binary.BigEndian.PutUint32(hdr[52:56], uint32(len(a_ByteArray_Bytes)))
-	dynOff += len(a_ByteArray_Bytes)
 
-	var tmpMatrix [][]int32
-	eleTypeMatrix, err := getElementType(tmpMatrix)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.Matrix: %v", err)
+	if len(a.Matrix) > 0 {
+		var zero int32
+		eleTypeMatrix, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.Matrix: %v", err)
+		}
+		a_Matrix_Bytes, err := sliceToBytes[int32](eleTypeMatrix, a.Matrix)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.Matrix: %v", err)
+		}
+		copy(buf[dynOff:], a_Matrix_Bytes)
+		binary.BigEndian.PutUint32(hdr[52:56], uint32(len(a_Matrix_Bytes)))
+		dynOff += len(a_Matrix_Bytes)
 	}
-	a_Matrix_Bytes, err := sliceToBytes[[][]int32](eleTypeMatrix, a.Matrix)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.Matrix: %v", err)
-	}
-	copy(buf[dynOff:], a_Matrix_Bytes)
-	binary.BigEndian.PutUint32(hdr[56:60], uint32(len(a_Matrix_Bytes)))
-	dynOff += len(a_Matrix_Bytes)
 
-	var tmpTags []string
-	eleTypeTags, err := getElementType(tmpTags)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.Tags: %v", err)
+	if len(a.Tags) > 0 {
+		var zero string
+		eleTypeTags, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.Tags: %v", err)
+		}
+		a_Tags_Bytes, err := sliceToBytes[string](eleTypeTags, a.Tags)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesFieldsMsg.Tags: %v", err)
+		}
+		copy(buf[dynOff:], a_Tags_Bytes)
+		binary.BigEndian.PutUint32(hdr[56:60], uint32(len(a_Tags_Bytes)))
+		dynOff += len(a_Tags_Bytes)
 	}
-	a_Tags_Bytes, err := sliceToBytes[[]string](eleTypeTags, a.Tags)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesFieldsMsg.Tags: %v", err)
-	}
-	copy(buf[dynOff:], a_Tags_Bytes)
-	binary.BigEndian.PutUint32(hdr[60:64], uint32(len(a_Tags_Bytes)))
-	dynOff += len(a_Tags_Bytes)
-	binary.BigEndian.PutUint16(hdr[64:66], a.ValUint16)
-	binary.BigEndian.PutUint16(hdr[66:68], uint16(a.ValInt16))
-	hdr[68] = a.ValUint8
-	hdr[69] = uint8(a.ValInt8)
+	binary.BigEndian.PutUint16(hdr[60:62], a.ValUint16)
+	binary.BigEndian.PutUint16(hdr[62:64], uint16(a.ValInt16))
+	hdr[64] = a.ValUint8
+	hdr[65] = uint8(a.ValInt8)
 	if a.ValBool {
-		hdr[70] = 1
+		hdr[66] = 1
 	} else {
-		hdr[70] = 0
+		hdr[66] = 0
 	}
 
 	_ = dynOff
 	return buf, nil
 }
 
-// Unmarshal deserializes a allTypesFieldsMsg from the wire after the 8-byte frame
+// Unmarshal deserializes a AllTypesFieldsMsg from the wire after the 8-byte frame
 // header has already been consumed. The caller provides fixedPayloadSize (read
 // from the frame) and overallPayloadSize so forward-compatible readers can skip
 // unknown trailing bytes in the fixed header if a newer sender adds fields.
@@ -871,15 +1096,16 @@ func (a *allTypesFieldsMsg) Marshal() ([]byte, error) {
 // All variable-length fields are validated against MaxAllowedPacket before
 // allocation, and io.ReadFull is used to guarantee complete reads even on
 // streaming sockets that may deliver partial data.
-func (a *allTypesFieldsMsg) Unmarshal(reader io.Reader,
-	fixedPayloadSize uint16, _ uint32) error {
-	if int(fixedPayloadSize) < allTypesFieldsMsgFixedSize {
-		return fmt.Errorf("allTypesFieldsMsg fixed payload size too short: got %d, need %d", fixedPayloadSize, allTypesFieldsMsgFixedSize)
+func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
+	overallPayloadSize uint32) error {
+	if int(fixedPayloadSize) < AllTypesFieldsMsgFixedSize || int(overallPayloadSize) > MaxAllowedPacket {
+		return fmt.Errorf("wireforge: AllTypesFieldsMsg payload size mismatch: fixed %d, overall %d",
+			fixedPayloadSize, overallPayloadSize)
 	}
 
 	hdr := make([]byte, fixedPayloadSize)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("reading allTypesFieldsMsg fixed payload: %w", err)
+		return fmt.Errorf("reading AllTypesFieldsMsg fixed payload: %w", err)
 	}
 
 	a.ValUint64 = binary.BigEndian.Uint64(hdr[0:8])
@@ -890,37 +1116,33 @@ func (a *allTypesFieldsMsg) Unmarshal(reader io.Reader,
 	a.ValFloat = math.Float32frombits(binary.BigEndian.Uint32(hdr[32:36]))
 	a_Name_len := binary.BigEndian.Uint32(hdr[36:40])
 	if a_Name_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.Name length %d exceeds MaxAllowedPacket", a_Name_len)
+		return fmt.Errorf("AllTypesFieldsMsg.Name length %d exceeds MaxAllowedPacket", a_Name_len)
 	}
-	a_StatusEnum_len := binary.BigEndian.Uint32(hdr[40:44])
-	if a_StatusEnum_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.StatusEnum length %d exceeds MaxAllowedPacket", a_StatusEnum_len)
-	}
-	a_Data_len := binary.BigEndian.Uint32(hdr[44:48])
+	a_Data_len := binary.BigEndian.Uint32(hdr[40:44])
 	if a_Data_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.Data length %d exceeds MaxAllowedPacket", a_Data_len)
+		return fmt.Errorf("AllTypesFieldsMsg.Data length %d exceeds MaxAllowedPacket", a_Data_len)
 	}
-	a_Nested_len := binary.BigEndian.Uint32(hdr[48:52])
+	a_Nested_len := binary.BigEndian.Uint32(hdr[44:48])
 	if a_Nested_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.Nested length %d exceeds MaxAllowedPacket", a_Nested_len)
+		return fmt.Errorf("AllTypesFieldsMsg.Nested length %d exceeds MaxAllowedPacket", a_Nested_len)
 	}
-	a_ByteArray_len := binary.BigEndian.Uint32(hdr[52:56])
+	a_ByteArray_len := binary.BigEndian.Uint32(hdr[48:52])
 	if a_ByteArray_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.ByteArray length %d exceeds MaxAllowedPacket", a_ByteArray_len)
+		return fmt.Errorf("AllTypesFieldsMsg.ByteArray length %d exceeds MaxAllowedPacket", a_ByteArray_len)
 	}
-	a_Matrix_len := binary.BigEndian.Uint32(hdr[56:60])
+	a_Matrix_len := binary.BigEndian.Uint32(hdr[52:56])
 	if a_Matrix_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.Matrix length %d exceeds MaxAllowedPacket", a_Matrix_len)
+		return fmt.Errorf("AllTypesFieldsMsg.Matrix length %d exceeds MaxAllowedPacket", a_Matrix_len)
 	}
-	a_Tags_len := binary.BigEndian.Uint32(hdr[60:64])
+	a_Tags_len := binary.BigEndian.Uint32(hdr[56:60])
 	if a_Tags_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesFieldsMsg.Tags length %d exceeds MaxAllowedPacket", a_Tags_len)
+		return fmt.Errorf("AllTypesFieldsMsg.Tags length %d exceeds MaxAllowedPacket", a_Tags_len)
 	}
-	a.ValUint16 = binary.BigEndian.Uint16(hdr[64:66])
-	a.ValInt16 = int16(binary.BigEndian.Uint16(hdr[66:68]))
-	a.ValUint8 = hdr[68]
-	a.ValInt8 = int8(hdr[69])
-	a.ValBool = hdr[70] != 0
+	a.ValUint16 = binary.BigEndian.Uint16(hdr[60:62])
+	a.ValInt16 = int16(binary.BigEndian.Uint16(hdr[62:64]))
+	a.ValUint8 = hdr[64]
+	a.ValInt8 = int8(hdr[65])
+	a.ValBool = hdr[66] != 0
 
 	// Read dynamic payload: variable-length fields are appended sequentially
 	// after the fixed payload in the same order as their length prefixes above.
@@ -928,23 +1150,15 @@ func (a *allTypesFieldsMsg) Unmarshal(reader io.Reader,
 	if a_Name_len > 0 {
 		a_Name_buf := make([]byte, a_Name_len)
 		if _, err := io.ReadFull(reader, a_Name_buf); err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Name payload: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Name payload: %w", err)
 		}
 		a.Name = string(a_Name_buf)
-	}
-
-	if a_StatusEnum_len > 0 {
-		a_StatusEnum_buf := make([]byte, a_StatusEnum_len)
-		if _, err := io.ReadFull(reader, a_StatusEnum_buf); err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.StatusEnum payload: %w", err)
-		}
-		a.StatusEnum = string(a_StatusEnum_buf)
 	}
 
 	if a_Data_len > 0 {
 		a_Data_buf := make([]byte, a_Data_len)
 		if _, err := io.ReadFull(reader, a_Data_buf); err != nil {
-			return fmt.Errorf("reading allTypesFieldsMsg.Data payload: %w", err)
+			return fmt.Errorf("reading AllTypesFieldsMsg.Data payload: %w", err)
 		}
 		a.Data = a_Data_buf
 	}
@@ -954,96 +1168,111 @@ func (a *allTypesFieldsMsg) Unmarshal(reader io.Reader,
 
 		typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(a_Nested_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Nested frame header: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Nested frame header: %w", err)
 		}
 
 		var nested OnlyScalarTypesMsg
 		if typeID != nested.MessageTypeID() {
-			return fmt.Errorf("wireforge: unexpected type ID %d for allTypesFieldsMsg.Nested, expected %d", typeID, nested.MessageTypeID())
+			return fmt.Errorf("wireforge: unexpected type ID %d for AllTypesFieldsMsg.Nested, expected %d", typeID, nested.MessageTypeID())
 		}
 
 		if err := nested.Unmarshal(a_Nested_reader, fixedPayloadLen, overallPayloadLen); err != nil {
-			return fmt.Errorf("wireforge: unmarshalling allTypesFieldsMsg.Nested: %w", err)
+			return fmt.Errorf("wireforge: unmarshalling AllTypesFieldsMsg.Nested: %w", err)
 		}
 		a.Nested = &nested
 	}
 
 	if a_ByteArray_len > 0 {
-		if a_ByteArray_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesFieldsMsg.ByteArray length %d too short", a_ByteArray_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.ByteArray type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.ByteArray element type marker: %w", err)
+		if int(a_ByteArray_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesFieldsMsg.ByteArray length %d too short", a_ByteArray_len)
 		}
 
 		a_ByteArray_reader := io.LimitReader(reader, int64(a_ByteArray_len))
+		arrType, err := readUint16(a_ByteArray_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray type marker: %w", err)
+		}
+		_, err = readUint16(a_ByteArray_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_ByteArray_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesFieldsMsg.ByteArray expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesFieldsMsg.ByteArray expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_ByteArray_arr, err := readOneDimensionalSlice[[]byte](a_ByteArray_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.ByteArray array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray array: %w", err)
 		}
 
 		a.ByteArray = a_ByteArray_arr
 	}
 
 	if a_Matrix_len > 0 {
-		if a_Matrix_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesFieldsMsg.Matrix length %d too short", a_Matrix_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Matrix type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Matrix element type marker: %w", err)
+		if int(a_Matrix_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Matrix length %d too short", a_Matrix_len)
 		}
 
 		a_Matrix_reader := io.LimitReader(reader, int64(a_Matrix_len))
+		arrType, err := readUint16(a_Matrix_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix type marker: %w", err)
+		}
+		_, err = readUint16(a_Matrix_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Matrix_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesFieldsMsg.Matrix expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Matrix expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Matrix_arr, err := readTwoDimensionalSlice[int32](a_Matrix_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Matrix array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix array: %w", err)
 		}
 
 		a.Matrix = a_Matrix_arr
 	}
 
 	if a_Tags_len > 0 {
-		if a_Tags_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesFieldsMsg.Tags length %d too short", a_Tags_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Tags type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Tags element type marker: %w", err)
+		if int(a_Tags_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Tags length %d too short", a_Tags_len)
 		}
 
 		a_Tags_reader := io.LimitReader(reader, int64(a_Tags_len))
+		arrType, err := readUint16(a_Tags_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags type marker: %w", err)
+		}
+		_, err = readUint16(a_Tags_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Tags_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesFieldsMsg.Tags expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Tags expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Tags_arr, err := readOneDimensionalSlice[string](a_Tags_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesFieldsMsg.Tags array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags array: %w", err)
 		}
 
 		a.Tags = a_Tags_arr
@@ -1053,33 +1282,35 @@ func (a *allTypesFieldsMsg) Unmarshal(reader io.Reader,
 }
 
 // ---------------------------------------------------------------------------
-// recursiveNestedMsg
+// RecursiveNestedMsg
 // ---------------------------------------------------------------------------
 // Wire Type ID: 4
 // Fixed Block Length: 8 bytes (includes alignment padding)
 // Overall Block Length: 8 bytes + Runtime dynamic payload
 // ---------------------------------------------------------------------------
 
-// recursiveNestedMsg represents a wire-serializable message.
+// TODO: Check order of fields in the struct to ensure they are ordered by offset to avoid padding issues.
+// RecursiveNestedMsg represents a wire-serializable message.
 // Fields are ordered and padded to match natural alignment requirements,
 // ensuring identical memory layout between Go and C implementations.
-type recursiveNestedMsg struct {
+type RecursiveNestedMsg struct {
+
 	// UTF-8 string.
-	Name   string
-	Nested *recursiveNestedMsg
+	Name   string              `json:"name"`
+	Nested *RecursiveNestedMsg `json:"nested"`
 }
 
-// recursiveNestedMsgFixedSize is the byte size of the fixed block portion
+// RecursiveNestedMsgFixedSize is the byte size of the fixed block portion
 // (all fixed-width fields including alignment padding, plus uint32 length
 // prefixes for any variable-length fields). This value is encoded in the
 // wire frame header so the receiver knows how many bytes to read before
 // parsing dynamic payload data.
-const recursiveNestedMsgFixedSize = 8
+const RecursiveNestedMsgFixedSize = 8
 
-// MessageTypeID returns the unique wire protocol type identifier for recursiveNestedMsg.
+// MessageTypeID returns the unique wire protocol type identifier for RecursiveNestedMsg.
 // This ID occupies the first 2 bytes of every framed message on the wire and
 // is used by the receiver to select the correct deserialization codec.
-func (r *recursiveNestedMsg) MessageTypeID() uint16 {
+func (r *RecursiveNestedMsg) MessageTypeID() uint16 {
 	return 4
 }
 
@@ -1088,23 +1319,27 @@ func init() {
 	// If the Go compiler's struct layout disagrees with our computed field
 	// sizes, this panic fires immediately at program startup rather than
 	// allowing silent data corruption on the wire.
-	var msg recursiveNestedMsg
+	var msg RecursiveNestedMsg
 	_ = msg
 }
 
-func (r *recursiveNestedMsg) DynamicPayloadSize() int {
+func (r *RecursiveNestedMsg) DynamicPayloadSize() int {
 	dynamicSize := 0
-	dynamicSize += calcTypeSize(r.Name)
-	dynamicSize += calcTypeSize(r.Nested)
+	if len(r.Name) > 0 {
+		dynamicSize += calcTypeSize(r.Name)
+	}
+	if r.Nested != nil {
+		dynamicSize += calcTypeSize(r.Nested)
+	}
 
 	return dynamicSize
 }
 
-func (r *recursiveNestedMsg) Size() int {
-	return FrameHeaderSize + recursiveNestedMsgFixedSize + r.DynamicPayloadSize()
+func (r *RecursiveNestedMsg) Size() int {
+	return FrameHeaderSize + RecursiveNestedMsgFixedSize + r.DynamicPayloadSize()
 }
 
-// Marshal serializes the recursiveNestedMsg message into wire format and writes the
+// Marshal serializes the RecursiveNestedMsg message into wire format and writes the
 // complete framed message (header + payload) to writer in a single Write call.
 //
 // Wire layout written:
@@ -1116,24 +1351,24 @@ func (r *recursiveNestedMsg) Size() int {
 //	[16:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
-func (r *recursiveNestedMsg) Marshal() ([]byte, error) {
-	payloadSize := recursiveNestedMsgFixedSize + r.DynamicPayloadSize()
+func (r *RecursiveNestedMsg) Marshal() ([]byte, error) {
+	payloadSize := RecursiveNestedMsgFixedSize + r.DynamicPayloadSize()
 	totalSize := FrameHeaderSize + payloadSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("recursiveNestedMsg message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("RecursiveNestedMsg message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
 
 	// Frame header: type ID + fixed payload length + overall payload length
 	binary.BigEndian.PutUint16(buf[0:2], 4)
-	binary.BigEndian.PutUint16(buf[2:4], uint16(recursiveNestedMsgFixedSize))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(RecursiveNestedMsgFixedSize))
 	binary.BigEndian.PutUint32(buf[4:8], uint32(payloadSize))
 
 	// Fixed block (starts at offset FrameHeaderSize)
 	hdr := buf[FrameHeaderSize:]
 	// Dynamic payload sections start directly after the fixed wire block
-	dynOff := FrameHeaderSize + recursiveNestedMsgFixedSize
+	dynOff := FrameHeaderSize + RecursiveNestedMsgFixedSize
 
 	copy(buf[dynOff:], r.Name)
 	binary.BigEndian.PutUint32(hdr[0:4], uint32(len(r.Name)))
@@ -1143,7 +1378,7 @@ func (r *recursiveNestedMsg) Marshal() ([]byte, error) {
 	if r.Nested != nil {
 		r_Nested_Bytes, err := r.Nested.Marshal()
 		if err != nil {
-			return nil, fmt.Errorf("wireforge: failed to marshal recursiveNestedMsg.Nested: %v", err)
+			return nil, fmt.Errorf("wireforge: failed to marshal RecursiveNestedMsg.Nested: %v", err)
 		}
 		copy(buf[dynOff:], r_Nested_Bytes)
 		dynOff += len(r_Nested_Bytes)
@@ -1155,7 +1390,7 @@ func (r *recursiveNestedMsg) Marshal() ([]byte, error) {
 	return buf, nil
 }
 
-// Unmarshal deserializes a recursiveNestedMsg from the wire after the 8-byte frame
+// Unmarshal deserializes a RecursiveNestedMsg from the wire after the 8-byte frame
 // header has already been consumed. The caller provides fixedPayloadSize (read
 // from the frame) and overallPayloadSize so forward-compatible readers can skip
 // unknown trailing bytes in the fixed header if a newer sender adds fields.
@@ -1163,24 +1398,25 @@ func (r *recursiveNestedMsg) Marshal() ([]byte, error) {
 // All variable-length fields are validated against MaxAllowedPacket before
 // allocation, and io.ReadFull is used to guarantee complete reads even on
 // streaming sockets that may deliver partial data.
-func (r *recursiveNestedMsg) Unmarshal(reader io.Reader,
-	fixedPayloadSize uint16, _ uint32) error {
-	if int(fixedPayloadSize) < recursiveNestedMsgFixedSize {
-		return fmt.Errorf("recursiveNestedMsg fixed payload size too short: got %d, need %d", fixedPayloadSize, recursiveNestedMsgFixedSize)
+func (r *RecursiveNestedMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
+	overallPayloadSize uint32) error {
+	if int(fixedPayloadSize) < RecursiveNestedMsgFixedSize || int(overallPayloadSize) > MaxAllowedPacket {
+		return fmt.Errorf("wireforge: RecursiveNestedMsg payload size mismatch: fixed %d, overall %d",
+			fixedPayloadSize, overallPayloadSize)
 	}
 
 	hdr := make([]byte, fixedPayloadSize)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("reading recursiveNestedMsg fixed payload: %w", err)
+		return fmt.Errorf("reading RecursiveNestedMsg fixed payload: %w", err)
 	}
 
 	r_Name_len := binary.BigEndian.Uint32(hdr[0:4])
 	if r_Name_len > MaxAllowedPacket {
-		return fmt.Errorf("recursiveNestedMsg.Name length %d exceeds MaxAllowedPacket", r_Name_len)
+		return fmt.Errorf("RecursiveNestedMsg.Name length %d exceeds MaxAllowedPacket", r_Name_len)
 	}
 	r_Nested_len := binary.BigEndian.Uint32(hdr[4:8])
 	if r_Nested_len > MaxAllowedPacket {
-		return fmt.Errorf("recursiveNestedMsg.Nested length %d exceeds MaxAllowedPacket", r_Nested_len)
+		return fmt.Errorf("RecursiveNestedMsg.Nested length %d exceeds MaxAllowedPacket", r_Nested_len)
 	}
 
 	// Read dynamic payload: variable-length fields are appended sequentially
@@ -1189,7 +1425,7 @@ func (r *recursiveNestedMsg) Unmarshal(reader io.Reader,
 	if r_Name_len > 0 {
 		r_Name_buf := make([]byte, r_Name_len)
 		if _, err := io.ReadFull(reader, r_Name_buf); err != nil {
-			return fmt.Errorf("wireforge: reading recursiveNestedMsg.Name payload: %w", err)
+			return fmt.Errorf("wireforge: reading RecursiveNestedMsg.Name payload: %w", err)
 		}
 		r.Name = string(r_Name_buf)
 	}
@@ -1199,16 +1435,16 @@ func (r *recursiveNestedMsg) Unmarshal(reader io.Reader,
 
 		typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r_Nested_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading recursiveNestedMsg.Nested frame header: %w", err)
+			return fmt.Errorf("wireforge: reading RecursiveNestedMsg.Nested frame header: %w", err)
 		}
 
-		var nested recursiveNestedMsg
+		var nested RecursiveNestedMsg
 		if typeID != nested.MessageTypeID() {
-			return fmt.Errorf("wireforge: unexpected type ID %d for recursiveNestedMsg.Nested, expected %d", typeID, nested.MessageTypeID())
+			return fmt.Errorf("wireforge: unexpected type ID %d for RecursiveNestedMsg.Nested, expected %d", typeID, nested.MessageTypeID())
 		}
 
 		if err := nested.Unmarshal(r_Nested_reader, fixedPayloadLen, overallPayloadLen); err != nil {
-			return fmt.Errorf("wireforge: unmarshalling recursiveNestedMsg.Nested: %w", err)
+			return fmt.Errorf("wireforge: unmarshalling RecursiveNestedMsg.Nested: %w", err)
 		}
 		r.Nested = &nested
 	}
@@ -1217,120 +1453,166 @@ func (r *recursiveNestedMsg) Unmarshal(reader io.Reader,
 }
 
 // ---------------------------------------------------------------------------
-// allTypesOfArraysMsg
+// AllTypesOfArraysMsg
 // ---------------------------------------------------------------------------
 // Wire Type ID: 5
 // Fixed Block Length: 180 bytes (includes alignment padding)
 // Overall Block Length: 180 bytes + Runtime dynamic payload
 // ---------------------------------------------------------------------------
 
-// allTypesOfArraysMsg represents a wire-serializable message.
+// TODO: Check order of fields in the struct to ensure they are ordered by offset to avoid padding issues.
+// AllTypesOfArraysMsg represents a wire-serializable message.
 // Fields are ordered and padded to match natural alignment requirements,
 // ensuring identical memory layout between Go and C implementations.
-type allTypesOfArraysMsg struct {
+type AllTypesOfArraysMsg struct {
+
 	// 1-D array of booleans.
-	Arr1DBool []bool
+	Arr1DBool []bool `json:"arr1DBool"`
+
 	// 1-D array of binary blobs.
-	Arr1DBytes [][]byte
+	Arr1DBytes [][]byte `json:"arr1DBytes"`
+
 	// 1-D array of 64-bit IEEE 754 floats.
-	Arr1DDouble []float64
+	Arr1DDouble []float64 `json:"arr1DDouble"`
+
 	// 1-D array of 32-bit IEEE 754 floats.
-	Arr1DFloat []float32
+	Arr1DFloat []float32 `json:"arr1DFloat"`
+
 	// 1-D array of signed 16-bit integers.
-	Arr1DInt16 []int16
+	Arr1DInt16 []int16 `json:"arr1DInt16"`
+
 	// 1-D array of signed 32-bit integers.
-	Arr1DInt32 []int32
+	Arr1DInt32 []int32 `json:"arr1DInt32"`
+
 	// 1-D array of signed 64-bit integers.
-	Arr1DInt64 []int64
+	Arr1DInt64 []int64 `json:"arr1DInt64"`
+
 	// 1-D array of signed 8-bit integers.
-	Arr1DInt8 []int8
+	Arr1DInt8 []int8 `json:"arr1DInt8"`
+
 	// 1-D array of OnlyVariableTypesMsg objects.
-	Arr1DNested []*OnlyVariableTypesMsg
+	Arr1DNested []*OnlyVariableTypesMsg `json:"arr1DNested"`
+
 	// 1-D array of OnlyScalarTypesMsg objects.
-	Arr1DObject []*OnlyScalarTypesMsg
+	Arr1DObject []*OnlyScalarTypesMsg `json:"arr1DObject"`
+
 	// 1-D array of strings.
-	Arr1DString []string
+	Arr1DString []string `json:"arr1DString"`
+
 	// 1-D array of unsigned 16-bit integers.
-	Arr1DUint16 []uint16
+	Arr1DUint16 []uint16 `json:"arr1DUint16"`
+
 	// 1-D array of unsigned 32-bit integers.
-	Arr1DUint32 []uint32
+	Arr1DUint32 []uint32 `json:"arr1DUint32"`
+
 	// 1-D array of unsigned 64-bit integers.
-	Arr1DUint64 []uint64
+	Arr1DUint64 []uint64 `json:"arr1DUint64"`
+
 	// 1-D array of unsigned 8-bit integers.
-	Arr1DUint8 []uint8
+	Arr1DUint8 []uint8 `json:"arr1DUint8"`
+
 	// 2-D array of booleans.
-	Arr2DBool [][]bool
+	Arr2DBool [][]bool `json:"arr2DBool"`
+
 	// 2-D array of binary blobs.
-	Arr2DBytes [][][]byte
+	Arr2DBytes [][][]byte `json:"arr2DBytes"`
+
 	// 2-D array of 64-bit IEEE 754 floats.
-	Arr2DDouble [][]float64
+	Arr2DDouble [][]float64 `json:"arr2DDouble"`
+
 	// 2-D array of 32-bit IEEE 754 floats.
-	Arr2DFloat [][]float32
+	Arr2DFloat [][]float32 `json:"arr2DFloat"`
+
 	// 2-D array of signed 16-bit integers.
-	Arr2DInt16 [][]int16
+	Arr2DInt16 [][]int16 `json:"arr2DInt16"`
+
 	// 2-D array of signed 32-bit integers.
-	Arr2DInt32 [][]int32
+	Arr2DInt32 [][]int32 `json:"arr2DInt32"`
+
 	// 2-D array of signed 64-bit integers.
-	Arr2DInt64 [][]int64
+	Arr2DInt64 [][]int64 `json:"arr2DInt64"`
+
 	// 2-D array of signed 8-bit integers.
-	Arr2DInt8 [][]int8
+	Arr2DInt8 [][]int8 `json:"arr2DInt8"`
+
 	// 2-D array of OnlyVariableTypesMsg objects.
-	Arr2DNested [][]*OnlyVariableTypesMsg
+	Arr2DNested [][]*OnlyVariableTypesMsg `json:"arr2DNested"`
+
 	// 2-D array of OnlyScalarTypesMsg objects.
-	Arr2DObject [][]*OnlyScalarTypesMsg
+	Arr2DObject [][]*OnlyScalarTypesMsg `json:"arr2DObject"`
+
 	// 2-D array of strings.
-	Arr2DString [][]string
+	Arr2DString [][]string `json:"arr2DString"`
+
 	// 2-D array of unsigned 16-bit integers.
-	Arr2DUint16 [][]uint16
+	Arr2DUint16 [][]uint16 `json:"arr2DUint16"`
+
 	// 2-D array of unsigned 32-bit integers.
-	Arr2DUint32 [][]uint32
+	Arr2DUint32 [][]uint32 `json:"arr2DUint32"`
+
 	// 2-D array of unsigned 64-bit integers.
-	Arr2DUint64 [][]uint64
+	Arr2DUint64 [][]uint64 `json:"arr2DUint64"`
+
 	// 2-D array of unsigned 8-bit integers.
-	Arr2DUint8 [][]uint8
+	Arr2DUint8 [][]uint8 `json:"arr2DUint8"`
+
 	// 3-D array of booleans.
-	Arr3DBool [][][]bool
+	Arr3DBool [][][]bool `json:"arr3DBool"`
+
 	// 3-D array of binary blobs.
-	Arr3DBytes [][][][]byte
+	Arr3DBytes [][][][]byte `json:"arr3DBytes"`
+
 	// 3-D array of 64-bit IEEE 754 floats.
-	Arr3DDouble [][][]float64
+	Arr3DDouble [][][]float64 `json:"arr3DDouble"`
+
 	// 3-D array of 32-bit IEEE 754 floats.
-	Arr3DFloat [][][]float32
+	Arr3DFloat [][][]float32 `json:"arr3DFloat"`
+
 	// 3-D array of signed 16-bit integers.
-	Arr3DInt16 [][][]int16
+	Arr3DInt16 [][][]int16 `json:"arr3DInt16"`
+
 	// 3-D array of signed 32-bit integers.
-	Arr3DInt32 [][][]int32
+	Arr3DInt32 [][][]int32 `json:"arr3DInt32"`
+
 	// 3-D array of signed 64-bit integers.
-	Arr3DInt64 [][][]int64
+	Arr3DInt64 [][][]int64 `json:"arr3DInt64"`
+
 	// 3-D array of signed 8-bit integers.
-	Arr3DInt8 [][][]int8
+	Arr3DInt8 [][][]int8 `json:"arr3DInt8"`
+
 	// 3-D array of OnlyVariableTypesMsg objects.
-	Arr3DNested [][][]*OnlyVariableTypesMsg
+	Arr3DNested [][][]*OnlyVariableTypesMsg `json:"arr3DNested"`
+
 	// 3-D array of OnlyScalarTypesMsg objects.
-	Arr3DObject [][][]*OnlyScalarTypesMsg
+	Arr3DObject [][][]*OnlyScalarTypesMsg `json:"arr3DObject"`
+
 	// 3-D array of strings.
-	Arr3DString [][][]string
+	Arr3DString [][][]string `json:"arr3DString"`
+
 	// 3-D array of unsigned 16-bit integers.
-	Arr3DUint16 [][][]uint16
+	Arr3DUint16 [][][]uint16 `json:"arr3DUint16"`
+
 	// 3-D array of unsigned 32-bit integers.
-	Arr3DUint32 [][][]uint32
+	Arr3DUint32 [][][]uint32 `json:"arr3DUint32"`
+
 	// 3-D array of unsigned 64-bit integers.
-	Arr3DUint64 [][][]uint64
+	Arr3DUint64 [][][]uint64 `json:"arr3DUint64"`
+
 	// 3-D array of unsigned 8-bit integers.
-	Arr3DUint8 [][][]uint8
+	Arr3DUint8 [][][]uint8 `json:"arr3DUint8"`
 }
 
-// allTypesOfArraysMsgFixedSize is the byte size of the fixed block portion
+// AllTypesOfArraysMsgFixedSize is the byte size of the fixed block portion
 // (all fixed-width fields including alignment padding, plus uint32 length
 // prefixes for any variable-length fields). This value is encoded in the
 // wire frame header so the receiver knows how many bytes to read before
 // parsing dynamic payload data.
-const allTypesOfArraysMsgFixedSize = 180
+const AllTypesOfArraysMsgFixedSize = 180
 
-// MessageTypeID returns the unique wire protocol type identifier for allTypesOfArraysMsg.
+// MessageTypeID returns the unique wire protocol type identifier for AllTypesOfArraysMsg.
 // This ID occupies the first 2 bytes of every framed message on the wire and
 // is used by the receiver to select the correct deserialization codec.
-func (a *allTypesOfArraysMsg) MessageTypeID() uint16 {
+func (a *AllTypesOfArraysMsg) MessageTypeID() uint16 {
 	return 5
 }
 
@@ -1339,66 +1621,246 @@ func init() {
 	// If the Go compiler's struct layout disagrees with our computed field
 	// sizes, this panic fires immediately at program startup rather than
 	// allowing silent data corruption on the wire.
-	var msg allTypesOfArraysMsg
+	var msg AllTypesOfArraysMsg
 	_ = msg
 }
 
-func (a *allTypesOfArraysMsg) DynamicPayloadSize() int {
+func (a *AllTypesOfArraysMsg) DynamicPayloadSize() int {
 	dynamicSize := 0
-	dynamicSize += calcTypeSize(a.Arr1DBool)
-	dynamicSize += calcTypeSize(a.Arr1DBytes)
-	dynamicSize += calcTypeSize(a.Arr1DDouble)
-	dynamicSize += calcTypeSize(a.Arr1DFloat)
-	dynamicSize += calcTypeSize(a.Arr1DInt16)
-	dynamicSize += calcTypeSize(a.Arr1DInt32)
-	dynamicSize += calcTypeSize(a.Arr1DInt64)
-	dynamicSize += calcTypeSize(a.Arr1DInt8)
-	dynamicSize += calcTypeSize(a.Arr1DNested)
-	dynamicSize += calcTypeSize(a.Arr1DObject)
-	dynamicSize += calcTypeSize(a.Arr1DString)
-	dynamicSize += calcTypeSize(a.Arr1DUint16)
-	dynamicSize += calcTypeSize(a.Arr1DUint32)
-	dynamicSize += calcTypeSize(a.Arr1DUint64)
-	dynamicSize += calcTypeSize(a.Arr1DUint8)
-	dynamicSize += calcTypeSize(a.Arr2DBool)
-	dynamicSize += calcTypeSize(a.Arr2DBytes)
-	dynamicSize += calcTypeSize(a.Arr2DDouble)
-	dynamicSize += calcTypeSize(a.Arr2DFloat)
-	dynamicSize += calcTypeSize(a.Arr2DInt16)
-	dynamicSize += calcTypeSize(a.Arr2DInt32)
-	dynamicSize += calcTypeSize(a.Arr2DInt64)
-	dynamicSize += calcTypeSize(a.Arr2DInt8)
-	dynamicSize += calcTypeSize(a.Arr2DNested)
-	dynamicSize += calcTypeSize(a.Arr2DObject)
-	dynamicSize += calcTypeSize(a.Arr2DString)
-	dynamicSize += calcTypeSize(a.Arr2DUint16)
-	dynamicSize += calcTypeSize(a.Arr2DUint32)
-	dynamicSize += calcTypeSize(a.Arr2DUint64)
-	dynamicSize += calcTypeSize(a.Arr2DUint8)
-	dynamicSize += calcTypeSize(a.Arr3DBool)
-	dynamicSize += calcTypeSize(a.Arr3DBytes)
-	dynamicSize += calcTypeSize(a.Arr3DDouble)
-	dynamicSize += calcTypeSize(a.Arr3DFloat)
-	dynamicSize += calcTypeSize(a.Arr3DInt16)
-	dynamicSize += calcTypeSize(a.Arr3DInt32)
-	dynamicSize += calcTypeSize(a.Arr3DInt64)
-	dynamicSize += calcTypeSize(a.Arr3DInt8)
-	dynamicSize += calcTypeSize(a.Arr3DNested)
-	dynamicSize += calcTypeSize(a.Arr3DObject)
-	dynamicSize += calcTypeSize(a.Arr3DString)
-	dynamicSize += calcTypeSize(a.Arr3DUint16)
-	dynamicSize += calcTypeSize(a.Arr3DUint32)
-	dynamicSize += calcTypeSize(a.Arr3DUint64)
-	dynamicSize += calcTypeSize(a.Arr3DUint8)
+	if len(a.Arr1DBool) > 0 {
+		sizer := getArraySizer[bool](1)
+		sizer.SetElements(a.Arr1DBool)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DBytes) > 0 {
+		sizer := getArraySizer[[]byte](1)
+		sizer.SetElements(a.Arr1DBytes)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DDouble) > 0 {
+		sizer := getArraySizer[float64](1)
+		sizer.SetElements(a.Arr1DDouble)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DFloat) > 0 {
+		sizer := getArraySizer[float32](1)
+		sizer.SetElements(a.Arr1DFloat)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DInt16) > 0 {
+		sizer := getArraySizer[int16](1)
+		sizer.SetElements(a.Arr1DInt16)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DInt32) > 0 {
+		sizer := getArraySizer[int32](1)
+		sizer.SetElements(a.Arr1DInt32)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DInt64) > 0 {
+		sizer := getArraySizer[int64](1)
+		sizer.SetElements(a.Arr1DInt64)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DInt8) > 0 {
+		sizer := getArraySizer[int8](1)
+		sizer.SetElements(a.Arr1DInt8)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DNested) > 0 {
+		sizer := getArraySizer[*OnlyVariableTypesMsg](1)
+		sizer.SetElements(a.Arr1DNested)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DObject) > 0 {
+		sizer := getArraySizer[*OnlyScalarTypesMsg](1)
+		sizer.SetElements(a.Arr1DObject)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DString) > 0 {
+		sizer := getArraySizer[string](1)
+		sizer.SetElements(a.Arr1DString)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DUint16) > 0 {
+		sizer := getArraySizer[uint16](1)
+		sizer.SetElements(a.Arr1DUint16)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DUint32) > 0 {
+		sizer := getArraySizer[uint32](1)
+		sizer.SetElements(a.Arr1DUint32)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DUint64) > 0 {
+		sizer := getArraySizer[uint64](1)
+		sizer.SetElements(a.Arr1DUint64)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr1DUint8) > 0 {
+		sizer := getArraySizer[uint8](1)
+		sizer.SetElements(a.Arr1DUint8)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DBool) > 0 {
+		sizer := getArraySizer[bool](2)
+		sizer.SetElements(a.Arr2DBool)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DBytes) > 0 {
+		sizer := getArraySizer[[]byte](2)
+		sizer.SetElements(a.Arr2DBytes)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DDouble) > 0 {
+		sizer := getArraySizer[float64](2)
+		sizer.SetElements(a.Arr2DDouble)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DFloat) > 0 {
+		sizer := getArraySizer[float32](2)
+		sizer.SetElements(a.Arr2DFloat)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DInt16) > 0 {
+		sizer := getArraySizer[int16](2)
+		sizer.SetElements(a.Arr2DInt16)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DInt32) > 0 {
+		sizer := getArraySizer[int32](2)
+		sizer.SetElements(a.Arr2DInt32)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DInt64) > 0 {
+		sizer := getArraySizer[int64](2)
+		sizer.SetElements(a.Arr2DInt64)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DInt8) > 0 {
+		sizer := getArraySizer[int8](2)
+		sizer.SetElements(a.Arr2DInt8)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DNested) > 0 {
+		sizer := getArraySizer[*OnlyVariableTypesMsg](2)
+		sizer.SetElements(a.Arr2DNested)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DObject) > 0 {
+		sizer := getArraySizer[*OnlyScalarTypesMsg](2)
+		sizer.SetElements(a.Arr2DObject)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DString) > 0 {
+		sizer := getArraySizer[string](2)
+		sizer.SetElements(a.Arr2DString)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DUint16) > 0 {
+		sizer := getArraySizer[uint16](2)
+		sizer.SetElements(a.Arr2DUint16)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DUint32) > 0 {
+		sizer := getArraySizer[uint32](2)
+		sizer.SetElements(a.Arr2DUint32)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DUint64) > 0 {
+		sizer := getArraySizer[uint64](2)
+		sizer.SetElements(a.Arr2DUint64)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr2DUint8) > 0 {
+		sizer := getArraySizer[uint8](2)
+		sizer.SetElements(a.Arr2DUint8)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DBool) > 0 {
+		sizer := getArraySizer[bool](3)
+		sizer.SetElements(a.Arr3DBool)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DBytes) > 0 {
+		sizer := getArraySizer[[]byte](3)
+		sizer.SetElements(a.Arr3DBytes)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DDouble) > 0 {
+		sizer := getArraySizer[float64](3)
+		sizer.SetElements(a.Arr3DDouble)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DFloat) > 0 {
+		sizer := getArraySizer[float32](3)
+		sizer.SetElements(a.Arr3DFloat)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DInt16) > 0 {
+		sizer := getArraySizer[int16](3)
+		sizer.SetElements(a.Arr3DInt16)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DInt32) > 0 {
+		sizer := getArraySizer[int32](3)
+		sizer.SetElements(a.Arr3DInt32)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DInt64) > 0 {
+		sizer := getArraySizer[int64](3)
+		sizer.SetElements(a.Arr3DInt64)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DInt8) > 0 {
+		sizer := getArraySizer[int8](3)
+		sizer.SetElements(a.Arr3DInt8)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DNested) > 0 {
+		sizer := getArraySizer[*OnlyVariableTypesMsg](3)
+		sizer.SetElements(a.Arr3DNested)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DObject) > 0 {
+		sizer := getArraySizer[*OnlyScalarTypesMsg](3)
+		sizer.SetElements(a.Arr3DObject)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DString) > 0 {
+		sizer := getArraySizer[string](3)
+		sizer.SetElements(a.Arr3DString)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DUint16) > 0 {
+		sizer := getArraySizer[uint16](3)
+		sizer.SetElements(a.Arr3DUint16)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DUint32) > 0 {
+		sizer := getArraySizer[uint32](3)
+		sizer.SetElements(a.Arr3DUint32)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DUint64) > 0 {
+		sizer := getArraySizer[uint64](3)
+		sizer.SetElements(a.Arr3DUint64)
+		dynamicSize += calcArraySize(sizer)
+	}
+	if len(a.Arr3DUint8) > 0 {
+		sizer := getArraySizer[uint8](3)
+		sizer.SetElements(a.Arr3DUint8)
+		dynamicSize += calcArraySize(sizer)
+	}
 
 	return dynamicSize
 }
 
-func (a *allTypesOfArraysMsg) Size() int {
-	return FrameHeaderSize + allTypesOfArraysMsgFixedSize + a.DynamicPayloadSize()
+func (a *AllTypesOfArraysMsg) Size() int {
+	return FrameHeaderSize + AllTypesOfArraysMsgFixedSize + a.DynamicPayloadSize()
 }
 
-// Marshal serializes the allTypesOfArraysMsg message into wire format and writes the
+// Marshal serializes the AllTypesOfArraysMsg message into wire format and writes the
 // complete framed message (header + payload) to writer in a single Write call.
 //
 // Wire layout written:
@@ -1410,615 +1872,705 @@ func (a *allTypesOfArraysMsg) Size() int {
 //	[188:end]  Dynamic payload (concatenated variable-length data)
 //
 // Returns an error if the total message size exceeds MaxAllowedPacket.
-func (a *allTypesOfArraysMsg) Marshal() ([]byte, error) {
-	payloadSize := allTypesOfArraysMsgFixedSize + a.DynamicPayloadSize()
+func (a *AllTypesOfArraysMsg) Marshal() ([]byte, error) {
+	payloadSize := AllTypesOfArraysMsgFixedSize + a.DynamicPayloadSize()
 	totalSize := FrameHeaderSize + payloadSize
 	if totalSize > MaxAllowedPacket {
-		return nil, fmt.Errorf("allTypesOfArraysMsg message size %d exceeds MaxAllowedPacket", totalSize)
+		return nil, fmt.Errorf("AllTypesOfArraysMsg message size %d exceeds MaxAllowedPacket", totalSize)
 	}
 
 	buf := make([]byte, totalSize)
 
 	// Frame header: type ID + fixed payload length + overall payload length
 	binary.BigEndian.PutUint16(buf[0:2], 5)
-	binary.BigEndian.PutUint16(buf[2:4], uint16(allTypesOfArraysMsgFixedSize))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(AllTypesOfArraysMsgFixedSize))
 	binary.BigEndian.PutUint32(buf[4:8], uint32(payloadSize))
 
 	// Fixed block (starts at offset FrameHeaderSize)
 	hdr := buf[FrameHeaderSize:]
 	// Dynamic payload sections start directly after the fixed wire block
-	dynOff := FrameHeaderSize + allTypesOfArraysMsgFixedSize
+	dynOff := FrameHeaderSize + AllTypesOfArraysMsgFixedSize
 
-	var tmpArr1DBool []bool
-	eleTypeArr1DBool, err := getElementType(tmpArr1DBool)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DBool: %v", err)
+	if len(a.Arr1DBool) > 0 {
+		var zero bool
+		eleTypeArr1DBool, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DBool: %v", err)
+		}
+		a_Arr1DBool_Bytes, err := sliceToBytes[bool](eleTypeArr1DBool, a.Arr1DBool)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DBool: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DBool_Bytes)
+		binary.BigEndian.PutUint32(hdr[0:4], uint32(len(a_Arr1DBool_Bytes)))
+		dynOff += len(a_Arr1DBool_Bytes)
 	}
-	a_Arr1DBool_Bytes, err := sliceToBytes[[]bool](eleTypeArr1DBool, a.Arr1DBool)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DBool: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DBool_Bytes)
-	binary.BigEndian.PutUint32(hdr[0:4], uint32(len(a_Arr1DBool_Bytes)))
-	dynOff += len(a_Arr1DBool_Bytes)
 
-	var tmpArr1DBytes [][]byte
-	eleTypeArr1DBytes, err := getElementType(tmpArr1DBytes)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DBytes: %v", err)
+	if len(a.Arr1DBytes) > 0 {
+		var zero []byte
+		eleTypeArr1DBytes, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DBytes: %v", err)
+		}
+		a_Arr1DBytes_Bytes, err := sliceToBytes[[]byte](eleTypeArr1DBytes, a.Arr1DBytes)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DBytes: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DBytes_Bytes)
+		binary.BigEndian.PutUint32(hdr[4:8], uint32(len(a_Arr1DBytes_Bytes)))
+		dynOff += len(a_Arr1DBytes_Bytes)
 	}
-	a_Arr1DBytes_Bytes, err := sliceToBytes[[][]byte](eleTypeArr1DBytes, a.Arr1DBytes)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DBytes: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DBytes_Bytes)
-	binary.BigEndian.PutUint32(hdr[4:8], uint32(len(a_Arr1DBytes_Bytes)))
-	dynOff += len(a_Arr1DBytes_Bytes)
 
-	var tmpArr1DDouble []float64
-	eleTypeArr1DDouble, err := getElementType(tmpArr1DDouble)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DDouble: %v", err)
+	if len(a.Arr1DDouble) > 0 {
+		var zero float64
+		eleTypeArr1DDouble, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DDouble: %v", err)
+		}
+		a_Arr1DDouble_Bytes, err := sliceToBytes[float64](eleTypeArr1DDouble, a.Arr1DDouble)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DDouble: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DDouble_Bytes)
+		binary.BigEndian.PutUint32(hdr[8:12], uint32(len(a_Arr1DDouble_Bytes)))
+		dynOff += len(a_Arr1DDouble_Bytes)
 	}
-	a_Arr1DDouble_Bytes, err := sliceToBytes[[]float64](eleTypeArr1DDouble, a.Arr1DDouble)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DDouble: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DDouble_Bytes)
-	binary.BigEndian.PutUint32(hdr[8:12], uint32(len(a_Arr1DDouble_Bytes)))
-	dynOff += len(a_Arr1DDouble_Bytes)
 
-	var tmpArr1DFloat []float32
-	eleTypeArr1DFloat, err := getElementType(tmpArr1DFloat)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DFloat: %v", err)
+	if len(a.Arr1DFloat) > 0 {
+		var zero float32
+		eleTypeArr1DFloat, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DFloat: %v", err)
+		}
+		a_Arr1DFloat_Bytes, err := sliceToBytes[float32](eleTypeArr1DFloat, a.Arr1DFloat)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DFloat: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DFloat_Bytes)
+		binary.BigEndian.PutUint32(hdr[12:16], uint32(len(a_Arr1DFloat_Bytes)))
+		dynOff += len(a_Arr1DFloat_Bytes)
 	}
-	a_Arr1DFloat_Bytes, err := sliceToBytes[[]float32](eleTypeArr1DFloat, a.Arr1DFloat)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DFloat: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DFloat_Bytes)
-	binary.BigEndian.PutUint32(hdr[12:16], uint32(len(a_Arr1DFloat_Bytes)))
-	dynOff += len(a_Arr1DFloat_Bytes)
 
-	var tmpArr1DInt16 []int16
-	eleTypeArr1DInt16, err := getElementType(tmpArr1DInt16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt16: %v", err)
+	if len(a.Arr1DInt16) > 0 {
+		var zero int16
+		eleTypeArr1DInt16, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt16: %v", err)
+		}
+		a_Arr1DInt16_Bytes, err := sliceToBytes[int16](eleTypeArr1DInt16, a.Arr1DInt16)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt16: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DInt16_Bytes)
+		binary.BigEndian.PutUint32(hdr[16:20], uint32(len(a_Arr1DInt16_Bytes)))
+		dynOff += len(a_Arr1DInt16_Bytes)
 	}
-	a_Arr1DInt16_Bytes, err := sliceToBytes[[]int16](eleTypeArr1DInt16, a.Arr1DInt16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt16: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DInt16_Bytes)
-	binary.BigEndian.PutUint32(hdr[16:20], uint32(len(a_Arr1DInt16_Bytes)))
-	dynOff += len(a_Arr1DInt16_Bytes)
 
-	var tmpArr1DInt32 []int32
-	eleTypeArr1DInt32, err := getElementType(tmpArr1DInt32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt32: %v", err)
+	if len(a.Arr1DInt32) > 0 {
+		var zero int32
+		eleTypeArr1DInt32, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt32: %v", err)
+		}
+		a_Arr1DInt32_Bytes, err := sliceToBytes[int32](eleTypeArr1DInt32, a.Arr1DInt32)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt32: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DInt32_Bytes)
+		binary.BigEndian.PutUint32(hdr[20:24], uint32(len(a_Arr1DInt32_Bytes)))
+		dynOff += len(a_Arr1DInt32_Bytes)
 	}
-	a_Arr1DInt32_Bytes, err := sliceToBytes[[]int32](eleTypeArr1DInt32, a.Arr1DInt32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt32: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DInt32_Bytes)
-	binary.BigEndian.PutUint32(hdr[20:24], uint32(len(a_Arr1DInt32_Bytes)))
-	dynOff += len(a_Arr1DInt32_Bytes)
 
-	var tmpArr1DInt64 []int64
-	eleTypeArr1DInt64, err := getElementType(tmpArr1DInt64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt64: %v", err)
+	if len(a.Arr1DInt64) > 0 {
+		var zero int64
+		eleTypeArr1DInt64, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt64: %v", err)
+		}
+		a_Arr1DInt64_Bytes, err := sliceToBytes[int64](eleTypeArr1DInt64, a.Arr1DInt64)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt64: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DInt64_Bytes)
+		binary.BigEndian.PutUint32(hdr[24:28], uint32(len(a_Arr1DInt64_Bytes)))
+		dynOff += len(a_Arr1DInt64_Bytes)
 	}
-	a_Arr1DInt64_Bytes, err := sliceToBytes[[]int64](eleTypeArr1DInt64, a.Arr1DInt64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt64: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DInt64_Bytes)
-	binary.BigEndian.PutUint32(hdr[24:28], uint32(len(a_Arr1DInt64_Bytes)))
-	dynOff += len(a_Arr1DInt64_Bytes)
 
-	var tmpArr1DInt8 []int8
-	eleTypeArr1DInt8, err := getElementType(tmpArr1DInt8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt8: %v", err)
+	if len(a.Arr1DInt8) > 0 {
+		var zero int8
+		eleTypeArr1DInt8, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt8: %v", err)
+		}
+		a_Arr1DInt8_Bytes, err := sliceToBytes[int8](eleTypeArr1DInt8, a.Arr1DInt8)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DInt8: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DInt8_Bytes)
+		binary.BigEndian.PutUint32(hdr[28:32], uint32(len(a_Arr1DInt8_Bytes)))
+		dynOff += len(a_Arr1DInt8_Bytes)
 	}
-	a_Arr1DInt8_Bytes, err := sliceToBytes[[]int8](eleTypeArr1DInt8, a.Arr1DInt8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DInt8: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DInt8_Bytes)
-	binary.BigEndian.PutUint32(hdr[28:32], uint32(len(a_Arr1DInt8_Bytes)))
-	dynOff += len(a_Arr1DInt8_Bytes)
 
-	var tmpArr1DNested []*OnlyVariableTypesMsg
-	eleTypeArr1DNested, err := getElementType(tmpArr1DNested)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DNested: %v", err)
+	if len(a.Arr1DNested) > 0 {
+		var zero *OnlyVariableTypesMsg
+		eleTypeArr1DNested, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DNested: %v", err)
+		}
+		a_Arr1DNested_Bytes, err := sliceToBytes[*OnlyVariableTypesMsg](eleTypeArr1DNested, a.Arr1DNested)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DNested: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DNested_Bytes)
+		binary.BigEndian.PutUint32(hdr[32:36], uint32(len(a_Arr1DNested_Bytes)))
+		dynOff += len(a_Arr1DNested_Bytes)
 	}
-	a_Arr1DNested_Bytes, err := sliceToBytes[[]*OnlyVariableTypesMsg](eleTypeArr1DNested, a.Arr1DNested)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DNested: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DNested_Bytes)
-	binary.BigEndian.PutUint32(hdr[32:36], uint32(len(a_Arr1DNested_Bytes)))
-	dynOff += len(a_Arr1DNested_Bytes)
 
-	var tmpArr1DObject []*OnlyScalarTypesMsg
-	eleTypeArr1DObject, err := getElementType(tmpArr1DObject)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DObject: %v", err)
+	if len(a.Arr1DObject) > 0 {
+		var zero *OnlyScalarTypesMsg
+		eleTypeArr1DObject, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DObject: %v", err)
+		}
+		a_Arr1DObject_Bytes, err := sliceToBytes[*OnlyScalarTypesMsg](eleTypeArr1DObject, a.Arr1DObject)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DObject: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DObject_Bytes)
+		binary.BigEndian.PutUint32(hdr[36:40], uint32(len(a_Arr1DObject_Bytes)))
+		dynOff += len(a_Arr1DObject_Bytes)
 	}
-	a_Arr1DObject_Bytes, err := sliceToBytes[[]*OnlyScalarTypesMsg](eleTypeArr1DObject, a.Arr1DObject)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DObject: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DObject_Bytes)
-	binary.BigEndian.PutUint32(hdr[36:40], uint32(len(a_Arr1DObject_Bytes)))
-	dynOff += len(a_Arr1DObject_Bytes)
 
-	var tmpArr1DString []string
-	eleTypeArr1DString, err := getElementType(tmpArr1DString)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DString: %v", err)
+	if len(a.Arr1DString) > 0 {
+		var zero string
+		eleTypeArr1DString, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DString: %v", err)
+		}
+		a_Arr1DString_Bytes, err := sliceToBytes[string](eleTypeArr1DString, a.Arr1DString)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DString: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DString_Bytes)
+		binary.BigEndian.PutUint32(hdr[40:44], uint32(len(a_Arr1DString_Bytes)))
+		dynOff += len(a_Arr1DString_Bytes)
 	}
-	a_Arr1DString_Bytes, err := sliceToBytes[[]string](eleTypeArr1DString, a.Arr1DString)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DString: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DString_Bytes)
-	binary.BigEndian.PutUint32(hdr[40:44], uint32(len(a_Arr1DString_Bytes)))
-	dynOff += len(a_Arr1DString_Bytes)
 
-	var tmpArr1DUint16 []uint16
-	eleTypeArr1DUint16, err := getElementType(tmpArr1DUint16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint16: %v", err)
+	if len(a.Arr1DUint16) > 0 {
+		var zero uint16
+		eleTypeArr1DUint16, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint16: %v", err)
+		}
+		a_Arr1DUint16_Bytes, err := sliceToBytes[uint16](eleTypeArr1DUint16, a.Arr1DUint16)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint16: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DUint16_Bytes)
+		binary.BigEndian.PutUint32(hdr[44:48], uint32(len(a_Arr1DUint16_Bytes)))
+		dynOff += len(a_Arr1DUint16_Bytes)
 	}
-	a_Arr1DUint16_Bytes, err := sliceToBytes[[]uint16](eleTypeArr1DUint16, a.Arr1DUint16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint16: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DUint16_Bytes)
-	binary.BigEndian.PutUint32(hdr[44:48], uint32(len(a_Arr1DUint16_Bytes)))
-	dynOff += len(a_Arr1DUint16_Bytes)
 
-	var tmpArr1DUint32 []uint32
-	eleTypeArr1DUint32, err := getElementType(tmpArr1DUint32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint32: %v", err)
+	if len(a.Arr1DUint32) > 0 {
+		var zero uint32
+		eleTypeArr1DUint32, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint32: %v", err)
+		}
+		a_Arr1DUint32_Bytes, err := sliceToBytes[uint32](eleTypeArr1DUint32, a.Arr1DUint32)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint32: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DUint32_Bytes)
+		binary.BigEndian.PutUint32(hdr[48:52], uint32(len(a_Arr1DUint32_Bytes)))
+		dynOff += len(a_Arr1DUint32_Bytes)
 	}
-	a_Arr1DUint32_Bytes, err := sliceToBytes[[]uint32](eleTypeArr1DUint32, a.Arr1DUint32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint32: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DUint32_Bytes)
-	binary.BigEndian.PutUint32(hdr[48:52], uint32(len(a_Arr1DUint32_Bytes)))
-	dynOff += len(a_Arr1DUint32_Bytes)
 
-	var tmpArr1DUint64 []uint64
-	eleTypeArr1DUint64, err := getElementType(tmpArr1DUint64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint64: %v", err)
+	if len(a.Arr1DUint64) > 0 {
+		var zero uint64
+		eleTypeArr1DUint64, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint64: %v", err)
+		}
+		a_Arr1DUint64_Bytes, err := sliceToBytes[uint64](eleTypeArr1DUint64, a.Arr1DUint64)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint64: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DUint64_Bytes)
+		binary.BigEndian.PutUint32(hdr[52:56], uint32(len(a_Arr1DUint64_Bytes)))
+		dynOff += len(a_Arr1DUint64_Bytes)
 	}
-	a_Arr1DUint64_Bytes, err := sliceToBytes[[]uint64](eleTypeArr1DUint64, a.Arr1DUint64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint64: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DUint64_Bytes)
-	binary.BigEndian.PutUint32(hdr[52:56], uint32(len(a_Arr1DUint64_Bytes)))
-	dynOff += len(a_Arr1DUint64_Bytes)
 
-	var tmpArr1DUint8 []uint8
-	eleTypeArr1DUint8, err := getElementType(tmpArr1DUint8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint8: %v", err)
+	if len(a.Arr1DUint8) > 0 {
+		var zero uint8
+		eleTypeArr1DUint8, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint8: %v", err)
+		}
+		a_Arr1DUint8_Bytes, err := sliceToBytes[uint8](eleTypeArr1DUint8, a.Arr1DUint8)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr1DUint8: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr1DUint8_Bytes)
+		binary.BigEndian.PutUint32(hdr[56:60], uint32(len(a_Arr1DUint8_Bytes)))
+		dynOff += len(a_Arr1DUint8_Bytes)
 	}
-	a_Arr1DUint8_Bytes, err := sliceToBytes[[]uint8](eleTypeArr1DUint8, a.Arr1DUint8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr1DUint8: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr1DUint8_Bytes)
-	binary.BigEndian.PutUint32(hdr[56:60], uint32(len(a_Arr1DUint8_Bytes)))
-	dynOff += len(a_Arr1DUint8_Bytes)
 
-	var tmpArr2DBool [][]bool
-	eleTypeArr2DBool, err := getElementType(tmpArr2DBool)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DBool: %v", err)
+	if len(a.Arr2DBool) > 0 {
+		var zero bool
+		eleTypeArr2DBool, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DBool: %v", err)
+		}
+		a_Arr2DBool_Bytes, err := sliceToBytes[bool](eleTypeArr2DBool, a.Arr2DBool)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DBool: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DBool_Bytes)
+		binary.BigEndian.PutUint32(hdr[60:64], uint32(len(a_Arr2DBool_Bytes)))
+		dynOff += len(a_Arr2DBool_Bytes)
 	}
-	a_Arr2DBool_Bytes, err := sliceToBytes[[][]bool](eleTypeArr2DBool, a.Arr2DBool)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DBool: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DBool_Bytes)
-	binary.BigEndian.PutUint32(hdr[60:64], uint32(len(a_Arr2DBool_Bytes)))
-	dynOff += len(a_Arr2DBool_Bytes)
 
-	var tmpArr2DBytes [][][]byte
-	eleTypeArr2DBytes, err := getElementType(tmpArr2DBytes)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DBytes: %v", err)
+	if len(a.Arr2DBytes) > 0 {
+		var zero []byte
+		eleTypeArr2DBytes, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DBytes: %v", err)
+		}
+		a_Arr2DBytes_Bytes, err := sliceToBytes[[]byte](eleTypeArr2DBytes, a.Arr2DBytes)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DBytes: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DBytes_Bytes)
+		binary.BigEndian.PutUint32(hdr[64:68], uint32(len(a_Arr2DBytes_Bytes)))
+		dynOff += len(a_Arr2DBytes_Bytes)
 	}
-	a_Arr2DBytes_Bytes, err := sliceToBytes[[][][]byte](eleTypeArr2DBytes, a.Arr2DBytes)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DBytes: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DBytes_Bytes)
-	binary.BigEndian.PutUint32(hdr[64:68], uint32(len(a_Arr2DBytes_Bytes)))
-	dynOff += len(a_Arr2DBytes_Bytes)
 
-	var tmpArr2DDouble [][]float64
-	eleTypeArr2DDouble, err := getElementType(tmpArr2DDouble)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DDouble: %v", err)
+	if len(a.Arr2DDouble) > 0 {
+		var zero float64
+		eleTypeArr2DDouble, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DDouble: %v", err)
+		}
+		a_Arr2DDouble_Bytes, err := sliceToBytes[float64](eleTypeArr2DDouble, a.Arr2DDouble)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DDouble: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DDouble_Bytes)
+		binary.BigEndian.PutUint32(hdr[68:72], uint32(len(a_Arr2DDouble_Bytes)))
+		dynOff += len(a_Arr2DDouble_Bytes)
 	}
-	a_Arr2DDouble_Bytes, err := sliceToBytes[[][]float64](eleTypeArr2DDouble, a.Arr2DDouble)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DDouble: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DDouble_Bytes)
-	binary.BigEndian.PutUint32(hdr[68:72], uint32(len(a_Arr2DDouble_Bytes)))
-	dynOff += len(a_Arr2DDouble_Bytes)
 
-	var tmpArr2DFloat [][]float32
-	eleTypeArr2DFloat, err := getElementType(tmpArr2DFloat)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DFloat: %v", err)
+	if len(a.Arr2DFloat) > 0 {
+		var zero float32
+		eleTypeArr2DFloat, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DFloat: %v", err)
+		}
+		a_Arr2DFloat_Bytes, err := sliceToBytes[float32](eleTypeArr2DFloat, a.Arr2DFloat)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DFloat: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DFloat_Bytes)
+		binary.BigEndian.PutUint32(hdr[72:76], uint32(len(a_Arr2DFloat_Bytes)))
+		dynOff += len(a_Arr2DFloat_Bytes)
 	}
-	a_Arr2DFloat_Bytes, err := sliceToBytes[[][]float32](eleTypeArr2DFloat, a.Arr2DFloat)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DFloat: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DFloat_Bytes)
-	binary.BigEndian.PutUint32(hdr[72:76], uint32(len(a_Arr2DFloat_Bytes)))
-	dynOff += len(a_Arr2DFloat_Bytes)
 
-	var tmpArr2DInt16 [][]int16
-	eleTypeArr2DInt16, err := getElementType(tmpArr2DInt16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt16: %v", err)
+	if len(a.Arr2DInt16) > 0 {
+		var zero int16
+		eleTypeArr2DInt16, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt16: %v", err)
+		}
+		a_Arr2DInt16_Bytes, err := sliceToBytes[int16](eleTypeArr2DInt16, a.Arr2DInt16)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt16: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DInt16_Bytes)
+		binary.BigEndian.PutUint32(hdr[76:80], uint32(len(a_Arr2DInt16_Bytes)))
+		dynOff += len(a_Arr2DInt16_Bytes)
 	}
-	a_Arr2DInt16_Bytes, err := sliceToBytes[[][]int16](eleTypeArr2DInt16, a.Arr2DInt16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt16: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DInt16_Bytes)
-	binary.BigEndian.PutUint32(hdr[76:80], uint32(len(a_Arr2DInt16_Bytes)))
-	dynOff += len(a_Arr2DInt16_Bytes)
 
-	var tmpArr2DInt32 [][]int32
-	eleTypeArr2DInt32, err := getElementType(tmpArr2DInt32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt32: %v", err)
+	if len(a.Arr2DInt32) > 0 {
+		var zero int32
+		eleTypeArr2DInt32, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt32: %v", err)
+		}
+		a_Arr2DInt32_Bytes, err := sliceToBytes[int32](eleTypeArr2DInt32, a.Arr2DInt32)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt32: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DInt32_Bytes)
+		binary.BigEndian.PutUint32(hdr[80:84], uint32(len(a_Arr2DInt32_Bytes)))
+		dynOff += len(a_Arr2DInt32_Bytes)
 	}
-	a_Arr2DInt32_Bytes, err := sliceToBytes[[][]int32](eleTypeArr2DInt32, a.Arr2DInt32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt32: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DInt32_Bytes)
-	binary.BigEndian.PutUint32(hdr[80:84], uint32(len(a_Arr2DInt32_Bytes)))
-	dynOff += len(a_Arr2DInt32_Bytes)
 
-	var tmpArr2DInt64 [][]int64
-	eleTypeArr2DInt64, err := getElementType(tmpArr2DInt64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt64: %v", err)
+	if len(a.Arr2DInt64) > 0 {
+		var zero int64
+		eleTypeArr2DInt64, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt64: %v", err)
+		}
+		a_Arr2DInt64_Bytes, err := sliceToBytes[int64](eleTypeArr2DInt64, a.Arr2DInt64)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt64: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DInt64_Bytes)
+		binary.BigEndian.PutUint32(hdr[84:88], uint32(len(a_Arr2DInt64_Bytes)))
+		dynOff += len(a_Arr2DInt64_Bytes)
 	}
-	a_Arr2DInt64_Bytes, err := sliceToBytes[[][]int64](eleTypeArr2DInt64, a.Arr2DInt64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt64: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DInt64_Bytes)
-	binary.BigEndian.PutUint32(hdr[84:88], uint32(len(a_Arr2DInt64_Bytes)))
-	dynOff += len(a_Arr2DInt64_Bytes)
 
-	var tmpArr2DInt8 [][]int8
-	eleTypeArr2DInt8, err := getElementType(tmpArr2DInt8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt8: %v", err)
+	if len(a.Arr2DInt8) > 0 {
+		var zero int8
+		eleTypeArr2DInt8, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt8: %v", err)
+		}
+		a_Arr2DInt8_Bytes, err := sliceToBytes[int8](eleTypeArr2DInt8, a.Arr2DInt8)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DInt8: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DInt8_Bytes)
+		binary.BigEndian.PutUint32(hdr[88:92], uint32(len(a_Arr2DInt8_Bytes)))
+		dynOff += len(a_Arr2DInt8_Bytes)
 	}
-	a_Arr2DInt8_Bytes, err := sliceToBytes[[][]int8](eleTypeArr2DInt8, a.Arr2DInt8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DInt8: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DInt8_Bytes)
-	binary.BigEndian.PutUint32(hdr[88:92], uint32(len(a_Arr2DInt8_Bytes)))
-	dynOff += len(a_Arr2DInt8_Bytes)
 
-	var tmpArr2DNested [][]*OnlyVariableTypesMsg
-	eleTypeArr2DNested, err := getElementType(tmpArr2DNested)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DNested: %v", err)
+	if len(a.Arr2DNested) > 0 {
+		var zero *OnlyVariableTypesMsg
+		eleTypeArr2DNested, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DNested: %v", err)
+		}
+		a_Arr2DNested_Bytes, err := sliceToBytes[*OnlyVariableTypesMsg](eleTypeArr2DNested, a.Arr2DNested)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DNested: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DNested_Bytes)
+		binary.BigEndian.PutUint32(hdr[92:96], uint32(len(a_Arr2DNested_Bytes)))
+		dynOff += len(a_Arr2DNested_Bytes)
 	}
-	a_Arr2DNested_Bytes, err := sliceToBytes[[][]*OnlyVariableTypesMsg](eleTypeArr2DNested, a.Arr2DNested)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DNested: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DNested_Bytes)
-	binary.BigEndian.PutUint32(hdr[92:96], uint32(len(a_Arr2DNested_Bytes)))
-	dynOff += len(a_Arr2DNested_Bytes)
 
-	var tmpArr2DObject [][]*OnlyScalarTypesMsg
-	eleTypeArr2DObject, err := getElementType(tmpArr2DObject)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DObject: %v", err)
+	if len(a.Arr2DObject) > 0 {
+		var zero *OnlyScalarTypesMsg
+		eleTypeArr2DObject, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DObject: %v", err)
+		}
+		a_Arr2DObject_Bytes, err := sliceToBytes[*OnlyScalarTypesMsg](eleTypeArr2DObject, a.Arr2DObject)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DObject: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DObject_Bytes)
+		binary.BigEndian.PutUint32(hdr[96:100], uint32(len(a_Arr2DObject_Bytes)))
+		dynOff += len(a_Arr2DObject_Bytes)
 	}
-	a_Arr2DObject_Bytes, err := sliceToBytes[[][]*OnlyScalarTypesMsg](eleTypeArr2DObject, a.Arr2DObject)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DObject: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DObject_Bytes)
-	binary.BigEndian.PutUint32(hdr[96:100], uint32(len(a_Arr2DObject_Bytes)))
-	dynOff += len(a_Arr2DObject_Bytes)
 
-	var tmpArr2DString [][]string
-	eleTypeArr2DString, err := getElementType(tmpArr2DString)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DString: %v", err)
+	if len(a.Arr2DString) > 0 {
+		var zero string
+		eleTypeArr2DString, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DString: %v", err)
+		}
+		a_Arr2DString_Bytes, err := sliceToBytes[string](eleTypeArr2DString, a.Arr2DString)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DString: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DString_Bytes)
+		binary.BigEndian.PutUint32(hdr[100:104], uint32(len(a_Arr2DString_Bytes)))
+		dynOff += len(a_Arr2DString_Bytes)
 	}
-	a_Arr2DString_Bytes, err := sliceToBytes[[][]string](eleTypeArr2DString, a.Arr2DString)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DString: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DString_Bytes)
-	binary.BigEndian.PutUint32(hdr[100:104], uint32(len(a_Arr2DString_Bytes)))
-	dynOff += len(a_Arr2DString_Bytes)
 
-	var tmpArr2DUint16 [][]uint16
-	eleTypeArr2DUint16, err := getElementType(tmpArr2DUint16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint16: %v", err)
+	if len(a.Arr2DUint16) > 0 {
+		var zero uint16
+		eleTypeArr2DUint16, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint16: %v", err)
+		}
+		a_Arr2DUint16_Bytes, err := sliceToBytes[uint16](eleTypeArr2DUint16, a.Arr2DUint16)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint16: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DUint16_Bytes)
+		binary.BigEndian.PutUint32(hdr[104:108], uint32(len(a_Arr2DUint16_Bytes)))
+		dynOff += len(a_Arr2DUint16_Bytes)
 	}
-	a_Arr2DUint16_Bytes, err := sliceToBytes[[][]uint16](eleTypeArr2DUint16, a.Arr2DUint16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint16: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DUint16_Bytes)
-	binary.BigEndian.PutUint32(hdr[104:108], uint32(len(a_Arr2DUint16_Bytes)))
-	dynOff += len(a_Arr2DUint16_Bytes)
 
-	var tmpArr2DUint32 [][]uint32
-	eleTypeArr2DUint32, err := getElementType(tmpArr2DUint32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint32: %v", err)
+	if len(a.Arr2DUint32) > 0 {
+		var zero uint32
+		eleTypeArr2DUint32, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint32: %v", err)
+		}
+		a_Arr2DUint32_Bytes, err := sliceToBytes[uint32](eleTypeArr2DUint32, a.Arr2DUint32)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint32: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DUint32_Bytes)
+		binary.BigEndian.PutUint32(hdr[108:112], uint32(len(a_Arr2DUint32_Bytes)))
+		dynOff += len(a_Arr2DUint32_Bytes)
 	}
-	a_Arr2DUint32_Bytes, err := sliceToBytes[[][]uint32](eleTypeArr2DUint32, a.Arr2DUint32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint32: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DUint32_Bytes)
-	binary.BigEndian.PutUint32(hdr[108:112], uint32(len(a_Arr2DUint32_Bytes)))
-	dynOff += len(a_Arr2DUint32_Bytes)
 
-	var tmpArr2DUint64 [][]uint64
-	eleTypeArr2DUint64, err := getElementType(tmpArr2DUint64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint64: %v", err)
+	if len(a.Arr2DUint64) > 0 {
+		var zero uint64
+		eleTypeArr2DUint64, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint64: %v", err)
+		}
+		a_Arr2DUint64_Bytes, err := sliceToBytes[uint64](eleTypeArr2DUint64, a.Arr2DUint64)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint64: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DUint64_Bytes)
+		binary.BigEndian.PutUint32(hdr[112:116], uint32(len(a_Arr2DUint64_Bytes)))
+		dynOff += len(a_Arr2DUint64_Bytes)
 	}
-	a_Arr2DUint64_Bytes, err := sliceToBytes[[][]uint64](eleTypeArr2DUint64, a.Arr2DUint64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint64: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DUint64_Bytes)
-	binary.BigEndian.PutUint32(hdr[112:116], uint32(len(a_Arr2DUint64_Bytes)))
-	dynOff += len(a_Arr2DUint64_Bytes)
 
-	var tmpArr2DUint8 [][]uint8
-	eleTypeArr2DUint8, err := getElementType(tmpArr2DUint8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint8: %v", err)
+	if len(a.Arr2DUint8) > 0 {
+		var zero uint8
+		eleTypeArr2DUint8, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint8: %v", err)
+		}
+		a_Arr2DUint8_Bytes, err := sliceToBytes[uint8](eleTypeArr2DUint8, a.Arr2DUint8)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr2DUint8: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr2DUint8_Bytes)
+		binary.BigEndian.PutUint32(hdr[116:120], uint32(len(a_Arr2DUint8_Bytes)))
+		dynOff += len(a_Arr2DUint8_Bytes)
 	}
-	a_Arr2DUint8_Bytes, err := sliceToBytes[[][]uint8](eleTypeArr2DUint8, a.Arr2DUint8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr2DUint8: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr2DUint8_Bytes)
-	binary.BigEndian.PutUint32(hdr[116:120], uint32(len(a_Arr2DUint8_Bytes)))
-	dynOff += len(a_Arr2DUint8_Bytes)
 
-	var tmpArr3DBool [][][]bool
-	eleTypeArr3DBool, err := getElementType(tmpArr3DBool)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DBool: %v", err)
+	if len(a.Arr3DBool) > 0 {
+		var zero bool
+		eleTypeArr3DBool, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DBool: %v", err)
+		}
+		a_Arr3DBool_Bytes, err := sliceToBytes[bool](eleTypeArr3DBool, a.Arr3DBool)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DBool: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DBool_Bytes)
+		binary.BigEndian.PutUint32(hdr[120:124], uint32(len(a_Arr3DBool_Bytes)))
+		dynOff += len(a_Arr3DBool_Bytes)
 	}
-	a_Arr3DBool_Bytes, err := sliceToBytes[[][][]bool](eleTypeArr3DBool, a.Arr3DBool)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DBool: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DBool_Bytes)
-	binary.BigEndian.PutUint32(hdr[120:124], uint32(len(a_Arr3DBool_Bytes)))
-	dynOff += len(a_Arr3DBool_Bytes)
 
-	var tmpArr3DBytes [][][][]byte
-	eleTypeArr3DBytes, err := getElementType(tmpArr3DBytes)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DBytes: %v", err)
+	if len(a.Arr3DBytes) > 0 {
+		var zero []byte
+		eleTypeArr3DBytes, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DBytes: %v", err)
+		}
+		a_Arr3DBytes_Bytes, err := sliceToBytes[[]byte](eleTypeArr3DBytes, a.Arr3DBytes)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DBytes: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DBytes_Bytes)
+		binary.BigEndian.PutUint32(hdr[124:128], uint32(len(a_Arr3DBytes_Bytes)))
+		dynOff += len(a_Arr3DBytes_Bytes)
 	}
-	a_Arr3DBytes_Bytes, err := sliceToBytes[[][][][]byte](eleTypeArr3DBytes, a.Arr3DBytes)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DBytes: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DBytes_Bytes)
-	binary.BigEndian.PutUint32(hdr[124:128], uint32(len(a_Arr3DBytes_Bytes)))
-	dynOff += len(a_Arr3DBytes_Bytes)
 
-	var tmpArr3DDouble [][][]float64
-	eleTypeArr3DDouble, err := getElementType(tmpArr3DDouble)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DDouble: %v", err)
+	if len(a.Arr3DDouble) > 0 {
+		var zero float64
+		eleTypeArr3DDouble, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DDouble: %v", err)
+		}
+		a_Arr3DDouble_Bytes, err := sliceToBytes[float64](eleTypeArr3DDouble, a.Arr3DDouble)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DDouble: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DDouble_Bytes)
+		binary.BigEndian.PutUint32(hdr[128:132], uint32(len(a_Arr3DDouble_Bytes)))
+		dynOff += len(a_Arr3DDouble_Bytes)
 	}
-	a_Arr3DDouble_Bytes, err := sliceToBytes[[][][]float64](eleTypeArr3DDouble, a.Arr3DDouble)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DDouble: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DDouble_Bytes)
-	binary.BigEndian.PutUint32(hdr[128:132], uint32(len(a_Arr3DDouble_Bytes)))
-	dynOff += len(a_Arr3DDouble_Bytes)
 
-	var tmpArr3DFloat [][][]float32
-	eleTypeArr3DFloat, err := getElementType(tmpArr3DFloat)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DFloat: %v", err)
+	if len(a.Arr3DFloat) > 0 {
+		var zero float32
+		eleTypeArr3DFloat, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DFloat: %v", err)
+		}
+		a_Arr3DFloat_Bytes, err := sliceToBytes[float32](eleTypeArr3DFloat, a.Arr3DFloat)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DFloat: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DFloat_Bytes)
+		binary.BigEndian.PutUint32(hdr[132:136], uint32(len(a_Arr3DFloat_Bytes)))
+		dynOff += len(a_Arr3DFloat_Bytes)
 	}
-	a_Arr3DFloat_Bytes, err := sliceToBytes[[][][]float32](eleTypeArr3DFloat, a.Arr3DFloat)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DFloat: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DFloat_Bytes)
-	binary.BigEndian.PutUint32(hdr[132:136], uint32(len(a_Arr3DFloat_Bytes)))
-	dynOff += len(a_Arr3DFloat_Bytes)
 
-	var tmpArr3DInt16 [][][]int16
-	eleTypeArr3DInt16, err := getElementType(tmpArr3DInt16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt16: %v", err)
+	if len(a.Arr3DInt16) > 0 {
+		var zero int16
+		eleTypeArr3DInt16, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt16: %v", err)
+		}
+		a_Arr3DInt16_Bytes, err := sliceToBytes[int16](eleTypeArr3DInt16, a.Arr3DInt16)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt16: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DInt16_Bytes)
+		binary.BigEndian.PutUint32(hdr[136:140], uint32(len(a_Arr3DInt16_Bytes)))
+		dynOff += len(a_Arr3DInt16_Bytes)
 	}
-	a_Arr3DInt16_Bytes, err := sliceToBytes[[][][]int16](eleTypeArr3DInt16, a.Arr3DInt16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt16: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DInt16_Bytes)
-	binary.BigEndian.PutUint32(hdr[136:140], uint32(len(a_Arr3DInt16_Bytes)))
-	dynOff += len(a_Arr3DInt16_Bytes)
 
-	var tmpArr3DInt32 [][][]int32
-	eleTypeArr3DInt32, err := getElementType(tmpArr3DInt32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt32: %v", err)
+	if len(a.Arr3DInt32) > 0 {
+		var zero int32
+		eleTypeArr3DInt32, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt32: %v", err)
+		}
+		a_Arr3DInt32_Bytes, err := sliceToBytes[int32](eleTypeArr3DInt32, a.Arr3DInt32)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt32: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DInt32_Bytes)
+		binary.BigEndian.PutUint32(hdr[140:144], uint32(len(a_Arr3DInt32_Bytes)))
+		dynOff += len(a_Arr3DInt32_Bytes)
 	}
-	a_Arr3DInt32_Bytes, err := sliceToBytes[[][][]int32](eleTypeArr3DInt32, a.Arr3DInt32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt32: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DInt32_Bytes)
-	binary.BigEndian.PutUint32(hdr[140:144], uint32(len(a_Arr3DInt32_Bytes)))
-	dynOff += len(a_Arr3DInt32_Bytes)
 
-	var tmpArr3DInt64 [][][]int64
-	eleTypeArr3DInt64, err := getElementType(tmpArr3DInt64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt64: %v", err)
+	if len(a.Arr3DInt64) > 0 {
+		var zero int64
+		eleTypeArr3DInt64, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt64: %v", err)
+		}
+		a_Arr3DInt64_Bytes, err := sliceToBytes[int64](eleTypeArr3DInt64, a.Arr3DInt64)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt64: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DInt64_Bytes)
+		binary.BigEndian.PutUint32(hdr[144:148], uint32(len(a_Arr3DInt64_Bytes)))
+		dynOff += len(a_Arr3DInt64_Bytes)
 	}
-	a_Arr3DInt64_Bytes, err := sliceToBytes[[][][]int64](eleTypeArr3DInt64, a.Arr3DInt64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt64: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DInt64_Bytes)
-	binary.BigEndian.PutUint32(hdr[144:148], uint32(len(a_Arr3DInt64_Bytes)))
-	dynOff += len(a_Arr3DInt64_Bytes)
 
-	var tmpArr3DInt8 [][][]int8
-	eleTypeArr3DInt8, err := getElementType(tmpArr3DInt8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt8: %v", err)
+	if len(a.Arr3DInt8) > 0 {
+		var zero int8
+		eleTypeArr3DInt8, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt8: %v", err)
+		}
+		a_Arr3DInt8_Bytes, err := sliceToBytes[int8](eleTypeArr3DInt8, a.Arr3DInt8)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DInt8: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DInt8_Bytes)
+		binary.BigEndian.PutUint32(hdr[148:152], uint32(len(a_Arr3DInt8_Bytes)))
+		dynOff += len(a_Arr3DInt8_Bytes)
 	}
-	a_Arr3DInt8_Bytes, err := sliceToBytes[[][][]int8](eleTypeArr3DInt8, a.Arr3DInt8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DInt8: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DInt8_Bytes)
-	binary.BigEndian.PutUint32(hdr[148:152], uint32(len(a_Arr3DInt8_Bytes)))
-	dynOff += len(a_Arr3DInt8_Bytes)
 
-	var tmpArr3DNested [][][]*OnlyVariableTypesMsg
-	eleTypeArr3DNested, err := getElementType(tmpArr3DNested)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DNested: %v", err)
+	if len(a.Arr3DNested) > 0 {
+		var zero *OnlyVariableTypesMsg
+		eleTypeArr3DNested, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DNested: %v", err)
+		}
+		a_Arr3DNested_Bytes, err := sliceToBytes[*OnlyVariableTypesMsg](eleTypeArr3DNested, a.Arr3DNested)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DNested: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DNested_Bytes)
+		binary.BigEndian.PutUint32(hdr[152:156], uint32(len(a_Arr3DNested_Bytes)))
+		dynOff += len(a_Arr3DNested_Bytes)
 	}
-	a_Arr3DNested_Bytes, err := sliceToBytes[[][][]*OnlyVariableTypesMsg](eleTypeArr3DNested, a.Arr3DNested)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DNested: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DNested_Bytes)
-	binary.BigEndian.PutUint32(hdr[152:156], uint32(len(a_Arr3DNested_Bytes)))
-	dynOff += len(a_Arr3DNested_Bytes)
 
-	var tmpArr3DObject [][][]*OnlyScalarTypesMsg
-	eleTypeArr3DObject, err := getElementType(tmpArr3DObject)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DObject: %v", err)
+	if len(a.Arr3DObject) > 0 {
+		var zero *OnlyScalarTypesMsg
+		eleTypeArr3DObject, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DObject: %v", err)
+		}
+		a_Arr3DObject_Bytes, err := sliceToBytes[*OnlyScalarTypesMsg](eleTypeArr3DObject, a.Arr3DObject)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DObject: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DObject_Bytes)
+		binary.BigEndian.PutUint32(hdr[156:160], uint32(len(a_Arr3DObject_Bytes)))
+		dynOff += len(a_Arr3DObject_Bytes)
 	}
-	a_Arr3DObject_Bytes, err := sliceToBytes[[][][]*OnlyScalarTypesMsg](eleTypeArr3DObject, a.Arr3DObject)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DObject: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DObject_Bytes)
-	binary.BigEndian.PutUint32(hdr[156:160], uint32(len(a_Arr3DObject_Bytes)))
-	dynOff += len(a_Arr3DObject_Bytes)
 
-	var tmpArr3DString [][][]string
-	eleTypeArr3DString, err := getElementType(tmpArr3DString)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DString: %v", err)
+	if len(a.Arr3DString) > 0 {
+		var zero string
+		eleTypeArr3DString, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DString: %v", err)
+		}
+		a_Arr3DString_Bytes, err := sliceToBytes[string](eleTypeArr3DString, a.Arr3DString)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DString: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DString_Bytes)
+		binary.BigEndian.PutUint32(hdr[160:164], uint32(len(a_Arr3DString_Bytes)))
+		dynOff += len(a_Arr3DString_Bytes)
 	}
-	a_Arr3DString_Bytes, err := sliceToBytes[[][][]string](eleTypeArr3DString, a.Arr3DString)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DString: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DString_Bytes)
-	binary.BigEndian.PutUint32(hdr[160:164], uint32(len(a_Arr3DString_Bytes)))
-	dynOff += len(a_Arr3DString_Bytes)
 
-	var tmpArr3DUint16 [][][]uint16
-	eleTypeArr3DUint16, err := getElementType(tmpArr3DUint16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint16: %v", err)
+	if len(a.Arr3DUint16) > 0 {
+		var zero uint16
+		eleTypeArr3DUint16, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint16: %v", err)
+		}
+		a_Arr3DUint16_Bytes, err := sliceToBytes[uint16](eleTypeArr3DUint16, a.Arr3DUint16)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint16: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DUint16_Bytes)
+		binary.BigEndian.PutUint32(hdr[164:168], uint32(len(a_Arr3DUint16_Bytes)))
+		dynOff += len(a_Arr3DUint16_Bytes)
 	}
-	a_Arr3DUint16_Bytes, err := sliceToBytes[[][][]uint16](eleTypeArr3DUint16, a.Arr3DUint16)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint16: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DUint16_Bytes)
-	binary.BigEndian.PutUint32(hdr[164:168], uint32(len(a_Arr3DUint16_Bytes)))
-	dynOff += len(a_Arr3DUint16_Bytes)
 
-	var tmpArr3DUint32 [][][]uint32
-	eleTypeArr3DUint32, err := getElementType(tmpArr3DUint32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint32: %v", err)
+	if len(a.Arr3DUint32) > 0 {
+		var zero uint32
+		eleTypeArr3DUint32, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint32: %v", err)
+		}
+		a_Arr3DUint32_Bytes, err := sliceToBytes[uint32](eleTypeArr3DUint32, a.Arr3DUint32)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint32: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DUint32_Bytes)
+		binary.BigEndian.PutUint32(hdr[168:172], uint32(len(a_Arr3DUint32_Bytes)))
+		dynOff += len(a_Arr3DUint32_Bytes)
 	}
-	a_Arr3DUint32_Bytes, err := sliceToBytes[[][][]uint32](eleTypeArr3DUint32, a.Arr3DUint32)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint32: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DUint32_Bytes)
-	binary.BigEndian.PutUint32(hdr[168:172], uint32(len(a_Arr3DUint32_Bytes)))
-	dynOff += len(a_Arr3DUint32_Bytes)
 
-	var tmpArr3DUint64 [][][]uint64
-	eleTypeArr3DUint64, err := getElementType(tmpArr3DUint64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint64: %v", err)
+	if len(a.Arr3DUint64) > 0 {
+		var zero uint64
+		eleTypeArr3DUint64, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint64: %v", err)
+		}
+		a_Arr3DUint64_Bytes, err := sliceToBytes[uint64](eleTypeArr3DUint64, a.Arr3DUint64)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint64: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DUint64_Bytes)
+		binary.BigEndian.PutUint32(hdr[172:176], uint32(len(a_Arr3DUint64_Bytes)))
+		dynOff += len(a_Arr3DUint64_Bytes)
 	}
-	a_Arr3DUint64_Bytes, err := sliceToBytes[[][][]uint64](eleTypeArr3DUint64, a.Arr3DUint64)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint64: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DUint64_Bytes)
-	binary.BigEndian.PutUint32(hdr[172:176], uint32(len(a_Arr3DUint64_Bytes)))
-	dynOff += len(a_Arr3DUint64_Bytes)
 
-	var tmpArr3DUint8 [][][]uint8
-	eleTypeArr3DUint8, err := getElementType(tmpArr3DUint8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint8: %v", err)
+	if len(a.Arr3DUint8) > 0 {
+		var zero uint8
+		eleTypeArr3DUint8, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint8: %v", err)
+		}
+		a_Arr3DUint8_Bytes, err := sliceToBytes[uint8](eleTypeArr3DUint8, a.Arr3DUint8)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal AllTypesOfArraysMsg.Arr3DUint8: %v", err)
+		}
+		copy(buf[dynOff:], a_Arr3DUint8_Bytes)
+		binary.BigEndian.PutUint32(hdr[176:180], uint32(len(a_Arr3DUint8_Bytes)))
+		dynOff += len(a_Arr3DUint8_Bytes)
 	}
-	a_Arr3DUint8_Bytes, err := sliceToBytes[[][][]uint8](eleTypeArr3DUint8, a.Arr3DUint8)
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal allTypesOfArraysMsg.Arr3DUint8: %v", err)
-	}
-	copy(buf[dynOff:], a_Arr3DUint8_Bytes)
-	binary.BigEndian.PutUint32(hdr[176:180], uint32(len(a_Arr3DUint8_Bytes)))
-	dynOff += len(a_Arr3DUint8_Bytes)
 
 	_ = dynOff
 	return buf, nil
 }
 
-// Unmarshal deserializes a allTypesOfArraysMsg from the wire after the 8-byte frame
+// Unmarshal deserializes a AllTypesOfArraysMsg from the wire after the 8-byte frame
 // header has already been consumed. The caller provides fixedPayloadSize (read
 // from the frame) and overallPayloadSize so forward-compatible readers can skip
 // unknown trailing bytes in the fixed header if a newer sender adds fields.
@@ -2026,1411 +2578,1637 @@ func (a *allTypesOfArraysMsg) Marshal() ([]byte, error) {
 // All variable-length fields are validated against MaxAllowedPacket before
 // allocation, and io.ReadFull is used to guarantee complete reads even on
 // streaming sockets that may deliver partial data.
-func (a *allTypesOfArraysMsg) Unmarshal(reader io.Reader,
-	fixedPayloadSize uint16, _ uint32) error {
-	if int(fixedPayloadSize) < allTypesOfArraysMsgFixedSize {
-		return fmt.Errorf("allTypesOfArraysMsg fixed payload size too short: got %d, need %d", fixedPayloadSize, allTypesOfArraysMsgFixedSize)
+func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
+	overallPayloadSize uint32) error {
+	if int(fixedPayloadSize) < AllTypesOfArraysMsgFixedSize || int(overallPayloadSize) > MaxAllowedPacket {
+		return fmt.Errorf("wireforge: AllTypesOfArraysMsg payload size mismatch: fixed %d, overall %d",
+			fixedPayloadSize, overallPayloadSize)
 	}
 
 	hdr := make([]byte, fixedPayloadSize)
 	if _, err := io.ReadFull(reader, hdr); err != nil {
-		return fmt.Errorf("reading allTypesOfArraysMsg fixed payload: %w", err)
+		return fmt.Errorf("reading AllTypesOfArraysMsg fixed payload: %w", err)
 	}
 
 	a_Arr1DBool_len := binary.BigEndian.Uint32(hdr[0:4])
 	if a_Arr1DBool_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DBool length %d exceeds MaxAllowedPacket", a_Arr1DBool_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DBool length %d exceeds MaxAllowedPacket", a_Arr1DBool_len)
 	}
 	a_Arr1DBytes_len := binary.BigEndian.Uint32(hdr[4:8])
 	if a_Arr1DBytes_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DBytes length %d exceeds MaxAllowedPacket", a_Arr1DBytes_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DBytes length %d exceeds MaxAllowedPacket", a_Arr1DBytes_len)
 	}
 	a_Arr1DDouble_len := binary.BigEndian.Uint32(hdr[8:12])
 	if a_Arr1DDouble_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DDouble length %d exceeds MaxAllowedPacket", a_Arr1DDouble_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DDouble length %d exceeds MaxAllowedPacket", a_Arr1DDouble_len)
 	}
 	a_Arr1DFloat_len := binary.BigEndian.Uint32(hdr[12:16])
 	if a_Arr1DFloat_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DFloat length %d exceeds MaxAllowedPacket", a_Arr1DFloat_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DFloat length %d exceeds MaxAllowedPacket", a_Arr1DFloat_len)
 	}
 	a_Arr1DInt16_len := binary.BigEndian.Uint32(hdr[16:20])
 	if a_Arr1DInt16_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DInt16 length %d exceeds MaxAllowedPacket", a_Arr1DInt16_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DInt16 length %d exceeds MaxAllowedPacket", a_Arr1DInt16_len)
 	}
 	a_Arr1DInt32_len := binary.BigEndian.Uint32(hdr[20:24])
 	if a_Arr1DInt32_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DInt32 length %d exceeds MaxAllowedPacket", a_Arr1DInt32_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DInt32 length %d exceeds MaxAllowedPacket", a_Arr1DInt32_len)
 	}
 	a_Arr1DInt64_len := binary.BigEndian.Uint32(hdr[24:28])
 	if a_Arr1DInt64_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DInt64 length %d exceeds MaxAllowedPacket", a_Arr1DInt64_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DInt64 length %d exceeds MaxAllowedPacket", a_Arr1DInt64_len)
 	}
 	a_Arr1DInt8_len := binary.BigEndian.Uint32(hdr[28:32])
 	if a_Arr1DInt8_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DInt8 length %d exceeds MaxAllowedPacket", a_Arr1DInt8_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DInt8 length %d exceeds MaxAllowedPacket", a_Arr1DInt8_len)
 	}
 	a_Arr1DNested_len := binary.BigEndian.Uint32(hdr[32:36])
 	if a_Arr1DNested_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DNested length %d exceeds MaxAllowedPacket", a_Arr1DNested_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DNested length %d exceeds MaxAllowedPacket", a_Arr1DNested_len)
 	}
 	a_Arr1DObject_len := binary.BigEndian.Uint32(hdr[36:40])
 	if a_Arr1DObject_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DObject length %d exceeds MaxAllowedPacket", a_Arr1DObject_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DObject length %d exceeds MaxAllowedPacket", a_Arr1DObject_len)
 	}
 	a_Arr1DString_len := binary.BigEndian.Uint32(hdr[40:44])
 	if a_Arr1DString_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DString length %d exceeds MaxAllowedPacket", a_Arr1DString_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DString length %d exceeds MaxAllowedPacket", a_Arr1DString_len)
 	}
 	a_Arr1DUint16_len := binary.BigEndian.Uint32(hdr[44:48])
 	if a_Arr1DUint16_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DUint16 length %d exceeds MaxAllowedPacket", a_Arr1DUint16_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DUint16 length %d exceeds MaxAllowedPacket", a_Arr1DUint16_len)
 	}
 	a_Arr1DUint32_len := binary.BigEndian.Uint32(hdr[48:52])
 	if a_Arr1DUint32_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DUint32 length %d exceeds MaxAllowedPacket", a_Arr1DUint32_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DUint32 length %d exceeds MaxAllowedPacket", a_Arr1DUint32_len)
 	}
 	a_Arr1DUint64_len := binary.BigEndian.Uint32(hdr[52:56])
 	if a_Arr1DUint64_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DUint64 length %d exceeds MaxAllowedPacket", a_Arr1DUint64_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DUint64 length %d exceeds MaxAllowedPacket", a_Arr1DUint64_len)
 	}
 	a_Arr1DUint8_len := binary.BigEndian.Uint32(hdr[56:60])
 	if a_Arr1DUint8_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr1DUint8 length %d exceeds MaxAllowedPacket", a_Arr1DUint8_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr1DUint8 length %d exceeds MaxAllowedPacket", a_Arr1DUint8_len)
 	}
 	a_Arr2DBool_len := binary.BigEndian.Uint32(hdr[60:64])
 	if a_Arr2DBool_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DBool length %d exceeds MaxAllowedPacket", a_Arr2DBool_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DBool length %d exceeds MaxAllowedPacket", a_Arr2DBool_len)
 	}
 	a_Arr2DBytes_len := binary.BigEndian.Uint32(hdr[64:68])
 	if a_Arr2DBytes_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DBytes length %d exceeds MaxAllowedPacket", a_Arr2DBytes_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DBytes length %d exceeds MaxAllowedPacket", a_Arr2DBytes_len)
 	}
 	a_Arr2DDouble_len := binary.BigEndian.Uint32(hdr[68:72])
 	if a_Arr2DDouble_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DDouble length %d exceeds MaxAllowedPacket", a_Arr2DDouble_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DDouble length %d exceeds MaxAllowedPacket", a_Arr2DDouble_len)
 	}
 	a_Arr2DFloat_len := binary.BigEndian.Uint32(hdr[72:76])
 	if a_Arr2DFloat_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DFloat length %d exceeds MaxAllowedPacket", a_Arr2DFloat_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DFloat length %d exceeds MaxAllowedPacket", a_Arr2DFloat_len)
 	}
 	a_Arr2DInt16_len := binary.BigEndian.Uint32(hdr[76:80])
 	if a_Arr2DInt16_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DInt16 length %d exceeds MaxAllowedPacket", a_Arr2DInt16_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DInt16 length %d exceeds MaxAllowedPacket", a_Arr2DInt16_len)
 	}
 	a_Arr2DInt32_len := binary.BigEndian.Uint32(hdr[80:84])
 	if a_Arr2DInt32_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DInt32 length %d exceeds MaxAllowedPacket", a_Arr2DInt32_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DInt32 length %d exceeds MaxAllowedPacket", a_Arr2DInt32_len)
 	}
 	a_Arr2DInt64_len := binary.BigEndian.Uint32(hdr[84:88])
 	if a_Arr2DInt64_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DInt64 length %d exceeds MaxAllowedPacket", a_Arr2DInt64_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DInt64 length %d exceeds MaxAllowedPacket", a_Arr2DInt64_len)
 	}
 	a_Arr2DInt8_len := binary.BigEndian.Uint32(hdr[88:92])
 	if a_Arr2DInt8_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DInt8 length %d exceeds MaxAllowedPacket", a_Arr2DInt8_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DInt8 length %d exceeds MaxAllowedPacket", a_Arr2DInt8_len)
 	}
 	a_Arr2DNested_len := binary.BigEndian.Uint32(hdr[92:96])
 	if a_Arr2DNested_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DNested length %d exceeds MaxAllowedPacket", a_Arr2DNested_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DNested length %d exceeds MaxAllowedPacket", a_Arr2DNested_len)
 	}
 	a_Arr2DObject_len := binary.BigEndian.Uint32(hdr[96:100])
 	if a_Arr2DObject_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DObject length %d exceeds MaxAllowedPacket", a_Arr2DObject_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DObject length %d exceeds MaxAllowedPacket", a_Arr2DObject_len)
 	}
 	a_Arr2DString_len := binary.BigEndian.Uint32(hdr[100:104])
 	if a_Arr2DString_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DString length %d exceeds MaxAllowedPacket", a_Arr2DString_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DString length %d exceeds MaxAllowedPacket", a_Arr2DString_len)
 	}
 	a_Arr2DUint16_len := binary.BigEndian.Uint32(hdr[104:108])
 	if a_Arr2DUint16_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DUint16 length %d exceeds MaxAllowedPacket", a_Arr2DUint16_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DUint16 length %d exceeds MaxAllowedPacket", a_Arr2DUint16_len)
 	}
 	a_Arr2DUint32_len := binary.BigEndian.Uint32(hdr[108:112])
 	if a_Arr2DUint32_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DUint32 length %d exceeds MaxAllowedPacket", a_Arr2DUint32_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DUint32 length %d exceeds MaxAllowedPacket", a_Arr2DUint32_len)
 	}
 	a_Arr2DUint64_len := binary.BigEndian.Uint32(hdr[112:116])
 	if a_Arr2DUint64_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DUint64 length %d exceeds MaxAllowedPacket", a_Arr2DUint64_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DUint64 length %d exceeds MaxAllowedPacket", a_Arr2DUint64_len)
 	}
 	a_Arr2DUint8_len := binary.BigEndian.Uint32(hdr[116:120])
 	if a_Arr2DUint8_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr2DUint8 length %d exceeds MaxAllowedPacket", a_Arr2DUint8_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr2DUint8 length %d exceeds MaxAllowedPacket", a_Arr2DUint8_len)
 	}
 	a_Arr3DBool_len := binary.BigEndian.Uint32(hdr[120:124])
 	if a_Arr3DBool_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DBool length %d exceeds MaxAllowedPacket", a_Arr3DBool_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DBool length %d exceeds MaxAllowedPacket", a_Arr3DBool_len)
 	}
 	a_Arr3DBytes_len := binary.BigEndian.Uint32(hdr[124:128])
 	if a_Arr3DBytes_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DBytes length %d exceeds MaxAllowedPacket", a_Arr3DBytes_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DBytes length %d exceeds MaxAllowedPacket", a_Arr3DBytes_len)
 	}
 	a_Arr3DDouble_len := binary.BigEndian.Uint32(hdr[128:132])
 	if a_Arr3DDouble_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DDouble length %d exceeds MaxAllowedPacket", a_Arr3DDouble_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DDouble length %d exceeds MaxAllowedPacket", a_Arr3DDouble_len)
 	}
 	a_Arr3DFloat_len := binary.BigEndian.Uint32(hdr[132:136])
 	if a_Arr3DFloat_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DFloat length %d exceeds MaxAllowedPacket", a_Arr3DFloat_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DFloat length %d exceeds MaxAllowedPacket", a_Arr3DFloat_len)
 	}
 	a_Arr3DInt16_len := binary.BigEndian.Uint32(hdr[136:140])
 	if a_Arr3DInt16_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DInt16 length %d exceeds MaxAllowedPacket", a_Arr3DInt16_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DInt16 length %d exceeds MaxAllowedPacket", a_Arr3DInt16_len)
 	}
 	a_Arr3DInt32_len := binary.BigEndian.Uint32(hdr[140:144])
 	if a_Arr3DInt32_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DInt32 length %d exceeds MaxAllowedPacket", a_Arr3DInt32_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DInt32 length %d exceeds MaxAllowedPacket", a_Arr3DInt32_len)
 	}
 	a_Arr3DInt64_len := binary.BigEndian.Uint32(hdr[144:148])
 	if a_Arr3DInt64_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DInt64 length %d exceeds MaxAllowedPacket", a_Arr3DInt64_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DInt64 length %d exceeds MaxAllowedPacket", a_Arr3DInt64_len)
 	}
 	a_Arr3DInt8_len := binary.BigEndian.Uint32(hdr[148:152])
 	if a_Arr3DInt8_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DInt8 length %d exceeds MaxAllowedPacket", a_Arr3DInt8_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DInt8 length %d exceeds MaxAllowedPacket", a_Arr3DInt8_len)
 	}
 	a_Arr3DNested_len := binary.BigEndian.Uint32(hdr[152:156])
 	if a_Arr3DNested_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DNested length %d exceeds MaxAllowedPacket", a_Arr3DNested_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DNested length %d exceeds MaxAllowedPacket", a_Arr3DNested_len)
 	}
 	a_Arr3DObject_len := binary.BigEndian.Uint32(hdr[156:160])
 	if a_Arr3DObject_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DObject length %d exceeds MaxAllowedPacket", a_Arr3DObject_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DObject length %d exceeds MaxAllowedPacket", a_Arr3DObject_len)
 	}
 	a_Arr3DString_len := binary.BigEndian.Uint32(hdr[160:164])
 	if a_Arr3DString_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DString length %d exceeds MaxAllowedPacket", a_Arr3DString_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DString length %d exceeds MaxAllowedPacket", a_Arr3DString_len)
 	}
 	a_Arr3DUint16_len := binary.BigEndian.Uint32(hdr[164:168])
 	if a_Arr3DUint16_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DUint16 length %d exceeds MaxAllowedPacket", a_Arr3DUint16_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DUint16 length %d exceeds MaxAllowedPacket", a_Arr3DUint16_len)
 	}
 	a_Arr3DUint32_len := binary.BigEndian.Uint32(hdr[168:172])
 	if a_Arr3DUint32_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DUint32 length %d exceeds MaxAllowedPacket", a_Arr3DUint32_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DUint32 length %d exceeds MaxAllowedPacket", a_Arr3DUint32_len)
 	}
 	a_Arr3DUint64_len := binary.BigEndian.Uint32(hdr[172:176])
 	if a_Arr3DUint64_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DUint64 length %d exceeds MaxAllowedPacket", a_Arr3DUint64_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DUint64 length %d exceeds MaxAllowedPacket", a_Arr3DUint64_len)
 	}
 	a_Arr3DUint8_len := binary.BigEndian.Uint32(hdr[176:180])
 	if a_Arr3DUint8_len > MaxAllowedPacket {
-		return fmt.Errorf("allTypesOfArraysMsg.Arr3DUint8 length %d exceeds MaxAllowedPacket", a_Arr3DUint8_len)
+		return fmt.Errorf("AllTypesOfArraysMsg.Arr3DUint8 length %d exceeds MaxAllowedPacket", a_Arr3DUint8_len)
 	}
 
 	// Read dynamic payload: variable-length fields are appended sequentially
 	// after the fixed payload in the same order as their length prefixes above.
 
 	if a_Arr1DBool_len > 0 {
-		if a_Arr1DBool_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DBool length %d too short", a_Arr1DBool_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DBool type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DBool element type marker: %w", err)
+		if int(a_Arr1DBool_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBool length %d too short", a_Arr1DBool_len)
 		}
 
 		a_Arr1DBool_reader := io.LimitReader(reader, int64(a_Arr1DBool_len))
+		arrType, err := readUint16(a_Arr1DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DBool expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBool expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DBool_arr, err := readOneDimensionalSlice[bool](a_Arr1DBool_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DBool array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool array: %w", err)
 		}
 
 		a.Arr1DBool = a_Arr1DBool_arr
 	}
 
 	if a_Arr1DBytes_len > 0 {
-		if a_Arr1DBytes_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DBytes length %d too short", a_Arr1DBytes_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DBytes type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DBytes element type marker: %w", err)
+		if int(a_Arr1DBytes_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBytes length %d too short", a_Arr1DBytes_len)
 		}
 
 		a_Arr1DBytes_reader := io.LimitReader(reader, int64(a_Arr1DBytes_len))
+		arrType, err := readUint16(a_Arr1DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DBytes expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBytes expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DBytes_arr, err := readOneDimensionalSlice[[]byte](a_Arr1DBytes_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DBytes array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes array: %w", err)
 		}
 
 		a.Arr1DBytes = a_Arr1DBytes_arr
 	}
 
 	if a_Arr1DDouble_len > 0 {
-		if a_Arr1DDouble_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DDouble length %d too short", a_Arr1DDouble_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DDouble type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DDouble element type marker: %w", err)
+		if int(a_Arr1DDouble_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DDouble length %d too short", a_Arr1DDouble_len)
 		}
 
 		a_Arr1DDouble_reader := io.LimitReader(reader, int64(a_Arr1DDouble_len))
+		arrType, err := readUint16(a_Arr1DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DDouble expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DDouble expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DDouble_arr, err := readOneDimensionalSlice[float64](a_Arr1DDouble_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DDouble array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble array: %w", err)
 		}
 
 		a.Arr1DDouble = a_Arr1DDouble_arr
 	}
 
 	if a_Arr1DFloat_len > 0 {
-		if a_Arr1DFloat_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DFloat length %d too short", a_Arr1DFloat_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DFloat type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DFloat element type marker: %w", err)
+		if int(a_Arr1DFloat_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DFloat length %d too short", a_Arr1DFloat_len)
 		}
 
 		a_Arr1DFloat_reader := io.LimitReader(reader, int64(a_Arr1DFloat_len))
+		arrType, err := readUint16(a_Arr1DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DFloat expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DFloat expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DFloat_arr, err := readOneDimensionalSlice[float32](a_Arr1DFloat_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DFloat array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat array: %w", err)
 		}
 
 		a.Arr1DFloat = a_Arr1DFloat_arr
 	}
 
 	if a_Arr1DInt16_len > 0 {
-		if a_Arr1DInt16_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt16 length %d too short", a_Arr1DInt16_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt16 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt16 element type marker: %w", err)
+		if int(a_Arr1DInt16_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt16 length %d too short", a_Arr1DInt16_len)
 		}
 
 		a_Arr1DInt16_reader := io.LimitReader(reader, int64(a_Arr1DInt16_len))
+		arrType, err := readUint16(a_Arr1DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt16 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DInt16_arr, err := readOneDimensionalSlice[int16](a_Arr1DInt16_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt16 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 array: %w", err)
 		}
 
 		a.Arr1DInt16 = a_Arr1DInt16_arr
 	}
 
 	if a_Arr1DInt32_len > 0 {
-		if a_Arr1DInt32_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt32 length %d too short", a_Arr1DInt32_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt32 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt32 element type marker: %w", err)
+		if int(a_Arr1DInt32_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt32 length %d too short", a_Arr1DInt32_len)
 		}
 
 		a_Arr1DInt32_reader := io.LimitReader(reader, int64(a_Arr1DInt32_len))
+		arrType, err := readUint16(a_Arr1DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt32 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DInt32_arr, err := readOneDimensionalSlice[int32](a_Arr1DInt32_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt32 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 array: %w", err)
 		}
 
 		a.Arr1DInt32 = a_Arr1DInt32_arr
 	}
 
 	if a_Arr1DInt64_len > 0 {
-		if a_Arr1DInt64_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt64 length %d too short", a_Arr1DInt64_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt64 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt64 element type marker: %w", err)
+		if int(a_Arr1DInt64_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt64 length %d too short", a_Arr1DInt64_len)
 		}
 
 		a_Arr1DInt64_reader := io.LimitReader(reader, int64(a_Arr1DInt64_len))
+		arrType, err := readUint16(a_Arr1DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt64 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DInt64_arr, err := readOneDimensionalSlice[int64](a_Arr1DInt64_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt64 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 array: %w", err)
 		}
 
 		a.Arr1DInt64 = a_Arr1DInt64_arr
 	}
 
 	if a_Arr1DInt8_len > 0 {
-		if a_Arr1DInt8_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt8 length %d too short", a_Arr1DInt8_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt8 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt8 element type marker: %w", err)
+		if int(a_Arr1DInt8_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt8 length %d too short", a_Arr1DInt8_len)
 		}
 
 		a_Arr1DInt8_reader := io.LimitReader(reader, int64(a_Arr1DInt8_len))
+		arrType, err := readUint16(a_Arr1DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DInt8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt8 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DInt8_arr, err := readOneDimensionalSlice[int8](a_Arr1DInt8_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DInt8 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 array: %w", err)
 		}
 
 		a.Arr1DInt8 = a_Arr1DInt8_arr
 	}
 
 	if a_Arr1DNested_len > 0 {
-		if a_Arr1DNested_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DNested length %d too short", a_Arr1DNested_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DNested type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DNested element type marker: %w", err)
+		if int(a_Arr1DNested_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DNested length %d too short", a_Arr1DNested_len)
 		}
 
 		a_Arr1DNested_reader := io.LimitReader(reader, int64(a_Arr1DNested_len))
+		arrType, err := readUint16(a_Arr1DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DNested expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DNested expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DNested_arr, err := readOneDimensionalSlice[*OnlyVariableTypesMsg](a_Arr1DNested_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DNested array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested array: %w", err)
 		}
 
 		a.Arr1DNested = a_Arr1DNested_arr
 	}
 
 	if a_Arr1DObject_len > 0 {
-		if a_Arr1DObject_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DObject length %d too short", a_Arr1DObject_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DObject type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DObject element type marker: %w", err)
+		if int(a_Arr1DObject_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DObject length %d too short", a_Arr1DObject_len)
 		}
 
 		a_Arr1DObject_reader := io.LimitReader(reader, int64(a_Arr1DObject_len))
+		arrType, err := readUint16(a_Arr1DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DObject expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DObject expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DObject_arr, err := readOneDimensionalSlice[*OnlyScalarTypesMsg](a_Arr1DObject_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DObject array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject array: %w", err)
 		}
 
 		a.Arr1DObject = a_Arr1DObject_arr
 	}
 
 	if a_Arr1DString_len > 0 {
-		if a_Arr1DString_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DString length %d too short", a_Arr1DString_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DString type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DString element type marker: %w", err)
+		if int(a_Arr1DString_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DString length %d too short", a_Arr1DString_len)
 		}
 
 		a_Arr1DString_reader := io.LimitReader(reader, int64(a_Arr1DString_len))
+		arrType, err := readUint16(a_Arr1DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DString expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DString expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DString_arr, err := readOneDimensionalSlice[string](a_Arr1DString_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DString array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString array: %w", err)
 		}
 
 		a.Arr1DString = a_Arr1DString_arr
 	}
 
 	if a_Arr1DUint16_len > 0 {
-		if a_Arr1DUint16_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint16 length %d too short", a_Arr1DUint16_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint16 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint16 element type marker: %w", err)
+		if int(a_Arr1DUint16_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint16 length %d too short", a_Arr1DUint16_len)
 		}
 
 		a_Arr1DUint16_reader := io.LimitReader(reader, int64(a_Arr1DUint16_len))
+		arrType, err := readUint16(a_Arr1DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint16 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DUint16_arr, err := readOneDimensionalSlice[uint16](a_Arr1DUint16_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint16 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 array: %w", err)
 		}
 
 		a.Arr1DUint16 = a_Arr1DUint16_arr
 	}
 
 	if a_Arr1DUint32_len > 0 {
-		if a_Arr1DUint32_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint32 length %d too short", a_Arr1DUint32_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint32 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint32 element type marker: %w", err)
+		if int(a_Arr1DUint32_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint32 length %d too short", a_Arr1DUint32_len)
 		}
 
 		a_Arr1DUint32_reader := io.LimitReader(reader, int64(a_Arr1DUint32_len))
+		arrType, err := readUint16(a_Arr1DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint32 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DUint32_arr, err := readOneDimensionalSlice[uint32](a_Arr1DUint32_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint32 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 array: %w", err)
 		}
 
 		a.Arr1DUint32 = a_Arr1DUint32_arr
 	}
 
 	if a_Arr1DUint64_len > 0 {
-		if a_Arr1DUint64_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint64 length %d too short", a_Arr1DUint64_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint64 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint64 element type marker: %w", err)
+		if int(a_Arr1DUint64_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint64 length %d too short", a_Arr1DUint64_len)
 		}
 
 		a_Arr1DUint64_reader := io.LimitReader(reader, int64(a_Arr1DUint64_len))
+		arrType, err := readUint16(a_Arr1DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint64 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DUint64_arr, err := readOneDimensionalSlice[uint64](a_Arr1DUint64_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint64 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 array: %w", err)
 		}
 
 		a.Arr1DUint64 = a_Arr1DUint64_arr
 	}
 
 	if a_Arr1DUint8_len > 0 {
-		if a_Arr1DUint8_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint8 length %d too short", a_Arr1DUint8_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint8 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint8 element type marker: %w", err)
+		if int(a_Arr1DUint8_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint8 length %d too short", a_Arr1DUint8_len)
 		}
 
 		a_Arr1DUint8_reader := io.LimitReader(reader, int64(a_Arr1DUint8_len))
+		arrType, err := readUint16(a_Arr1DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr1DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr1DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 overall items count: %w", err)
+		}
 		if arrType != TagArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr1DUint8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint8 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr1DUint8_arr, err := readOneDimensionalSlice[uint8](a_Arr1DUint8_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr1DUint8 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 array: %w", err)
 		}
 
 		a.Arr1DUint8 = a_Arr1DUint8_arr
 	}
 
 	if a_Arr2DBool_len > 0 {
-		if a_Arr2DBool_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DBool length %d too short", a_Arr2DBool_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DBool type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DBool element type marker: %w", err)
+		if int(a_Arr2DBool_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBool length %d too short", a_Arr2DBool_len)
 		}
 
 		a_Arr2DBool_reader := io.LimitReader(reader, int64(a_Arr2DBool_len))
+		arrType, err := readUint16(a_Arr2DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DBool expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBool expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DBool_arr, err := readTwoDimensionalSlice[bool](a_Arr2DBool_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DBool array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool array: %w", err)
 		}
 
 		a.Arr2DBool = a_Arr2DBool_arr
 	}
 
 	if a_Arr2DBytes_len > 0 {
-		if a_Arr2DBytes_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DBytes length %d too short", a_Arr2DBytes_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DBytes type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DBytes element type marker: %w", err)
+		if int(a_Arr2DBytes_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBytes length %d too short", a_Arr2DBytes_len)
 		}
 
 		a_Arr2DBytes_reader := io.LimitReader(reader, int64(a_Arr2DBytes_len))
+		arrType, err := readUint16(a_Arr2DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DBytes expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBytes expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DBytes_arr, err := readTwoDimensionalSlice[[]byte](a_Arr2DBytes_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DBytes array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes array: %w", err)
 		}
 
 		a.Arr2DBytes = a_Arr2DBytes_arr
 	}
 
 	if a_Arr2DDouble_len > 0 {
-		if a_Arr2DDouble_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DDouble length %d too short", a_Arr2DDouble_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DDouble type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DDouble element type marker: %w", err)
+		if int(a_Arr2DDouble_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DDouble length %d too short", a_Arr2DDouble_len)
 		}
 
 		a_Arr2DDouble_reader := io.LimitReader(reader, int64(a_Arr2DDouble_len))
+		arrType, err := readUint16(a_Arr2DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DDouble expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DDouble expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DDouble_arr, err := readTwoDimensionalSlice[float64](a_Arr2DDouble_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DDouble array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble array: %w", err)
 		}
 
 		a.Arr2DDouble = a_Arr2DDouble_arr
 	}
 
 	if a_Arr2DFloat_len > 0 {
-		if a_Arr2DFloat_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DFloat length %d too short", a_Arr2DFloat_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DFloat type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DFloat element type marker: %w", err)
+		if int(a_Arr2DFloat_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DFloat length %d too short", a_Arr2DFloat_len)
 		}
 
 		a_Arr2DFloat_reader := io.LimitReader(reader, int64(a_Arr2DFloat_len))
+		arrType, err := readUint16(a_Arr2DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DFloat expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DFloat expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DFloat_arr, err := readTwoDimensionalSlice[float32](a_Arr2DFloat_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DFloat array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat array: %w", err)
 		}
 
 		a.Arr2DFloat = a_Arr2DFloat_arr
 	}
 
 	if a_Arr2DInt16_len > 0 {
-		if a_Arr2DInt16_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt16 length %d too short", a_Arr2DInt16_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt16 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt16 element type marker: %w", err)
+		if int(a_Arr2DInt16_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt16 length %d too short", a_Arr2DInt16_len)
 		}
 
 		a_Arr2DInt16_reader := io.LimitReader(reader, int64(a_Arr2DInt16_len))
+		arrType, err := readUint16(a_Arr2DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt16 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DInt16_arr, err := readTwoDimensionalSlice[int16](a_Arr2DInt16_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt16 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 array: %w", err)
 		}
 
 		a.Arr2DInt16 = a_Arr2DInt16_arr
 	}
 
 	if a_Arr2DInt32_len > 0 {
-		if a_Arr2DInt32_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt32 length %d too short", a_Arr2DInt32_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt32 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt32 element type marker: %w", err)
+		if int(a_Arr2DInt32_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt32 length %d too short", a_Arr2DInt32_len)
 		}
 
 		a_Arr2DInt32_reader := io.LimitReader(reader, int64(a_Arr2DInt32_len))
+		arrType, err := readUint16(a_Arr2DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt32 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DInt32_arr, err := readTwoDimensionalSlice[int32](a_Arr2DInt32_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt32 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 array: %w", err)
 		}
 
 		a.Arr2DInt32 = a_Arr2DInt32_arr
 	}
 
 	if a_Arr2DInt64_len > 0 {
-		if a_Arr2DInt64_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt64 length %d too short", a_Arr2DInt64_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt64 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt64 element type marker: %w", err)
+		if int(a_Arr2DInt64_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt64 length %d too short", a_Arr2DInt64_len)
 		}
 
 		a_Arr2DInt64_reader := io.LimitReader(reader, int64(a_Arr2DInt64_len))
+		arrType, err := readUint16(a_Arr2DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt64 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DInt64_arr, err := readTwoDimensionalSlice[int64](a_Arr2DInt64_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt64 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 array: %w", err)
 		}
 
 		a.Arr2DInt64 = a_Arr2DInt64_arr
 	}
 
 	if a_Arr2DInt8_len > 0 {
-		if a_Arr2DInt8_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt8 length %d too short", a_Arr2DInt8_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt8 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt8 element type marker: %w", err)
+		if int(a_Arr2DInt8_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt8 length %d too short", a_Arr2DInt8_len)
 		}
 
 		a_Arr2DInt8_reader := io.LimitReader(reader, int64(a_Arr2DInt8_len))
+		arrType, err := readUint16(a_Arr2DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DInt8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt8 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DInt8_arr, err := readTwoDimensionalSlice[int8](a_Arr2DInt8_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DInt8 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 array: %w", err)
 		}
 
 		a.Arr2DInt8 = a_Arr2DInt8_arr
 	}
 
 	if a_Arr2DNested_len > 0 {
-		if a_Arr2DNested_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DNested length %d too short", a_Arr2DNested_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DNested type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DNested element type marker: %w", err)
+		if int(a_Arr2DNested_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DNested length %d too short", a_Arr2DNested_len)
 		}
 
 		a_Arr2DNested_reader := io.LimitReader(reader, int64(a_Arr2DNested_len))
+		arrType, err := readUint16(a_Arr2DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DNested expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DNested expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DNested_arr, err := readTwoDimensionalSlice[*OnlyVariableTypesMsg](a_Arr2DNested_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DNested array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested array: %w", err)
 		}
 
 		a.Arr2DNested = a_Arr2DNested_arr
 	}
 
 	if a_Arr2DObject_len > 0 {
-		if a_Arr2DObject_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DObject length %d too short", a_Arr2DObject_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DObject type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DObject element type marker: %w", err)
+		if int(a_Arr2DObject_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DObject length %d too short", a_Arr2DObject_len)
 		}
 
 		a_Arr2DObject_reader := io.LimitReader(reader, int64(a_Arr2DObject_len))
+		arrType, err := readUint16(a_Arr2DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DObject expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DObject expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DObject_arr, err := readTwoDimensionalSlice[*OnlyScalarTypesMsg](a_Arr2DObject_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DObject array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject array: %w", err)
 		}
 
 		a.Arr2DObject = a_Arr2DObject_arr
 	}
 
 	if a_Arr2DString_len > 0 {
-		if a_Arr2DString_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DString length %d too short", a_Arr2DString_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DString type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DString element type marker: %w", err)
+		if int(a_Arr2DString_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DString length %d too short", a_Arr2DString_len)
 		}
 
 		a_Arr2DString_reader := io.LimitReader(reader, int64(a_Arr2DString_len))
+		arrType, err := readUint16(a_Arr2DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DString expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DString expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DString_arr, err := readTwoDimensionalSlice[string](a_Arr2DString_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DString array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString array: %w", err)
 		}
 
 		a.Arr2DString = a_Arr2DString_arr
 	}
 
 	if a_Arr2DUint16_len > 0 {
-		if a_Arr2DUint16_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint16 length %d too short", a_Arr2DUint16_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint16 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint16 element type marker: %w", err)
+		if int(a_Arr2DUint16_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint16 length %d too short", a_Arr2DUint16_len)
 		}
 
 		a_Arr2DUint16_reader := io.LimitReader(reader, int64(a_Arr2DUint16_len))
+		arrType, err := readUint16(a_Arr2DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint16 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DUint16_arr, err := readTwoDimensionalSlice[uint16](a_Arr2DUint16_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint16 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 array: %w", err)
 		}
 
 		a.Arr2DUint16 = a_Arr2DUint16_arr
 	}
 
 	if a_Arr2DUint32_len > 0 {
-		if a_Arr2DUint32_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint32 length %d too short", a_Arr2DUint32_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint32 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint32 element type marker: %w", err)
+		if int(a_Arr2DUint32_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint32 length %d too short", a_Arr2DUint32_len)
 		}
 
 		a_Arr2DUint32_reader := io.LimitReader(reader, int64(a_Arr2DUint32_len))
+		arrType, err := readUint16(a_Arr2DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint32 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DUint32_arr, err := readTwoDimensionalSlice[uint32](a_Arr2DUint32_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint32 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 array: %w", err)
 		}
 
 		a.Arr2DUint32 = a_Arr2DUint32_arr
 	}
 
 	if a_Arr2DUint64_len > 0 {
-		if a_Arr2DUint64_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint64 length %d too short", a_Arr2DUint64_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint64 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint64 element type marker: %w", err)
+		if int(a_Arr2DUint64_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint64 length %d too short", a_Arr2DUint64_len)
 		}
 
 		a_Arr2DUint64_reader := io.LimitReader(reader, int64(a_Arr2DUint64_len))
+		arrType, err := readUint16(a_Arr2DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint64 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DUint64_arr, err := readTwoDimensionalSlice[uint64](a_Arr2DUint64_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint64 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 array: %w", err)
 		}
 
 		a.Arr2DUint64 = a_Arr2DUint64_arr
 	}
 
 	if a_Arr2DUint8_len > 0 {
-		if a_Arr2DUint8_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint8 length %d too short", a_Arr2DUint8_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint8 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint8 element type marker: %w", err)
+		if int(a_Arr2DUint8_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint8 length %d too short", a_Arr2DUint8_len)
 		}
 
 		a_Arr2DUint8_reader := io.LimitReader(reader, int64(a_Arr2DUint8_len))
+		arrType, err := readUint16(a_Arr2DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr2DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr2DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 overall items count: %w", err)
+		}
 		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr2DUint8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint8 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr2DUint8_arr, err := readTwoDimensionalSlice[uint8](a_Arr2DUint8_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr2DUint8 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 array: %w", err)
 		}
 
 		a.Arr2DUint8 = a_Arr2DUint8_arr
 	}
 
 	if a_Arr3DBool_len > 0 {
-		if a_Arr3DBool_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DBool length %d too short", a_Arr3DBool_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DBool type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DBool element type marker: %w", err)
+		if int(a_Arr3DBool_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBool length %d too short", a_Arr3DBool_len)
 		}
 
 		a_Arr3DBool_reader := io.LimitReader(reader, int64(a_Arr3DBool_len))
+		arrType, err := readUint16(a_Arr3DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DBool_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DBool expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBool expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DBool_arr, err := readThreeDimensionalSlice[bool](a_Arr3DBool_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DBool array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool array: %w", err)
 		}
 
 		a.Arr3DBool = a_Arr3DBool_arr
 	}
 
 	if a_Arr3DBytes_len > 0 {
-		if a_Arr3DBytes_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DBytes length %d too short", a_Arr3DBytes_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DBytes type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DBytes element type marker: %w", err)
+		if int(a_Arr3DBytes_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBytes length %d too short", a_Arr3DBytes_len)
 		}
 
 		a_Arr3DBytes_reader := io.LimitReader(reader, int64(a_Arr3DBytes_len))
+		arrType, err := readUint16(a_Arr3DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DBytes_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DBytes expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBytes expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DBytes_arr, err := readThreeDimensionalSlice[[]byte](a_Arr3DBytes_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DBytes array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes array: %w", err)
 		}
 
 		a.Arr3DBytes = a_Arr3DBytes_arr
 	}
 
 	if a_Arr3DDouble_len > 0 {
-		if a_Arr3DDouble_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DDouble length %d too short", a_Arr3DDouble_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DDouble type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DDouble element type marker: %w", err)
+		if int(a_Arr3DDouble_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DDouble length %d too short", a_Arr3DDouble_len)
 		}
 
 		a_Arr3DDouble_reader := io.LimitReader(reader, int64(a_Arr3DDouble_len))
+		arrType, err := readUint16(a_Arr3DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DDouble_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DDouble expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DDouble expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DDouble_arr, err := readThreeDimensionalSlice[float64](a_Arr3DDouble_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DDouble array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble array: %w", err)
 		}
 
 		a.Arr3DDouble = a_Arr3DDouble_arr
 	}
 
 	if a_Arr3DFloat_len > 0 {
-		if a_Arr3DFloat_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DFloat length %d too short", a_Arr3DFloat_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DFloat type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DFloat element type marker: %w", err)
+		if int(a_Arr3DFloat_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DFloat length %d too short", a_Arr3DFloat_len)
 		}
 
 		a_Arr3DFloat_reader := io.LimitReader(reader, int64(a_Arr3DFloat_len))
+		arrType, err := readUint16(a_Arr3DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DFloat_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DFloat expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DFloat expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DFloat_arr, err := readThreeDimensionalSlice[float32](a_Arr3DFloat_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DFloat array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat array: %w", err)
 		}
 
 		a.Arr3DFloat = a_Arr3DFloat_arr
 	}
 
 	if a_Arr3DInt16_len > 0 {
-		if a_Arr3DInt16_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt16 length %d too short", a_Arr3DInt16_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt16 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt16 element type marker: %w", err)
+		if int(a_Arr3DInt16_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt16 length %d too short", a_Arr3DInt16_len)
 		}
 
 		a_Arr3DInt16_reader := io.LimitReader(reader, int64(a_Arr3DInt16_len))
+		arrType, err := readUint16(a_Arr3DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DInt16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt16 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DInt16_arr, err := readThreeDimensionalSlice[int16](a_Arr3DInt16_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt16 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 array: %w", err)
 		}
 
 		a.Arr3DInt16 = a_Arr3DInt16_arr
 	}
 
 	if a_Arr3DInt32_len > 0 {
-		if a_Arr3DInt32_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt32 length %d too short", a_Arr3DInt32_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt32 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt32 element type marker: %w", err)
+		if int(a_Arr3DInt32_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt32 length %d too short", a_Arr3DInt32_len)
 		}
 
 		a_Arr3DInt32_reader := io.LimitReader(reader, int64(a_Arr3DInt32_len))
+		arrType, err := readUint16(a_Arr3DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DInt32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt32 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DInt32_arr, err := readThreeDimensionalSlice[int32](a_Arr3DInt32_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt32 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 array: %w", err)
 		}
 
 		a.Arr3DInt32 = a_Arr3DInt32_arr
 	}
 
 	if a_Arr3DInt64_len > 0 {
-		if a_Arr3DInt64_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt64 length %d too short", a_Arr3DInt64_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt64 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt64 element type marker: %w", err)
+		if int(a_Arr3DInt64_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt64 length %d too short", a_Arr3DInt64_len)
 		}
 
 		a_Arr3DInt64_reader := io.LimitReader(reader, int64(a_Arr3DInt64_len))
+		arrType, err := readUint16(a_Arr3DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DInt64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt64 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DInt64_arr, err := readThreeDimensionalSlice[int64](a_Arr3DInt64_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt64 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 array: %w", err)
 		}
 
 		a.Arr3DInt64 = a_Arr3DInt64_arr
 	}
 
 	if a_Arr3DInt8_len > 0 {
-		if a_Arr3DInt8_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt8 length %d too short", a_Arr3DInt8_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt8 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt8 element type marker: %w", err)
+		if int(a_Arr3DInt8_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt8 length %d too short", a_Arr3DInt8_len)
 		}
 
 		a_Arr3DInt8_reader := io.LimitReader(reader, int64(a_Arr3DInt8_len))
+		arrType, err := readUint16(a_Arr3DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DInt8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DInt8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt8 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DInt8_arr, err := readThreeDimensionalSlice[int8](a_Arr3DInt8_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DInt8 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 array: %w", err)
 		}
 
 		a.Arr3DInt8 = a_Arr3DInt8_arr
 	}
 
 	if a_Arr3DNested_len > 0 {
-		if a_Arr3DNested_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DNested length %d too short", a_Arr3DNested_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DNested type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DNested element type marker: %w", err)
+		if int(a_Arr3DNested_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DNested length %d too short", a_Arr3DNested_len)
 		}
 
 		a_Arr3DNested_reader := io.LimitReader(reader, int64(a_Arr3DNested_len))
+		arrType, err := readUint16(a_Arr3DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DNested_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DNested expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DNested expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DNested_arr, err := readThreeDimensionalSlice[*OnlyVariableTypesMsg](a_Arr3DNested_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DNested array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested array: %w", err)
 		}
 
 		a.Arr3DNested = a_Arr3DNested_arr
 	}
 
 	if a_Arr3DObject_len > 0 {
-		if a_Arr3DObject_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DObject length %d too short", a_Arr3DObject_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DObject type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DObject element type marker: %w", err)
+		if int(a_Arr3DObject_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DObject length %d too short", a_Arr3DObject_len)
 		}
 
 		a_Arr3DObject_reader := io.LimitReader(reader, int64(a_Arr3DObject_len))
+		arrType, err := readUint16(a_Arr3DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DObject_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DObject expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DObject expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DObject_arr, err := readThreeDimensionalSlice[*OnlyScalarTypesMsg](a_Arr3DObject_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DObject array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject array: %w", err)
 		}
 
 		a.Arr3DObject = a_Arr3DObject_arr
 	}
 
 	if a_Arr3DString_len > 0 {
-		if a_Arr3DString_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DString length %d too short", a_Arr3DString_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DString type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DString element type marker: %w", err)
+		if int(a_Arr3DString_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DString length %d too short", a_Arr3DString_len)
 		}
 
 		a_Arr3DString_reader := io.LimitReader(reader, int64(a_Arr3DString_len))
+		arrType, err := readUint16(a_Arr3DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DString_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DString expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DString expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DString_arr, err := readThreeDimensionalSlice[string](a_Arr3DString_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DString array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString array: %w", err)
 		}
 
 		a.Arr3DString = a_Arr3DString_arr
 	}
 
 	if a_Arr3DUint16_len > 0 {
-		if a_Arr3DUint16_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint16 length %d too short", a_Arr3DUint16_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint16 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint16 element type marker: %w", err)
+		if int(a_Arr3DUint16_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint16 length %d too short", a_Arr3DUint16_len)
 		}
 
 		a_Arr3DUint16_reader := io.LimitReader(reader, int64(a_Arr3DUint16_len))
+		arrType, err := readUint16(a_Arr3DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DUint16_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint16 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DUint16_arr, err := readThreeDimensionalSlice[uint16](a_Arr3DUint16_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint16 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 array: %w", err)
 		}
 
 		a.Arr3DUint16 = a_Arr3DUint16_arr
 	}
 
 	if a_Arr3DUint32_len > 0 {
-		if a_Arr3DUint32_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint32 length %d too short", a_Arr3DUint32_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint32 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint32 element type marker: %w", err)
+		if int(a_Arr3DUint32_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint32 length %d too short", a_Arr3DUint32_len)
 		}
 
 		a_Arr3DUint32_reader := io.LimitReader(reader, int64(a_Arr3DUint32_len))
+		arrType, err := readUint16(a_Arr3DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DUint32_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint32 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DUint32_arr, err := readThreeDimensionalSlice[uint32](a_Arr3DUint32_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint32 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 array: %w", err)
 		}
 
 		a.Arr3DUint32 = a_Arr3DUint32_arr
 	}
 
 	if a_Arr3DUint64_len > 0 {
-		if a_Arr3DUint64_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint64 length %d too short", a_Arr3DUint64_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint64 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint64 element type marker: %w", err)
+		if int(a_Arr3DUint64_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint64 length %d too short", a_Arr3DUint64_len)
 		}
 
 		a_Arr3DUint64_reader := io.LimitReader(reader, int64(a_Arr3DUint64_len))
+		arrType, err := readUint16(a_Arr3DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DUint64_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint64 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DUint64_arr, err := readThreeDimensionalSlice[uint64](a_Arr3DUint64_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint64 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 array: %w", err)
 		}
 
 		a.Arr3DUint64 = a_Arr3DUint64_arr
 	}
 
 	if a_Arr3DUint8_len > 0 {
-		if a_Arr3DUint8_len < (TypeMarkerSize + ArrayCountPrefixSize) {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint8 length %d too short", a_Arr3DUint8_len)
-		}
-
-		arrType, err := readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint8 type marker: %w", err)
-		}
-		_, err = readUint16(reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint8 element type marker: %w", err)
+		if int(a_Arr3DUint8_len) < getArrayPrefixSize() {
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint8 length %d too short", a_Arr3DUint8_len)
 		}
 
 		a_Arr3DUint8_reader := io.LimitReader(reader, int64(a_Arr3DUint8_len))
+		arrType, err := readUint16(a_Arr3DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 type marker: %w", err)
+		}
+		_, err = readUint16(a_Arr3DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 element type marker: %w", err)
+		}
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16(a_Arr3DUint8_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 overall items count: %w", err)
+		}
 		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: allTypesOfArraysMsg.Arr3DUint8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint8 expected array type marker %d, got %d", TagArray, arrType)
 		}
 
 		a_Arr3DUint8_arr, err := readThreeDimensionalSlice[uint8](a_Arr3DUint8_reader)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading allTypesOfArraysMsg.Arr3DUint8 array: %w", err)
+			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 array: %w", err)
 		}
 
 		a.Arr3DUint8 = a_Arr3DUint8_arr
@@ -3458,37 +4236,42 @@ func ReadMessageFrame(r io.Reader) (uint16, uint16, uint32, error) {
 // Internal Helpers
 // ---------------------------------------------------------------------------
 
-// CalcArraySize calculates the size of a top-level homogeneous slice.
-func calcArraySize[T any](elements ...T) int {
-	size := ArrayCountPrefixSize
-	if len(elements) == 0 {
-		return size
+func calcArraySize(arr ArraySizer) int {
+	eleBytes := 0
+	dimenstions, x, y, z := arr.CalcDimensions()
+	eleType := arr.GetEleType()
+
+	switch eleType {
+	case TagBool, TagInt8, TagUint8:
+		eleBytes = 1
+	case TagInt16, TagUint16:
+		eleBytes = 2
+	case TagInt32, TagUint32, TagFloat32:
+		eleBytes = 4
+	case TagInt64, TagUint64, TagFloat64:
+		eleBytes = 8
+	default:
+		eleBytes = 0
 	}
 
-	// Primitive slices
-	switch any(elements).(type) {
-	case []bool, []int8, []uint8:
-		return size + len(elements)
-	case []int16, []uint16:
-		return size + (len(elements) * 2)
-	case []int32, []uint32, []float32:
-		return size + (len(elements) * 4)
-	case []int64, []uint64, []float64:
-		return size + (len(elements) * 8)
+	if eleBytes > 0 {
+		if dimenstions == 1 {
+			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * eleBytes)
+		}
+		if dimenstions == 2 {
+			yBlock := ArrayCountPrefixSize + (y * eleBytes)
+			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * yBlock)
+		}
+		if dimenstions == 3 {
+			zBlock := ArrayCountPrefixSize + (z * eleBytes)
+			yBlock := ArrayCountPrefixSize + (y * zBlock)
+			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * yBlock)
+		}
 	}
 
-	// Non-Primitive Flat Arrays (e.g., []string, []any etc.)
-	// These write a single 2-byte tag at the root, plus raw values.
-	size += TypeMarkerSize
-	for _, v := range elements {
-		size += calcTypeSize(v)
-	}
-
-	return size
+	return arr.CalcSize()
 }
 
-// calcTypeSize calculates the size of a single element,
-// including any length prefixes for variable-length types.
 func calcTypeSize(ele any) int {
 	switch val := ele.(type) {
 	// Primitives
@@ -3501,95 +4284,20 @@ func calcTypeSize(ele any) int {
 	case int64, uint64, float64:
 		return 8
 
-	// Strings & Byte Slices still require their 4-byte length prefix
+	// Strings & Byte Slices
 	case string:
-		return StrOrByteLenPrefixSize + len(val)
+		return len(val)
 	case []byte:
-		return StrOrByteLenPrefixSize + len(val)
+		return len(val)
 
-	case *OnlyScalarTypesMsg:
+	case Sizable:
 		if val != nil {
 			return val.Size()
 		}
 		return 0
-	case []*OnlyScalarTypesMsg:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
 
-	case *OnlyVariableTypesMsg:
-		if val != nil {
-			return val.Size()
-		}
-		return 0
-	case []*OnlyVariableTypesMsg:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-
-	case *allTypesFieldsMsg:
-		if val != nil {
-			return val.Size()
-		}
-		return 0
-	case []*allTypesFieldsMsg:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-
-	case *recursiveNestedMsg:
-		if val != nil {
-			return val.Size()
-		}
-		return 0
-	case []*recursiveNestedMsg:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-
-	case *allTypesOfArraysMsg:
-		if val != nil {
-			return val.Size()
-		}
-		return 0
-	case []*allTypesOfArraysMsg:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-
-	// Multi-Dimensional Layouts ([]any)
-	case []any:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-	case []string:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
 	default:
-		// This should never reach because calcTypeSize will always be called with known types.
-		panic(fmt.Errorf("unsupported type in size calculator: %T", val))
+		panic(fmt.Sprintf("calcTypeSize: unsupported type %T", val))
 	}
 }
 
@@ -3865,11 +4573,11 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		}
 		return count, buf, nil
 
-	case []*allTypesFieldsMsg:
+	case []*AllTypesFieldsMsg:
 		totalSize := 0
 		for i, v := range sl {
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *allTypesFieldsMsg element at index %d", i)
+				return 0, nil, fmt.Errorf("cannot serialize nil *AllTypesFieldsMsg element at index %d", i)
 			}
 			totalSize += v.Size()
 		}
@@ -3879,18 +4587,18 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		for _, v := range sl {
 			b, err := v.Marshal()
 			if err != nil {
-				return 0, nil, fmt.Errorf("failed to serialize *allTypesFieldsMsg element: %w", err)
+				return 0, nil, fmt.Errorf("failed to serialize *AllTypesFieldsMsg element: %w", err)
 			}
 			copy(buf[dynOff:], b)
 			dynOff += len(b)
 		}
 		return count, buf, nil
 
-	case []*recursiveNestedMsg:
+	case []*RecursiveNestedMsg:
 		totalSize := 0
 		for i, v := range sl {
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *recursiveNestedMsg element at index %d", i)
+				return 0, nil, fmt.Errorf("cannot serialize nil *RecursiveNestedMsg element at index %d", i)
 			}
 			totalSize += v.Size()
 		}
@@ -3900,18 +4608,18 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		for _, v := range sl {
 			b, err := v.Marshal()
 			if err != nil {
-				return 0, nil, fmt.Errorf("failed to serialize *recursiveNestedMsg element: %w", err)
+				return 0, nil, fmt.Errorf("failed to serialize *RecursiveNestedMsg element: %w", err)
 			}
 			copy(buf[dynOff:], b)
 			dynOff += len(b)
 		}
 		return count, buf, nil
 
-	case []*allTypesOfArraysMsg:
+	case []*AllTypesOfArraysMsg:
 		totalSize := 0
 		for i, v := range sl {
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *allTypesOfArraysMsg element at index %d", i)
+				return 0, nil, fmt.Errorf("cannot serialize nil *AllTypesOfArraysMsg element at index %d", i)
 			}
 			totalSize += v.Size()
 		}
@@ -3921,7 +4629,7 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		for _, v := range sl {
 			b, err := v.Marshal()
 			if err != nil {
-				return 0, nil, fmt.Errorf("failed to serialize *allTypesOfArraysMsg element: %w", err)
+				return 0, nil, fmt.Errorf("failed to serialize *AllTypesOfArraysMsg element: %w", err)
 			}
 			copy(buf[dynOff:], b)
 			dynOff += len(b)
@@ -4162,59 +4870,59 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 			sl[i] = &msg
 		}
 
-	case []*allTypesFieldsMsg:
+	case []*AllTypesFieldsMsg:
 		for i := range sl {
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read frame header for *allTypesFieldsMsg at index %d: %w", i, err)
+				return nil, fmt.Errorf("failed to read frame header for *AllTypesFieldsMsg at index %d: %w", i, err)
 			}
 
-			var msg allTypesFieldsMsg
+			var msg AllTypesFieldsMsg
 			if typeID != msg.MessageTypeID() {
-				return nil, fmt.Errorf("unexpected type ID %d for allTypesFieldsMsg, expected %d", typeID, msg.MessageTypeID())
+				return nil, fmt.Errorf("unexpected type ID %d for AllTypesFieldsMsg, expected %d", typeID, msg.MessageTypeID())
 			}
 
-			allTypesFieldsMsg_reader := io.LimitReader(r, int64(overallPayloadLen))
-			if err := msg.Unmarshal(allTypesFieldsMsg_reader, fixedPayloadLen, overallPayloadLen); err != nil {
-				return nil, fmt.Errorf("failed to deserialize allTypesFieldsMsg: %w", err)
+			AllTypesFieldsMsg_reader := io.LimitReader(r, int64(overallPayloadLen))
+			if err := msg.Unmarshal(AllTypesFieldsMsg_reader, fixedPayloadLen, overallPayloadLen); err != nil {
+				return nil, fmt.Errorf("failed to deserialize AllTypesFieldsMsg: %w", err)
 			}
 			sl[i] = &msg
 		}
 
-	case []*recursiveNestedMsg:
+	case []*RecursiveNestedMsg:
 		for i := range sl {
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read frame header for *recursiveNestedMsg at index %d: %w", i, err)
+				return nil, fmt.Errorf("failed to read frame header for *RecursiveNestedMsg at index %d: %w", i, err)
 			}
 
-			var msg recursiveNestedMsg
+			var msg RecursiveNestedMsg
 			if typeID != msg.MessageTypeID() {
-				return nil, fmt.Errorf("unexpected type ID %d for recursiveNestedMsg, expected %d", typeID, msg.MessageTypeID())
+				return nil, fmt.Errorf("unexpected type ID %d for RecursiveNestedMsg, expected %d", typeID, msg.MessageTypeID())
 			}
 
-			recursiveNestedMsg_reader := io.LimitReader(r, int64(overallPayloadLen))
-			if err := msg.Unmarshal(recursiveNestedMsg_reader, fixedPayloadLen, overallPayloadLen); err != nil {
-				return nil, fmt.Errorf("failed to deserialize recursiveNestedMsg: %w", err)
+			RecursiveNestedMsg_reader := io.LimitReader(r, int64(overallPayloadLen))
+			if err := msg.Unmarshal(RecursiveNestedMsg_reader, fixedPayloadLen, overallPayloadLen); err != nil {
+				return nil, fmt.Errorf("failed to deserialize RecursiveNestedMsg: %w", err)
 			}
 			sl[i] = &msg
 		}
 
-	case []*allTypesOfArraysMsg:
+	case []*AllTypesOfArraysMsg:
 		for i := range sl {
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read frame header for *allTypesOfArraysMsg at index %d: %w", i, err)
+				return nil, fmt.Errorf("failed to read frame header for *AllTypesOfArraysMsg at index %d: %w", i, err)
 			}
 
-			var msg allTypesOfArraysMsg
+			var msg AllTypesOfArraysMsg
 			if typeID != msg.MessageTypeID() {
-				return nil, fmt.Errorf("unexpected type ID %d for allTypesOfArraysMsg, expected %d", typeID, msg.MessageTypeID())
+				return nil, fmt.Errorf("unexpected type ID %d for AllTypesOfArraysMsg, expected %d", typeID, msg.MessageTypeID())
 			}
 
-			allTypesOfArraysMsg_reader := io.LimitReader(r, int64(overallPayloadLen))
-			if err := msg.Unmarshal(allTypesOfArraysMsg_reader, fixedPayloadLen, overallPayloadLen); err != nil {
-				return nil, fmt.Errorf("failed to deserialize allTypesOfArraysMsg: %w", err)
+			AllTypesOfArraysMsg_reader := io.LimitReader(r, int64(overallPayloadLen))
+			if err := msg.Unmarshal(AllTypesOfArraysMsg_reader, fixedPayloadLen, overallPayloadLen); err != nil {
+				return nil, fmt.Errorf("failed to deserialize AllTypesOfArraysMsg: %w", err)
 			}
 			sl[i] = &msg
 		}
@@ -4261,18 +4969,41 @@ func getElementType(item any) (uint16, error) {
 	case *OnlyVariableTypesMsg:
 		return TagOnlyVariableTypesMsg, nil
 
-	case *allTypesFieldsMsg:
-		return TagallTypesFieldsMsg, nil
+	case *AllTypesFieldsMsg:
+		return TagAllTypesFieldsMsg, nil
 
-	case *recursiveNestedMsg:
-		return TagrecursiveNestedMsg, nil
+	case *RecursiveNestedMsg:
+		return TagRecursiveNestedMsg, nil
 
-	case *allTypesOfArraysMsg:
-		return TagallTypesOfArraysMsg, nil
+	case *AllTypesOfArraysMsg:
+		return TagAllTypesOfArraysMsg, nil
 
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", item)
 	}
+}
+
+func getArraySizer[T any](dimensions int) ArraySizer {
+	var zero T
+	elemType, err := getElementType(zero)
+	if err != nil {
+		panic(fmt.Errorf("unsupported type for array sizer: %T", zero))
+	}
+	switch dimensions {
+	case 1:
+		return &array1D[T]{EleType: elemType}
+	case 2:
+		return &array2D[T]{EleType: elemType}
+	case 3:
+		return &array3D[T]{EleType: elemType}
+	default:
+		panic(fmt.Errorf("unsupported array dimensions: %d", dimensions))
+	}
+}
+
+func getArrayPrefixSize() int {
+	// Type marker + element type marker + overall count + per-dimension count
+	return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 }
 
 func readUint32(r io.Reader) (uint32, error) {

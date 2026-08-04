@@ -143,6 +143,17 @@ typedef enum {
 {{- end }}
 } element_type_t;
 
+// Standard status codes for error handling
+typedef enum {
+    DYN_ARR_OK = 0,
+    DYN_ARR_ERR_INVALID_PARAM,
+    DYN_ARR_ERR_OUT_OF_BOUNDS,
+    DYN_ARR_ERR_NO_MEMORY,
+    DYN_ARR_ERR_OVERFLOW,
+    DYN_ARR_ERR_FAIL,
+    DYN_ARR_ERR_EOF
+} dyn_arr_status_t;
+
 typedef struct {
 	char *data;
 	uint32_t len;
@@ -165,8 +176,42 @@ typedef struct {
     
     // The total maximum flat elements the current memory can hold
     size_t capacity; 
-	element_type_t ele_type; // element type for dynamic arrays
+	uint16_t ele_type; // element type for dynamic arrays
 } dynamic_array_t;
+
+size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
+                                    element_type_t ele_type,
+                                    size_t elem_size, 
+                                    uint8_t num_dims, 
+                                    size_t x, size_t y, size_t z);
+void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val);
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val);
+dyn_arr_status_t dynamic_array_resize(dynamic_array_t *arr, size_t new_x, size_t new_y, size_t new_z);
+void dynamic_array_destroy(dynamic_array_t *arr);
+
+#define FOR_EACH_DYNAMIC_ARRAY_ITEM(arr, type, it)                     \
+    for (type *it = (type *)((arr)->data),                              \
+              *it##_end = it + ((arr)->x * (arr)->y * (arr)->z);         \
+         it < it##_end;                                                  \
+         ++it)
+#define FOR_EACH_DYNAMIC_ARRAY_INDEX(arr, type, i, it)                  \
+    for (size_t i = 0,                                                   \
+                _count = (arr)->x * (arr)->y * (arr)->z;                 \
+         i < _count && (((it) = &((type *)(arr)->data)[i]), 1);          \
+         ++i)
+#define FOR_EACH_1D_DYNAMIC_ARRAY(arr, i, out) \
+    for (size_t i = 0; i < (arr)->x; ++i)
+
+#define FOR_EACH_2D_DYNAMIC_ARRAY(arr, i, j) \
+    for (size_t i = 0; i < (arr)->x; ++i) \
+        for (size_t j = 0; j < (arr)->y; ++j)
+
+#define FOR_EACH_3D_DYNAMIC_ARRAY(arr, i, j, k) \
+    for (size_t i = 0; i < (arr)->x; ++i) \
+        for (size_t j = 0; j < (arr)->y; ++j) \
+            for (size_t k = 0; k < (arr)->z; ++k)
 
 uint16_t get_message_type(const uint8_t *buf);
 uint16_t get_message_fixed_payload_length(const uint8_t *buf);

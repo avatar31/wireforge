@@ -18,9 +18,9 @@ components:
     # Resulting fixed-block layout (compiler order):
     #   valUint64 @  0 (8)  valInt64  @  8 (8)  valDouble @ 16 (8)
     #   valUint32 @ 24 (4)  valInt32  @ 28 (4)  valFloat  @ 32 (4)
-    #   statusEnum@ 36 (4)  valUint16 @ 40 (2)  valInt16  @ 42 (2)
-    #   valUint8  @ 44 (1)  valInt8   @ 45 (1)  valBool   @ 46 (1)
-    #   _pad0[1]  @ 47                          (TotalFixedSize = 48)
+    #   valUint16 @ 36 (2)  valInt16  @ 38 (2)  valUint8  @ 40 (1)
+    #   valInt8   @ 41 (1)  valBool   @ 42 (1)
+    #   _pad0[2]  @ 43                          (TotalFixedSize = 44)
     OnlyScalarTypesMsg:
       type: object
       x-message-id: 1
@@ -68,13 +68,6 @@ components:
           description: Unsigned 64-bit integer.
           type: integer
           format: uint64
-        statusEnum:
-          description: String field restricted to an enum of allowed values.
-          type: string
-          enum:
-            - ACTIVE
-            - INACTIVE
-            - PENDING
 
     # ── OnlyVariableTypesMsg ─────────────────────────────────────────────────────────
     # Contains all variable-length FieldTypes: string, bytes, object-ref,
@@ -124,12 +117,12 @@ components:
     # Resulting fixed-block layout (compiler order):
     #   valUint64  @  0 (8)  valInt64  @  8 (8)  valDouble @ 16 (8)
     #   valUint32  @ 24 (4)  valInt32  @ 28 (4)  valFloat  @ 32 (4)
-    #   statusEnum @ 36 (4)  name      @ 40 (4)  data      @ 44 (4)
-    #   byteArray  @ 48 (4)  nested    @ 52 (4)  tags      @ 56 (4)
-    #   matrix     @ 60 (4)  valUint16 @ 64 (2)  valInt16  @ 66 (2)
-    #   valUint8   @ 68 (1)  valInt8   @ 69 (1)  valBool   @ 70 (1)
-    #   _pad0[1]   @ 71                          (TotalFixedSize = 72)
-    allTypesFieldsMsg:
+    #   name       @ 36 (4)  data      @ 40 (4)  byteArray @ 44 (4)
+    #   nested     @ 48 (4)  tags      @ 52 (4)  matrix    @ 56 (4)
+    #   valUint16  @ 60 (2)  valInt16  @ 62 (2)  valUint8  @ 64 (1)
+    #   valInt8    @ 65 (1)  valBool   @ 66 (1)  _pad0[1]  @ 67
+    #                                           (TotalFixedSize = 68)
+    AllTypesFieldsMsg:
       type: object
       x-message-id: 3
       properties:
@@ -176,13 +169,6 @@ components:
           description: Unsigned 64-bit integer.
           type: integer
           format: uint64
-        statusEnum:
-          description: String field restricted to an enum of allowed values.
-          type: string
-          enum:
-            - ACTIVE
-            - INACTIVE
-            - PENDING
         name:
           description: UTF-8 string.
           type: string
@@ -218,7 +204,7 @@ components:
     # index (size-desc), then alphabetically within each bucket.
     # Resulting fixed-block layout (compiler order):
     #   name   @  0 (4)  nested @  4 (4)  (TotalFixedSize = 8)
-    recursiveNestedMsg:
+    RecursiveNestedMsg:
       type: object
       x-message-id: 4
       properties:
@@ -226,8 +212,8 @@ components:
           description: UTF-8 string.
           type: string
         nested:
-          description: Recursive reference to recursiveNestedMsg.
-          $ref: '#/components/schemas/recursiveNestedMsg'
+          description: Recursive reference to RecursiveNestedMsg.
+          $ref: '#/components/schemas/RecursiveNestedMsg'
 
     # ── AllTypesOfArraysMsg ────────────────────────────────────────────────────────
     # Contains 1-D, 2-D, and 3-D arrays of all scalar FieldTypes, plus arrays of strings, bytes, and nested objects.
@@ -247,7 +233,7 @@ components:
     #   arr1DBytes @144 (4)  arr2DBytes @148 (4)  arr3DBytes @152 (4)
     #   arr1DObject@156 (4)  arr2DObject@160 (4)  arr3DObject@164 (4)
     #   arr1DNested@168 (4)  arr2DNested@172 (4)  arr3DNested@176 (4)  (TotalFixedSize = 180)
-    allTypesOfArraysMsg:
+    AllTypesOfArraysMsg:
       type: object
       x-message-id: 5
       properties:

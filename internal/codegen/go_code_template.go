@@ -18,17 +18,18 @@ import (
 )
 
 var goTemplate = template.Must(template.New("go").Funcs(template.FuncMap{
-	"lower":          strings.ToLower,
-	"goBaseType":     func(ft schema.FieldType) string { return ft.GoType() },
-	"goType":         goType,
-	"isVariable":     func(ft schema.FieldType) bool { return ft.IsVariable() },
-	"size":           func(ft schema.FieldType) int { return ft.Size() },
-	"sub":            func(a, b int) int { return a - b },
-	"add":            func(a, b int) int { return a + b },
-	"receiver":       func(name string) string { return strings.ToLower(name[:1]) },
-	"hasVariable":    func(msg *compiler.CompiledMessage) bool { return len(msg.VariableFields) > 0 },
-	"arrayDimension": arrayDimension,
-	"arrayRootType":  arrayRootType,
+	"lower":             strings.ToLower,
+	"goBaseType":        func(ft schema.FieldType) string { return ft.GoType() },
+	"goType":            goType,
+	"isVariable":        func(ft schema.FieldType) bool { return ft.IsVariable() },
+	"size":              func(ft schema.FieldType) int { return ft.Size() },
+	"sub":               func(a, b int) int { return a - b },
+	"add":               func(a, b int) int { return a + b },
+	"receiver":          func(name string) string { return strings.ToLower(name[:1]) },
+	"hasVariable":       func(msg *compiler.CompiledMessage) bool { return len(msg.VariableFields) > 0 },
+	"arrayDimension":    arrayDimension,
+	"arrayRootGoType":   arrayRootGoType,
+	"arrayRootBaseType": arrayRootBaseType,
 }).Parse(goTemplateSource))
 
 // GenerateGo writes the generated Go source to w.
@@ -79,7 +80,7 @@ func goType(f *compiler.CompiledField, messages []*compiler.CompiledMessage, poi
 		// 	output.WriteString("*")
 		// }
 
-		output.WriteString(arrayRootType(f, messages, "go"))
+		output.WriteString(arrayRootGoType(f, messages, true))
 		return output.String()
 	default:
 		return f.Type.GoType()
@@ -179,6 +180,158 @@ var (
 	_ = unsafe.Sizeof(uint8(0))
 )
 
+type Sizable interface {
+    Size() int
+}
+
+type ArraySizer interface {
+	SetElements(elements any)
+	CalcDimensions() (dimen, x, y, z int)
+	CalcSize() int
+	GetEleType() uint16
+}
+
+type array1D[T any] struct {
+	Elements []T
+	EleType  uint16
+}
+
+func (arr *array1D[T]) SetElements(elements any) {
+	items, ok := elements.([]T)
+	if !ok {
+		panic("array1D: invalid element type")
+	}
+	arr.Elements = items
+}
+
+func (arr *array1D[T]) CalcDimensions() (dimen, x, y, z int) {
+	return 1, len(arr.Elements), 1, 1
+}
+
+func (arr *array1D[T]) CalcSize() int {
+	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
+	legthPrefixSize := 0
+	if arr.EleType == TagString || arr.EleType == TagBytes {
+		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+
+	for _, item := range arr.Elements {
+		size +=  legthPrefixSize + calcTypeSize(item)
+	}
+	return size
+}
+
+func (arr *array1D[T]) SetEleType(eleType uint16) {
+	arr.EleType = eleType
+}
+
+func (arr *array1D[T]) GetEleType() uint16 {
+	return arr.EleType
+}
+
+type array2D[T any] struct {
+	Elements [][]T
+	EleType  uint16
+}
+
+func (arr *array2D[T]) SetElements(elements any) {
+	items, ok := elements.([][]T)
+	if !ok {
+		panic("array2D: invalid element type")
+	}
+	arr.Elements = items
+}
+
+func (arr *array2D[T]) CalcDimensions() (dimen, x, y, z int) {
+	x = len(arr.Elements)
+	for _, row := range arr.Elements {
+		if len(row) > y {
+			y = len(row)
+		}
+	}
+	return 2, x, y, 1
+}
+
+func (arr *array2D[T]) CalcSize() int {
+	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
+	legthPrefixSize := 0
+	if arr.EleType == TagString || arr.EleType == TagBytes {
+		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+
+	for _, row := range arr.Elements {
+		size += ArrayCountPrefixSize
+		for _, item := range row {
+			size += legthPrefixSize + calcTypeSize(item)
+		}
+	}
+	return size
+}
+
+func (arr *array2D[T]) GetEleType() uint16 {
+	return arr.EleType
+}
+
+type array3D[T any] struct {
+	Elements [][][]T
+	EleType  uint16
+}
+
+func (arr *array3D[T]) SetElements(elements any) {
+	items, ok := elements.([][][]T)
+	if !ok {
+		panic("array3D: invalid element type")
+	}
+	arr.Elements = items
+}
+
+func (arr *array3D[T]) CalcDimensions() (dimen, x, y, z int) {
+	x = len(arr.Elements)
+	for _, plane := range arr.Elements {
+		if len(plane) > y {
+			y = len(plane)
+		}
+		for _, row := range plane {
+			if len(row) > z {
+				z = len(row)
+			}
+		}
+	}
+	return 3, x, y, z
+}
+
+func (arr *array3D[T]) CalcSize() int {
+	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
+	legthPrefixSize := 0
+	if arr.EleType == TagString || arr.EleType == TagBytes {
+		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+
+	for _, plane := range arr.Elements {
+		size += ArrayCountPrefixSize
+		for _, row := range plane {
+			size += ArrayCountPrefixSize
+			for _, item := range row {
+				size += legthPrefixSize + calcTypeSize(item)
+			}
+		}
+	}
+	return size
+}
+
+func (arr *array3D[T]) GetEleType() uint16 {
+	return arr.EleType
+}
+
+// WireMessage defines the interface that all generated message types implement.
+type WireMessage interface {
+	MessageTypeID() uint16
+	Size() int
+	DynamicPayloadSize() int
+	Marshal() ([]byte, error)
+	Unmarshal(reader io.Reader, fixedPayloadSize uint16, overallPayloadSize uint32) error
+}
+
 {{$overallMessages := .Messages}}
 {{range .Messages}}{{$msg := .}}
 // ---------------------------------------------------------------------------
@@ -189,15 +342,17 @@ var (
 // Overall Block Length: {{$msg.TotalFixedSize}} bytes + Runtime dynamic payload
 // ---------------------------------------------------------------------------
 
+// TODO: Check order of fields in the struct to ensure they are ordered by offset to avoid padding issues.
 // {{$msg.Name}} represents a wire-serializable message.
 // Fields are ordered and padded to match natural alignment requirements,
 // ensuring identical memory layout between Go and C implementations.
 type {{$msg.Name}} struct {
 {{- range $msg.Fields}}{{$field := .}}
 {{- if $field.Description}}
+
 	// {{$field.Description}}
 {{- end}} {{/* $field.Description */}}
-	{{$field.GoName}} {{goType $field $overallMessages true}}
+	{{$field.GoName}} {{goType $field $overallMessages true}} ` + "`" + `json:"{{$field.Name}}"` + "`" + `
 {{- end}} {{/* range $msg.Fields */}}
 }
 
@@ -235,7 +390,52 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) DynamicPayloadSize() int {
 	dynamicSize := 0
 
 {{- range $msg.VariableFields}}{{$field := .}}
-	dynamicSize += calcTypeSize({{receiver $msg.Name}}.{{$field.GoName}})
+{{- if eq (goBaseType $field.Type) "[]any"}}
+	if len({{receiver $msg.Name}}.{{$field.GoName}}) > 0 {
+		sizer := getArraySizer[{{arrayRootGoType $field $overallMessages true}}]({{arrayDimension $field}})
+		sizer.SetElements({{receiver $msg.Name}}.{{$field.GoName}})
+{{- if eq (arrayRootBaseType $field "go") "struct"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "string"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "[]byte"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "bool"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "uint8"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "int8"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "uint16"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "int16"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "uint32"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "int32"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "float32"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "uint64"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "int64"}}
+		dynamicSize += calcArraySize(sizer)
+{{- else if eq (arrayRootBaseType $field "go") "float64"}}
+		dynamicSize += calcArraySize(sizer)
+{{- end}}{{/* if eq (goBaseType $field.Type) */}}
+	}
+{{- else}}{{/* not eq (goBaseType $field.Type) "[]any" */}}
+{{- if eq (goBaseType $field.Type) "struct"}}
+	if {{receiver $msg.Name}}.{{$field.GoName}} != nil {
+		dynamicSize += calcTypeSize({{receiver $msg.Name}}.{{$field.GoName}})
+	}
+{{- else}}{{/* not eq (goBaseType $field.Type) "struct" */}}
+	if len({{receiver $msg.Name}}.{{$field.GoName}}) > 0 {
+		dynamicSize += calcTypeSize({{receiver $msg.Name}}.{{$field.GoName}})
+	}
+{{- end}}{{/* if eq (goBaseType $field.Type) "struct" */}}
+{{- end}}
+
 {{- end}} {{/* range $msg.VariableFields */}}
 
 	return dynamicSize
@@ -294,18 +494,20 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 	binary.BigEndian.PutUint32(hdr[{{$field.Offset}}:{{add $field.Offset 4}}], uint32({{receiver $msg.Name}}_{{$field.GoName}}_len))
 {{- else if eq (goBaseType $field.Type) "[]any"}}
 
-	var tmp{{$field.GoName}} {{(goType $field $overallMessages true)}}
-	eleType{{$field.GoName}}, err := getElementType(tmp{{$field.GoName}})
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal {{$msg.Name}}.{{$field.GoName}}: %v", err)
+	if len({{receiver $msg.Name}}.{{$field.GoName}}) > 0 {
+		var zero {{(arrayRootGoType $field $overallMessages true)}}
+		eleType{{$field.GoName}}, err := getElementType(zero)
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal {{$msg.Name}}.{{$field.GoName}}: %v", err)
+		}
+		{{receiver $msg.Name}}_{{$field.GoName}}_Bytes, err := sliceToBytes[{{arrayRootGoType $field $overallMessages true}}](eleType{{$field.GoName}}, {{receiver $msg.Name}}.{{$field.GoName}})
+		if err != nil {
+			return nil, fmt.Errorf("wireforge: failed to marshal {{$msg.Name}}.{{$field.GoName}}: %v", err)
+		}
+		copy(buf[dynOff:], {{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
+		binary.BigEndian.PutUint32(hdr[{{$field.Offset}}:{{add $field.Offset 4}}], uint32(len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)))
+		dynOff += len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
 	}
-	{{receiver $msg.Name}}_{{$field.GoName}}_Bytes, err := sliceToBytes[{{goType $field $overallMessages true}}](eleType{{$field.GoName}}, {{receiver $msg.Name}}.{{$field.GoName}})
-	if err != nil {
-		return nil, fmt.Errorf("wireforge: failed to marshal {{$msg.Name}}.{{$field.GoName}}: %v", err)
-	}
-	copy(buf[dynOff:], {{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
-	binary.BigEndian.PutUint32(hdr[{{$field.Offset}}:{{add $field.Offset 4}}], uint32(len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)))
-	dynOff += len({{receiver $msg.Name}}_{{$field.GoName}}_Bytes)
 {{- else}} {{/* eq (goBaseType $field.Type) "string" or "[]byte" */}}
 
 	copy(buf[dynOff:], {{receiver $msg.Name}}.{{$field.GoName}})
@@ -355,10 +557,11 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Marshal() ([]byte, error) {
 // All variable-length fields are validated against MaxAllowedPacket before
 // allocation, and io.ReadFull is used to guarantee complete reads even on
 // streaming sockets that may deliver partial data.
-func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader,
-		fixedPayloadSize uint16, _ uint32) error {
-	if int(fixedPayloadSize) < {{$msg.Name}}FixedSize {
-		return fmt.Errorf("{{$msg.Name}} fixed payload size too short: got %d, need %d", fixedPayloadSize, {{$msg.Name}}FixedSize)
+func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
+	overallPayloadSize uint32) error {
+	if int(fixedPayloadSize) < {{$msg.Name}}FixedSize || int(overallPayloadSize) > MaxAllowedPacket {
+		return fmt.Errorf("wireforge: {{$msg.Name}} payload size mismatch: fixed %d, overall %d",
+			fixedPayloadSize, overallPayloadSize)
 	}
 
 	hdr := make([]byte, fixedPayloadSize)
@@ -413,38 +616,43 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader,
 		}
 		{{receiver $msg.Name}}.{{$field.GoName}} = string({{receiver $msg.Name}}_{{$field.GoName}}_buf)
 {{- else if eq (goBaseType $field.Type) "[]any"}}
-		if {{receiver $msg.Name}}_{{$field.GoName}}_len < (TypeMarkerSize + ArrayCountPrefixSize) {
+		if int({{receiver $msg.Name}}_{{$field.GoName}}_len) < getArrayPrefixSize() {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} length %d too short", {{receiver $msg.Name}}_{{$field.GoName}}_len)
 		}
 
-		arrType, err := readUint16(reader)
+		{{receiver $msg.Name}}_{{$field.GoName}}_reader := io.LimitReader(reader, int64({{receiver $msg.Name}}_{{$field.GoName}}_len))
+		arrType, err := readUint16({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} type marker: %w", err)
 		}
-		_, err = readUint16(reader)
+		_, err = readUint16({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 		if err != nil {
 			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} element type marker: %w", err)
 		}
-
-		{{receiver $msg.Name}}_{{$field.GoName}}_reader := io.LimitReader(reader, int64({{receiver $msg.Name}}_{{$field.GoName}}_len))
+		// Skip the overall items count written by sliceToBytes; the dimension-specific
+		// read functions re-read the per-dimension count from the inner serialised bytes.
+		_, err = readUint16({{receiver $msg.Name}}_{{$field.GoName}}_reader)
+		if err != nil {
+			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} overall items count: %w", err)
+		}
 {{- if eq (arrayDimension $field) 1}}
 		if arrType != TagArray {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
 		}
 
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readOneDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readOneDimensionalSlice[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 {{- else if eq (arrayDimension $field) 2}}
 		if arrType != Tag2DArray {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
 		}
 
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readTwoDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readTwoDimensionalSlice[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 {{- else if eq (arrayDimension $field) 3}}
 		if arrType != Tag3DArray {
 			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
 		}
 
-		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readThreeDimensionalSlice[{{(arrayRootType $field $overallMessages "go")}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
+		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readThreeDimensionalSlice[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
 {{- else}}
 		err := fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} has unsupported array type")
 {{- end}}
@@ -504,37 +712,42 @@ func ReadMessageFrame(r io.Reader) (uint16, uint16, uint32, error) {
 // Internal Helpers
 // ---------------------------------------------------------------------------
 
-// CalcArraySize calculates the size of a top-level homogeneous slice.
-func calcArraySize[T any](elements ...T) int {
-	size := ArrayCountPrefixSize
-	if len(elements) == 0 {
-		return size
+func calcArraySize(arr ArraySizer) int {
+	eleBytes := 0
+	dimenstions, x, y, z := arr.CalcDimensions()
+	eleType := arr.GetEleType()
+
+	switch eleType {
+	case TagBool, TagInt8, TagUint8:
+		eleBytes = 1
+	case TagInt16, TagUint16:
+		eleBytes = 2
+	case TagInt32, TagUint32, TagFloat32:
+		eleBytes = 4
+	case TagInt64, TagUint64, TagFloat64:
+		eleBytes = 8
+	default:
+		eleBytes = 0
 	}
 
-	// Primitive slices
-	switch any(elements).(type) {
-	case []bool, []int8, []uint8:
-		return size + len(elements)
-	case []int16, []uint16:
-		return size + (len(elements) * 2)
-	case []int32, []uint32, []float32:
-		return size + (len(elements) * 4)
-	case []int64, []uint64, []float64:
-		return size + (len(elements) * 8)
+	if eleBytes > 0 {
+		if dimenstions == 1 {
+			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * eleBytes)
+		}
+		if dimenstions == 2 {
+			yBlock := ArrayCountPrefixSize + (y * eleBytes)
+			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * yBlock)
+		}
+		if dimenstions == 3 {
+			zBlock := ArrayCountPrefixSize + (z * eleBytes)
+			yBlock := ArrayCountPrefixSize + (y * zBlock)
+			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * yBlock)
+		}
 	}
 
-	// Non-Primitive Flat Arrays (e.g., []string, []any etc.)
-	// These write a single 2-byte tag at the root, plus raw values.
-	size += TypeMarkerSize
-	for _, v := range elements {
-		size += calcTypeSize(v)
-	}
-
-	return size
+	return arr.CalcSize()
 }
 
-// calcTypeSize calculates the size of a single element,
-// including any length prefixes for variable-length types.
 func calcTypeSize(ele any) int {
 	switch val := ele.(type) {
 	// Primitives
@@ -547,45 +760,20 @@ func calcTypeSize(ele any) int {
 	case int64, uint64, float64:
 		return 8
 
-	// Strings & Byte Slices still require their 4-byte length prefix
+	// Strings & Byte Slices
 	case string:
-		return StrOrByteLenPrefixSize + len(val)
+		return len(val)
 	case []byte:
-		return StrOrByteLenPrefixSize + len(val)
+		return len(val)
 
-{{range .Messages}}{{$msg := .}}
-	case *{{$msg.Name}}:
+	case Sizable:
 		if val != nil {
 			return val.Size()
 		}
 		return 0
-	case []*{{$msg.Name}}:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-{{end}} {{/* range .Messages */}}
 
-	// Multi-Dimensional Layouts ([]any)
-	case []any:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
-	case []string:
-		// Layout: [Inner Type Tag (2B)] [Inner Element Count (2B)] + inner raw elements
-		size := TypeMarkerSize + ArrayCountPrefixSize
-		for _, innerItem := range val {
-			size += calcTypeSize(innerItem)
-		}
-		return size
 	default:
-		// This should never reach because calcTypeSize will always be called with known types.
-		panic(fmt.Errorf("unsupported type in size calculator: %T", val))
+		panic(fmt.Sprintf("calcTypeSize: unsupported type %T", val))
 	}
 }
 
@@ -1097,6 +1285,29 @@ func getElementType(item any) (uint16, error) {
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", item)
 	}
+}
+
+func getArraySizer[T any](dimensions int) ArraySizer {
+	var zero T
+	elemType, err := getElementType(zero)
+	if err != nil {
+		panic(fmt.Errorf("unsupported type for array sizer: %T", zero))
+	}
+	switch dimensions {
+	case 1:
+		return &array1D[T]{EleType: elemType}
+	case 2:
+		return &array2D[T]{EleType: elemType}
+	case 3:
+		return &array3D[T]{EleType: elemType}
+	default:
+		panic(fmt.Errorf("unsupported array dimensions: %d", dimensions))
+	}
+}
+
+func getArrayPrefixSize() int {
+	// Type marker + element type marker + overall count + per-dimension count
+	return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 }
 
 func readUint32(r io.Reader) (uint32, error) {

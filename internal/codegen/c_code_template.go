@@ -23,7 +23,7 @@ var cTemplate = template.Must(template.New("c").Funcs(template.FuncMap{
 	"cType":             cType,
 	"isVariable":        func(ft schema.FieldType) bool { return ft.IsVariable() },
 	"add":               func(a, b int) int { return a + b },
-	"arrayRootType":     arrayRootType,
+	"arrayRootCType":    arrayRootCType,
 	"arrayRootBaseType": arrayRootBaseType,
 }).Parse(cTemplateSource))
 
@@ -102,22 +102,10 @@ uint32_t get_message_overall_payload_length(const uint8_t *buf) {
     return get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
 }
 
-
-// Standard status codes for error handling
-typedef enum {
-    DYN_ARR_OK = 0,
-    DYN_ARR_ERR_INVALID_PARAM,
-    DYN_ARR_ERR_OUT_OF_BOUNDS,
-    DYN_ARR_ERR_NO_MEMORY,
-    DYN_ARR_ERR_OVERFLOW,
-    DYN_ARR_ERR_FAIL,
-    DYN_ARR_ERR_EOF
-} dyn_arr_status_t;
-
 /* =========================================================================
  * HELPER: Calculate flat index from 3D coordinates (Row-Major Order)
  * ========================================================================= */
-static inline size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
+size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
     return (i * arr->y * arr->z) + (j * arr->z) + k;
 }
 
@@ -149,7 +137,7 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
         return DYN_ARR_ERR_INVALID_PARAM;
     }
 
-    arr->data = malloc(total_elements * elem_size);
+    arr->data = calloc(total_elements, elem_size);
     if (!arr->data) {
         return DYN_ARR_ERR_NO_MEMORY;
     }
@@ -715,7 +703,7 @@ dyn_arr_status_t array_to_bytes(
 
     // Build Wire Format Header
     // Header Layout: [TAG (2B)] + [WIRE_ELEMENT_TYPE (2B)] + [OVERALL_COUNT (2B)]
-    size_t header_len = TYPE_MARKER_SIZE + TYPE_MARKER_SIZE + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
+    size_t header_len = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
     size_t total_len = header_len + arr_bytes_len;
 
     uint8_t *final_buf = (uint8_t*)malloc(total_len);
@@ -725,9 +713,9 @@ dyn_arr_status_t array_to_bytes(
     }
 
     // Write Top-Level Wire Header
-    put_u16_be(final_buf + 0, wire_tag);
-    put_u16_be(final_buf + 2, arr->ele_type);
-    put_u16_be(final_buf + 4, (uint16_t)overall_items_count);
+    put_u16_be(final_buf, wire_tag);
+    put_u16_be(final_buf + TYPE_MARKER_SIZE, arr->ele_type);
+    put_u16_be(final_buf + (TYPE_MARKER_SIZE * 2), (uint16_t)overall_items_count);
 
     // Copy Serialized Dimension Payload
     memcpy(final_buf + header_len, arr_bytes, arr_bytes_len);
@@ -929,8 +917,8 @@ static dyn_arr_status_t read_one_dimensional_array(
                     return DYN_ARR_ERR_FAIL;
                 }
 
-                *stream    += WIRE_FRAME_HEADER_SIZE;
-                *remaining -= WIRE_FRAME_HEADER_SIZE;
+                *stream    += full_payload_len;
+                *remaining -= full_payload_len;
             }
 
             break;
@@ -1073,7 +1061,7 @@ dyn_arr_status_t bytes_to_array(
     }
 
     // Header size = [WIRE_TAG (2B)] + [WIRE_ELE_TYPE (2B)] + [TOTAL_ITEMS (2B)]
-    size_t header_len = TYPE_MARKER_SIZE + TYPE_MARKER_SIZE + ARRAY_COUNT_PREFIX_SIZE;
+    size_t header_len = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE;
     if (in_size < header_len) {
         return DYN_ARR_ERR_EOF;
     }
@@ -1082,8 +1070,8 @@ dyn_arr_status_t bytes_to_array(
     size_t remaining = in_size;
 
     uint16_t wire_tag = get_u16_be(stream);
-    uint16_t ele_type = get_u16_be(stream + 2);
-    uint16_t total_items = get_u16_be(stream + 4);
+    uint16_t ele_type = get_u16_be(stream + TYPE_MARKER_SIZE);
+    uint16_t total_items = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
 
     stream += header_len;
     remaining -= header_len;
@@ -1121,6 +1109,15 @@ dyn_arr_status_t bytes_to_array(
 {{- end }}
     default:
         return DYN_ARR_ERR_INVALID_PARAM;
+    }
+
+    out_arr->ele_type = ele_type;
+    if (total_items > 0) {
+        out_arr->data = calloc(total_items, out_arr->elem_size);
+        if (!out_arr->data) {
+            return DYN_ARR_ERR_NO_MEMORY;
+        }
+        out_arr->capacity = total_items;
     }
 
     size_t x = 0, y = 0, z = 0;
@@ -1241,7 +1238,7 @@ size_t calc_array_size(
     custom_size_fn size_fn)
 {
     if (!arr || !arr->data || arr->x == 0) {
-        return ARRAY_COUNT_PREFIX_SIZE; // 2 bytes
+        return (0); // Empty array, not writing any bytes on wire
     }
 
     size_t elem_bytes = 0;
@@ -1262,28 +1259,35 @@ size_t calc_array_size(
         size_t z = (arr->num_dims == 3) ? arr->z : 1;
 
         if (arr->num_dims == 1) {
-            // [Count X (2B)] + Payload
-            return ARRAY_COUNT_PREFIX_SIZE + (x * elem_bytes);
+            return (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2) + (x * elem_bytes);
         } 
-        else if (arr->num_dims == 2) {
-            // [Count X (2B)] + X * ([Count Y (2B)] + Payload)
-            size_t row_size = ARRAY_COUNT_PREFIX_SIZE + (y * elem_bytes);
-            return ARRAY_COUNT_PREFIX_SIZE + (x * row_size);
+        if (arr->num_dims == 2) {
+            size_t y_block = ARRAY_COUNT_PREFIX_SIZE + (y * elem_bytes);
+            return (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2) + (x * y_block);
         } 
-        else if (arr->num_dims == 3) {
-            // [Count X (2B)] + X * ([Count Y (2B)] + Y * ([Count Z (2B)] + Payload))
+        if (arr->num_dims == 3) {
             size_t z_block = ARRAY_COUNT_PREFIX_SIZE + (z * elem_bytes);
             size_t y_block = ARRAY_COUNT_PREFIX_SIZE + (y * z_block);
-            return ARRAY_COUNT_PREFIX_SIZE + (x * y_block);
+            return (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2) + (x * y_block);
         }
     }
 
     // --- NON-PRIMITIVE & VARIABLE-LENGTH SIZES (Strings, Bytes, Structs) ---
-    // Includes top-level TypeMarker (2B)
-    size_t total_size = ARRAY_COUNT_PREFIX_SIZE + TYPE_MARKER_SIZE;
+    size_t total_size = (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2);
     size_t total_elements = arr->x;
     if (arr->num_dims >= 2) total_elements *= arr->y;
     if (arr->num_dims == 3) total_elements *= arr->z;
+
+    // Add inner row-count prefixes for 2D/3D arrays.
+    // For 2D: each of the x rows has a 2-byte inner count prefix.
+    // For 3D: each of the x planes has a 2-byte mid count prefix,
+    //         and each of the x*y rows has a 2-byte inner count prefix.
+    if (arr->num_dims == 2) {
+        total_size += arr->x * ARRAY_COUNT_PREFIX_SIZE;
+    } else if (arr->num_dims == 3) {
+        total_size += arr->x * ARRAY_COUNT_PREFIX_SIZE;
+        total_size += arr->x * arr->y * ARRAY_COUNT_PREFIX_SIZE;
+    }
 
     const uint8_t *src_bytes = (const uint8_t*)arr->data;
 
@@ -1308,8 +1312,19 @@ size_t calc_array_size(
  */
 {{- if isVariable $field.Type}}
 {{- if eq (cBaseType $field) "[]any"}}
+{{- $rootElemType := arrayRootBaseType $field "c"}}
 void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+{{- if or (eq $rootElemType "string") (eq $rootElemType "[]byte")}}
+    // TODO: Reevaluate this
+    if (msg->{{$field.CName}}.data) {
+        size_t _existing = msg->{{$field.CName}}.x * msg->{{$field.CName}}.y * msg->{{$field.CName}}.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->{{$field.CName}}.data + _i * msg->{{$field.CName}}.elem_size);
+            if (_e->data) { free(_e->data); _e->data = NULL; }
+        }
+    }
+{{- end}}
     dynamic_array_destroy(&msg->{{$field.CName}});
 
     if (value->data != NULL && value->capacity > 0) {
@@ -1320,8 +1335,28 @@ void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t 
             return;
         }
 
-        size_t total_size = value->x * value->y * value->z * value->elem_size;
+        size_t _total = value->x * value->y * value->z;
+{{- if or (eq $rootElemType "string") (eq $rootElemType "[]byte")}}
+        for (size_t _i = 0; _i < _total; _i++) {
+            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
+            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->{{$field.CName}}.data + _i * value->elem_size);
+            _dst->len = _src->len;
+            if (_src->len > 0 && _src->data) {
+{{- if eq $rootElemType "string"}}
+                _dst->data = malloc(_src->len + 1);
+                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); ((char *)_dst->data)[_src->len] = '\0'; }
+{{- else}}
+                _dst->data = malloc(_src->len);
+                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); }
+{{- end}}
+            } else {
+                _dst->data = NULL;
+            }
+        }
+{{- else}}
+        size_t total_size = _total * value->elem_size;
         memcpy(msg->{{$field.CName}}.data, value->data, total_size);
+{{- end}}
     }
 }
 {{- else if eq (cBaseType $field) "struct"}}
@@ -1379,7 +1414,7 @@ size_t {{snakeLower $msg.Name}}_t_dynamic_payload_size(const {{snakeLower $msg.N
 {{- range $msg.VariableFields}}{{$field := .}}
 {{- if eq (cBaseType $field) "[]any"}}
 {{- if eq (arrayRootBaseType $field "c") "struct"}}
-    dyn_size += calc_array_size(&msg->{{$field.CName}}, TAG_{{snakeUpper (arrayRootType $field $overallMessages "c")}}, {{arrayRootType $field $overallMessages "c"}}_t_size);
+    dyn_size += calc_array_size(&msg->{{$field.CName}}, TAG_{{snakeUpper (arrayRootCType $field $overallMessages)}}, {{arrayRootCType $field $overallMessages}}_t_size);
 {{- else if eq (arrayRootBaseType $field "c") "string"}}
     dyn_size += calc_array_size(&msg->{{$field.CName}}, TAG_STRING, NULL);
 {{- else if eq (arrayRootBaseType $field "c") "[]byte"}}
@@ -1460,34 +1495,40 @@ int {{snakeLower $msg.Name}}_t_marshal(const {{snakeLower $msg.Name}}_t* msg, ui
     // {{snakeLower $msg.Name}}_t -> {{$field.CName}} (offset: {{$field.Offset}}, size: {{$field.Size}})
 {{- if isVariable $field.Type}}
 {{- if eq (cBaseType $field) "[]any"}}
-    size_t {{$field.CName}}_len = 0;
-    uint8_t* {{$field.CName}}_buf = NULL;
+    put_u32_be(hdr + {{$field.Offset}}, 0);
+    if (msg->{{$field.CName}}.data != NULL && msg->{{$field.CName}}.x > 0) {
+        size_t {{$field.CName}}_len = 0;
+        uint8_t* {{$field.CName}}_buf = NULL;
 {{- if eq (arrayRootBaseType $field "c") "struct"}}
-    dyn_arr_status_t {{$field.CName}}_status = array_to_bytes(&msg->{{$field.CName}}, &{{$field.CName}}_buf,
-            &{{$field.CName}}_len, {{arrayRootType $field $overallMessages "c"}}_t_size, {{arrayRootType $field $overallMessages "c"}}_t_marshal);
+        dyn_arr_status_t {{$field.CName}}_status = array_to_bytes(&msg->{{$field.CName}}, &{{$field.CName}}_buf,
+                &{{$field.CName}}_len, {{arrayRootCType $field $overallMessages}}_t_size, {{arrayRootCType $field $overallMessages}}_t_marshal);
 {{- else}}{{/* not eq (arrayRootBaseType $field) "struct" */}}
-    dyn_arr_status_t {{$field.CName}}_status = array_to_bytes(&msg->{{$field.CName}}, &{{$field.CName}}_buf,
-            &{{$field.CName}}_len, NULL, NULL);
+        dyn_arr_status_t {{$field.CName}}_status = array_to_bytes(&msg->{{$field.CName}}, &{{$field.CName}}_buf,
+                &{{$field.CName}}_len, NULL, NULL);
 {{- end}}{{/* if eq (arrayRootBaseType $field) "struct" */}}
-    if ({{$field.CName}}_status != DYN_ARR_OK) {
-        free(buf);
-        return -1;
+        if ({{$field.CName}}_status != DYN_ARR_OK) {
+            free(buf);
+            return -1;
+        }
+        put_u32_be(hdr + {{$field.Offset}}, {{$field.CName}}_len);
+        memcpy(buf + dyn_off, {{$field.CName}}_buf, {{$field.CName}}_len);
+        dyn_off += {{$field.CName}}_len;
+        free({{$field.CName}}_buf);
     }
-    put_u32_be(hdr + {{$field.Offset}}, {{$field.CName}}_len);
-    memcpy(buf + dyn_off, {{$field.CName}}_buf, {{$field.CName}}_len);
-    dyn_off += {{$field.CName}}_len;
-    free({{$field.CName}}_buf);
 {{- else if eq (cBaseType $field) "struct"}}
-    uint8_t* {{snakeLower (cType $field $overallMessages)}}_t_buf = NULL;
-    int {{snakeLower (cType $field $overallMessages)}}_t_len = {{snakeLower (cType $field $overallMessages)}}_t_marshal(msg->{{$field.CName}}, &{{snakeLower (cType $field $overallMessages)}}_t_buf);
-    if ({{snakeLower (cType $field $overallMessages)}}_t_len < 0) {
-        free(buf);
-        return -1;
+    put_u32_be(hdr + {{$field.Offset}}, 0);
+    if (msg->{{$field.CName}} != NULL) {
+        uint8_t* {{snakeLower (cType $field $overallMessages)}}_t_buf = NULL;
+        int {{snakeLower (cType $field $overallMessages)}}_t_len = {{snakeLower (cType $field $overallMessages)}}_t_marshal(msg->{{$field.CName}}, &{{snakeLower (cType $field $overallMessages)}}_t_buf);
+        if ({{snakeLower (cType $field $overallMessages)}}_t_len < 0) {
+            free(buf);
+            return -1;
+        }
+        put_u32_be(hdr + {{$field.Offset}}, {{snakeLower (cType $field $overallMessages)}}_t_len);
+        memcpy(buf + dyn_off, {{snakeLower (cType $field $overallMessages)}}_t_buf, {{snakeLower (cType $field $overallMessages)}}_t_len);
+        dyn_off += {{snakeLower (cType $field $overallMessages)}}_t_len;
+        free({{snakeLower (cType $field $overallMessages)}}_t_buf);
     }
-    put_u32_be(hdr + {{$field.Offset}}, {{snakeLower (cType $field $overallMessages)}}_t_len);
-    memcpy(buf + dyn_off, {{snakeLower (cType $field $overallMessages)}}_t_buf, {{snakeLower (cType $field $overallMessages)}}_t_len);
-    dyn_off += {{snakeLower (cType $field $overallMessages)}}_t_len;
-    free({{snakeLower (cType $field $overallMessages)}}_t_buf);
 {{- else}}{{/* if eq (cBaseType $field) */}}
     put_u32_be(hdr + {{$field.Offset}}, msg->{{$field.CName}}.len);
     if (msg->{{$field.CName}}.len > 0 && msg->{{$field.CName}}.data) {
@@ -1599,7 +1640,7 @@ int {{snakeLower $msg.Name}}_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_p
 {{- if eq (cBaseType $field) "[]any"}}
 {{- if eq (arrayRootBaseType $field "c") "struct"}}
         dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, {{$field.CName}}_len,
-            &out_msg->{{$field.CName}}, {{snakeLower (arrayRootType $field $overallMessages "c")}}_t_unmarshal);
+            &out_msg->{{$field.CName}}, {{snakeLower (arrayRootCType $field $overallMessages)}}_t_unmarshal);
 {{- else}}{{/* not eq (arrayRootBaseType $field) "struct" */}}
         dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, {{$field.CName}}_len,
             &out_msg->{{$field.CName}}, NULL);
@@ -1617,9 +1658,8 @@ int {{snakeLower $msg.Name}}_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_p
 
         uint16_t fixed_len = get_message_fixed_payload_length(in_buf + dyn_off);
         uint32_t full_payload_len = get_message_overall_payload_length(in_buf + dyn_off);
-        dyn_off += WIRE_FRAME_HEADER_SIZE;
 
-        int status = {{snakeLower (cType $field $overallMessages)}}_t_unmarshal(in_buf + dyn_off, fixed_len, full_payload_len, out_msg->{{$field.CName}});
+        int status = {{snakeLower (cType $field $overallMessages)}}_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE, fixed_len, full_payload_len, out_msg->{{$field.CName}});
         if (status != 0) {
             {{snakeLower $msg.Name}}_t_free(out_msg);
             return -1;
@@ -1661,6 +1701,17 @@ void {{snakeLower $msg.Name}}_t_free({{snakeLower $msg.Name}}_t *msg) {
     }
 {{- range $msg.VariableFields}}{{$field := .}}
 {{- if eq (cBaseType $field) "[]any"}}
+{{- $rootElemType := arrayRootBaseType $field "c"}}
+{{- if or (eq $rootElemType "string") (eq $rootElemType "[]byte")}}
+    // Deep-free variable-length element data before destroying flat buffer
+    if (msg->{{$field.CName}}.data) {
+        size_t _total = msg->{{$field.CName}}.x * msg->{{$field.CName}}.y * msg->{{$field.CName}}.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->{{$field.CName}}.data + _i * msg->{{$field.CName}}.elem_size);
+            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+        }
+    }
+{{- end}}
     dynamic_array_destroy(&msg->{{$field.CName}});
 {{- else if eq (cBaseType $field) "struct"}}
     if (msg->{{$field.CName}}) {

@@ -328,8 +328,8 @@ func TestGenerateGo(t *testing.T) {
 		assert.Contains(t, goCode, "func (h *HeartbeatMessage) Marshal() ([]byte, error) {", "Go output must contain Marshal method for HeartbeatMessage")
 
 		// Unmarshal()
-		assert.Contains(t, goCode, "func (u *UserMessage) Unmarshal(reader io.Reader,\n\tfixedPayloadSize uint16, _ uint32) error {", "Go output must contain Unmarshal method for UserMessage")
-		assert.Contains(t, goCode, "func (h *HeartbeatMessage) Unmarshal(reader io.Reader,\n\tfixedPayloadSize uint16, _ uint32) error {", "Go output must contain Unmarshal method for HeartbeatMessage")
+		assert.Contains(t, goCode, "func (u *UserMessage) Unmarshal(reader io.Reader, fixedPayloadSize uint16,\n\toverallPayloadSize uint32) error {", "Go output must contain Unmarshal method for UserMessage")
+		assert.Contains(t, goCode, "func (h *HeartbeatMessage) Unmarshal(reader io.Reader, fixedPayloadSize uint16,\n\toverallPayloadSize uint32) error {", "Go output must contain Unmarshal method for HeartbeatMessage")
 
 		assert.NotContains(t, goCode, "_pad", "Go structs must not contain explicit _padN fields; Go handles alignment natively")
 	})
