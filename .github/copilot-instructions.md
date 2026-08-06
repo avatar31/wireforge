@@ -172,7 +172,27 @@ wireforge/
         +-- c_header_template.go        # C header generation template
         +-- c_code_template.go          # C implementation generation template
 +-- examples/
-    +-- p2p-chatapp/                    # Example of dual socket peer-to-peer chatapp using generated code
+|   +-- p2p-chatapp/                    # Example of dual socket peer-to-peer chatapp using generated code
++-- test/
+    +-- golden/                         
+        +-- all_types/
+            +-- c
+                +-- messages.h          # Golden C header for all_types.yaml
+                +-- messages.c          # Golden C implementation for all_types.yaml
+                +-- roundtrip_test.c    # Golden C unit test for all_types.yaml
+            +-- go
+                +-- messages.go         # Golden Go code for all_types.yaml
+                +-- roundtrip_test.go   # Golden Go unit test for all_types.yaml
+        +-- padding_alignment/          # Golden test for padding/alignment edge cases
+            +-- c
+                +-- messages.h          # Golden C header for padding_alignment.yaml
+                +-- messages.c          # Golden C implementation for padding_alignment.yaml
+            +-- go
+                +-- messages.go         # Golden Go code for padding_alignment.yaml
+    +-- schemas/                        # OpenAPI Schema files for integration tests
+        +-- all_types.yaml
+        +-- chatapp.yaml
+        +-- padding_alignment.yaml
 ```
 
 ---

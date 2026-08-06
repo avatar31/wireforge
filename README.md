@@ -167,6 +167,18 @@ Strings and bytes stored as array elements are serialized as a 4-byte length pre
       +---------+----------+
 ```
 
+#### Object Format in Array
+Objects stored in array with 1-byte set/unset prefix and then serialized object data. The serialized object data is the same as the parent object i.e. each nested object is serailized with message type ID, fixed payload length, overall payload length, fixed payload, and dynamic payload.
+
+```
+    Offset
+      m           m+1        m+1+N
+      +------------+-----------+
+      |  Set/Unset |    Data   |
+      |    (1B)    | (N bytes) |
+      +------------+-----------+
+```
+
 ## Alignment & Padding
 
 `wireforge` computes natural alignment for each field and inserts explicit padding bytes where needed. It has following precedence order for field layout:

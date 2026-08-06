@@ -48,6 +48,9 @@ const (
 	// 4 bytes for the length prefix of any string or byte slice
 	StrOrByteLenPrefixSize = 4
 
+	// 1 byte for the length prefix of any object set or unset field
+	ObjectSetUnsetPrefixSize = 1
+
 	// MaxAllowedPacket is the hard ceiling on any single message size (16 MB).
 	// Any incoming length field exceeding this value is treated as corrupted
 	// data and rejected immediately, preventing denial-of-service via
@@ -126,6 +129,9 @@ func (arr *array1D[T]) CalcSize() int {
 	if arr.EleType == TagString || arr.EleType == TagBytes {
 		legthPrefixSize = StrOrByteLenPrefixSize
 	}
+	if isObjectType(arr.EleType) {
+		legthPrefixSize = ObjectSetUnsetPrefixSize
+	}
 
 	for _, item := range arr.Elements {
 		size += legthPrefixSize + calcTypeSize(item)
@@ -169,6 +175,9 @@ func (arr *array2D[T]) CalcSize() int {
 	legthPrefixSize := 0
 	if arr.EleType == TagString || arr.EleType == TagBytes {
 		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+	if isObjectType(arr.EleType) {
+		legthPrefixSize = 1
 	}
 
 	for _, row := range arr.Elements {
@@ -217,6 +226,9 @@ func (arr *array3D[T]) CalcSize() int {
 	legthPrefixSize := 0
 	if arr.EleType == TagString || arr.EleType == TagBytes {
 		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+	if isObjectType(arr.EleType) {
+		legthPrefixSize = 1
 	}
 
 	for _, plane := range arr.Elements {
@@ -723,22 +735,9 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint
 		}
 
 		o_ByteArray_reader := io.LimitReader(reader, int64(o_ByteArray_len))
-		arrType, err := readUint16(o_ByteArray_reader)
+		err := validateReaderArrayPrefix[[]byte](o_ByteArray_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.ByteArray type marker: %w", err)
-		}
-		_, err = readUint16(o_ByteArray_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.ByteArray element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(o_ByteArray_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.ByteArray overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.ByteArray expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading OnlyVariableTypesMsg.ByteArray array prefix: %w", err)
 		}
 
 		o_ByteArray_arr, err := readOneDimensionalSlice[[]byte](o_ByteArray_reader)
@@ -755,22 +754,9 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint
 		}
 
 		o_Matrix_reader := io.LimitReader(reader, int64(o_Matrix_len))
-		arrType, err := readUint16(o_Matrix_reader)
+		err := validateReaderArrayPrefix[int32](o_Matrix_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Matrix type marker: %w", err)
-		}
-		_, err = readUint16(o_Matrix_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Matrix element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(o_Matrix_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Matrix overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Matrix expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading OnlyVariableTypesMsg.Matrix array prefix: %w", err)
 		}
 
 		o_Matrix_arr, err := readTwoDimensionalSlice[int32](o_Matrix_reader)
@@ -787,22 +773,9 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint
 		}
 
 		o_Tags_reader := io.LimitReader(reader, int64(o_Tags_len))
-		arrType, err := readUint16(o_Tags_reader)
+		err := validateReaderArrayPrefix[string](o_Tags_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Tags type marker: %w", err)
-		}
-		_, err = readUint16(o_Tags_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Tags element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(o_Tags_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading OnlyVariableTypesMsg.Tags overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Tags expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading OnlyVariableTypesMsg.Tags array prefix: %w", err)
 		}
 
 		o_Tags_arr, err := readOneDimensionalSlice[string](o_Tags_reader)
@@ -1188,22 +1161,9 @@ func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
 		}
 
 		a_ByteArray_reader := io.LimitReader(reader, int64(a_ByteArray_len))
-		arrType, err := readUint16(a_ByteArray_reader)
+		err := validateReaderArrayPrefix[[]byte](a_ByteArray_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray type marker: %w", err)
-		}
-		_, err = readUint16(a_ByteArray_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_ByteArray_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.ByteArray overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesFieldsMsg.ByteArray expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesFieldsMsg.ByteArray array prefix: %w", err)
 		}
 
 		a_ByteArray_arr, err := readOneDimensionalSlice[[]byte](a_ByteArray_reader)
@@ -1220,22 +1180,9 @@ func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
 		}
 
 		a_Matrix_reader := io.LimitReader(reader, int64(a_Matrix_len))
-		arrType, err := readUint16(a_Matrix_reader)
+		err := validateReaderArrayPrefix[int32](a_Matrix_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix type marker: %w", err)
-		}
-		_, err = readUint16(a_Matrix_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Matrix_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Matrix overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Matrix expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesFieldsMsg.Matrix array prefix: %w", err)
 		}
 
 		a_Matrix_arr, err := readTwoDimensionalSlice[int32](a_Matrix_reader)
@@ -1252,22 +1199,9 @@ func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
 		}
 
 		a_Tags_reader := io.LimitReader(reader, int64(a_Tags_len))
-		arrType, err := readUint16(a_Tags_reader)
+		err := validateReaderArrayPrefix[string](a_Tags_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags type marker: %w", err)
-		}
-		_, err = readUint16(a_Tags_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Tags_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesFieldsMsg.Tags overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Tags expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesFieldsMsg.Tags array prefix: %w", err)
 		}
 
 		a_Tags_arr, err := readOneDimensionalSlice[string](a_Tags_reader)
@@ -2780,22 +2714,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DBool_reader := io.LimitReader(reader, int64(a_Arr1DBool_len))
-		arrType, err := readUint16(a_Arr1DBool_reader)
+		err := validateReaderArrayPrefix[bool](a_Arr1DBool_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DBool_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DBool_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBool overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBool expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DBool array prefix: %w", err)
 		}
 
 		a_Arr1DBool_arr, err := readOneDimensionalSlice[bool](a_Arr1DBool_reader)
@@ -2812,22 +2733,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DBytes_reader := io.LimitReader(reader, int64(a_Arr1DBytes_len))
-		arrType, err := readUint16(a_Arr1DBytes_reader)
+		err := validateReaderArrayPrefix[[]byte](a_Arr1DBytes_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DBytes_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DBytes_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DBytes overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBytes expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DBytes array prefix: %w", err)
 		}
 
 		a_Arr1DBytes_arr, err := readOneDimensionalSlice[[]byte](a_Arr1DBytes_reader)
@@ -2844,22 +2752,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DDouble_reader := io.LimitReader(reader, int64(a_Arr1DDouble_len))
-		arrType, err := readUint16(a_Arr1DDouble_reader)
+		err := validateReaderArrayPrefix[float64](a_Arr1DDouble_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DDouble_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DDouble_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DDouble overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DDouble expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DDouble array prefix: %w", err)
 		}
 
 		a_Arr1DDouble_arr, err := readOneDimensionalSlice[float64](a_Arr1DDouble_reader)
@@ -2876,22 +2771,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DFloat_reader := io.LimitReader(reader, int64(a_Arr1DFloat_len))
-		arrType, err := readUint16(a_Arr1DFloat_reader)
+		err := validateReaderArrayPrefix[float32](a_Arr1DFloat_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DFloat_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DFloat_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DFloat overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DFloat expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DFloat array prefix: %w", err)
 		}
 
 		a_Arr1DFloat_arr, err := readOneDimensionalSlice[float32](a_Arr1DFloat_reader)
@@ -2908,22 +2790,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DInt16_reader := io.LimitReader(reader, int64(a_Arr1DInt16_len))
-		arrType, err := readUint16(a_Arr1DInt16_reader)
+		err := validateReaderArrayPrefix[int16](a_Arr1DInt16_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DInt16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DInt16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt16 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DInt16 array prefix: %w", err)
 		}
 
 		a_Arr1DInt16_arr, err := readOneDimensionalSlice[int16](a_Arr1DInt16_reader)
@@ -2940,22 +2809,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DInt32_reader := io.LimitReader(reader, int64(a_Arr1DInt32_len))
-		arrType, err := readUint16(a_Arr1DInt32_reader)
+		err := validateReaderArrayPrefix[int32](a_Arr1DInt32_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DInt32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DInt32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt32 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DInt32 array prefix: %w", err)
 		}
 
 		a_Arr1DInt32_arr, err := readOneDimensionalSlice[int32](a_Arr1DInt32_reader)
@@ -2972,22 +2828,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DInt64_reader := io.LimitReader(reader, int64(a_Arr1DInt64_len))
-		arrType, err := readUint16(a_Arr1DInt64_reader)
+		err := validateReaderArrayPrefix[int64](a_Arr1DInt64_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DInt64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DInt64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt64 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DInt64 array prefix: %w", err)
 		}
 
 		a_Arr1DInt64_arr, err := readOneDimensionalSlice[int64](a_Arr1DInt64_reader)
@@ -3004,22 +2847,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DInt8_reader := io.LimitReader(reader, int64(a_Arr1DInt8_len))
-		arrType, err := readUint16(a_Arr1DInt8_reader)
+		err := validateReaderArrayPrefix[int8](a_Arr1DInt8_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DInt8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DInt8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DInt8 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DInt8 array prefix: %w", err)
 		}
 
 		a_Arr1DInt8_arr, err := readOneDimensionalSlice[int8](a_Arr1DInt8_reader)
@@ -3036,22 +2866,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DNested_reader := io.LimitReader(reader, int64(a_Arr1DNested_len))
-		arrType, err := readUint16(a_Arr1DNested_reader)
+		err := validateReaderArrayPrefix[*OnlyVariableTypesMsg](a_Arr1DNested_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DNested_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DNested_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DNested overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DNested expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DNested array prefix: %w", err)
 		}
 
 		a_Arr1DNested_arr, err := readOneDimensionalSlice[*OnlyVariableTypesMsg](a_Arr1DNested_reader)
@@ -3068,22 +2885,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DObject_reader := io.LimitReader(reader, int64(a_Arr1DObject_len))
-		arrType, err := readUint16(a_Arr1DObject_reader)
+		err := validateReaderArrayPrefix[*OnlyScalarTypesMsg](a_Arr1DObject_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DObject_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DObject_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DObject overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DObject expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DObject array prefix: %w", err)
 		}
 
 		a_Arr1DObject_arr, err := readOneDimensionalSlice[*OnlyScalarTypesMsg](a_Arr1DObject_reader)
@@ -3100,22 +2904,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DString_reader := io.LimitReader(reader, int64(a_Arr1DString_len))
-		arrType, err := readUint16(a_Arr1DString_reader)
+		err := validateReaderArrayPrefix[string](a_Arr1DString_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DString_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DString_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DString overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DString expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DString array prefix: %w", err)
 		}
 
 		a_Arr1DString_arr, err := readOneDimensionalSlice[string](a_Arr1DString_reader)
@@ -3132,22 +2923,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DUint16_reader := io.LimitReader(reader, int64(a_Arr1DUint16_len))
-		arrType, err := readUint16(a_Arr1DUint16_reader)
+		err := validateReaderArrayPrefix[uint16](a_Arr1DUint16_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DUint16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DUint16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint16 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DUint16 array prefix: %w", err)
 		}
 
 		a_Arr1DUint16_arr, err := readOneDimensionalSlice[uint16](a_Arr1DUint16_reader)
@@ -3164,22 +2942,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DUint32_reader := io.LimitReader(reader, int64(a_Arr1DUint32_len))
-		arrType, err := readUint16(a_Arr1DUint32_reader)
+		err := validateReaderArrayPrefix[uint32](a_Arr1DUint32_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DUint32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DUint32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint32 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DUint32 array prefix: %w", err)
 		}
 
 		a_Arr1DUint32_arr, err := readOneDimensionalSlice[uint32](a_Arr1DUint32_reader)
@@ -3196,22 +2961,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DUint64_reader := io.LimitReader(reader, int64(a_Arr1DUint64_len))
-		arrType, err := readUint16(a_Arr1DUint64_reader)
+		err := validateReaderArrayPrefix[uint64](a_Arr1DUint64_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DUint64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DUint64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint64 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DUint64 array prefix: %w", err)
 		}
 
 		a_Arr1DUint64_arr, err := readOneDimensionalSlice[uint64](a_Arr1DUint64_reader)
@@ -3228,22 +2980,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr1DUint8_reader := io.LimitReader(reader, int64(a_Arr1DUint8_len))
-		arrType, err := readUint16(a_Arr1DUint8_reader)
+		err := validateReaderArrayPrefix[uint8](a_Arr1DUint8_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr1DUint8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr1DUint8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr1DUint8 overall items count: %w", err)
-		}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr1DUint8 array prefix: %w", err)
 		}
 
 		a_Arr1DUint8_arr, err := readOneDimensionalSlice[uint8](a_Arr1DUint8_reader)
@@ -3260,22 +2999,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DBool_reader := io.LimitReader(reader, int64(a_Arr2DBool_len))
-		arrType, err := readUint16(a_Arr2DBool_reader)
+		err := validateReaderArrayPrefix[bool](a_Arr2DBool_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DBool_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DBool_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBool overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBool expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DBool array prefix: %w", err)
 		}
 
 		a_Arr2DBool_arr, err := readTwoDimensionalSlice[bool](a_Arr2DBool_reader)
@@ -3292,22 +3018,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DBytes_reader := io.LimitReader(reader, int64(a_Arr2DBytes_len))
-		arrType, err := readUint16(a_Arr2DBytes_reader)
+		err := validateReaderArrayPrefix[[]byte](a_Arr2DBytes_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DBytes_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DBytes_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DBytes overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBytes expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DBytes array prefix: %w", err)
 		}
 
 		a_Arr2DBytes_arr, err := readTwoDimensionalSlice[[]byte](a_Arr2DBytes_reader)
@@ -3324,22 +3037,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DDouble_reader := io.LimitReader(reader, int64(a_Arr2DDouble_len))
-		arrType, err := readUint16(a_Arr2DDouble_reader)
+		err := validateReaderArrayPrefix[float64](a_Arr2DDouble_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DDouble_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DDouble_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DDouble overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DDouble expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DDouble array prefix: %w", err)
 		}
 
 		a_Arr2DDouble_arr, err := readTwoDimensionalSlice[float64](a_Arr2DDouble_reader)
@@ -3356,22 +3056,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DFloat_reader := io.LimitReader(reader, int64(a_Arr2DFloat_len))
-		arrType, err := readUint16(a_Arr2DFloat_reader)
+		err := validateReaderArrayPrefix[float32](a_Arr2DFloat_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DFloat_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DFloat_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DFloat overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DFloat expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DFloat array prefix: %w", err)
 		}
 
 		a_Arr2DFloat_arr, err := readTwoDimensionalSlice[float32](a_Arr2DFloat_reader)
@@ -3388,22 +3075,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DInt16_reader := io.LimitReader(reader, int64(a_Arr2DInt16_len))
-		arrType, err := readUint16(a_Arr2DInt16_reader)
+		err := validateReaderArrayPrefix[int16](a_Arr2DInt16_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DInt16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DInt16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt16 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DInt16 array prefix: %w", err)
 		}
 
 		a_Arr2DInt16_arr, err := readTwoDimensionalSlice[int16](a_Arr2DInt16_reader)
@@ -3420,22 +3094,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DInt32_reader := io.LimitReader(reader, int64(a_Arr2DInt32_len))
-		arrType, err := readUint16(a_Arr2DInt32_reader)
+		err := validateReaderArrayPrefix[int32](a_Arr2DInt32_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DInt32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DInt32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt32 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DInt32 array prefix: %w", err)
 		}
 
 		a_Arr2DInt32_arr, err := readTwoDimensionalSlice[int32](a_Arr2DInt32_reader)
@@ -3452,22 +3113,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DInt64_reader := io.LimitReader(reader, int64(a_Arr2DInt64_len))
-		arrType, err := readUint16(a_Arr2DInt64_reader)
+		err := validateReaderArrayPrefix[int64](a_Arr2DInt64_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DInt64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DInt64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt64 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DInt64 array prefix: %w", err)
 		}
 
 		a_Arr2DInt64_arr, err := readTwoDimensionalSlice[int64](a_Arr2DInt64_reader)
@@ -3484,22 +3132,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DInt8_reader := io.LimitReader(reader, int64(a_Arr2DInt8_len))
-		arrType, err := readUint16(a_Arr2DInt8_reader)
+		err := validateReaderArrayPrefix[int8](a_Arr2DInt8_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DInt8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DInt8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DInt8 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DInt8 array prefix: %w", err)
 		}
 
 		a_Arr2DInt8_arr, err := readTwoDimensionalSlice[int8](a_Arr2DInt8_reader)
@@ -3516,22 +3151,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DNested_reader := io.LimitReader(reader, int64(a_Arr2DNested_len))
-		arrType, err := readUint16(a_Arr2DNested_reader)
+		err := validateReaderArrayPrefix[*OnlyVariableTypesMsg](a_Arr2DNested_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DNested_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DNested_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DNested overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DNested expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DNested array prefix: %w", err)
 		}
 
 		a_Arr2DNested_arr, err := readTwoDimensionalSlice[*OnlyVariableTypesMsg](a_Arr2DNested_reader)
@@ -3548,22 +3170,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DObject_reader := io.LimitReader(reader, int64(a_Arr2DObject_len))
-		arrType, err := readUint16(a_Arr2DObject_reader)
+		err := validateReaderArrayPrefix[*OnlyScalarTypesMsg](a_Arr2DObject_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DObject_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DObject_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DObject overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DObject expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DObject array prefix: %w", err)
 		}
 
 		a_Arr2DObject_arr, err := readTwoDimensionalSlice[*OnlyScalarTypesMsg](a_Arr2DObject_reader)
@@ -3580,22 +3189,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DString_reader := io.LimitReader(reader, int64(a_Arr2DString_len))
-		arrType, err := readUint16(a_Arr2DString_reader)
+		err := validateReaderArrayPrefix[string](a_Arr2DString_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DString_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DString_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DString overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DString expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DString array prefix: %w", err)
 		}
 
 		a_Arr2DString_arr, err := readTwoDimensionalSlice[string](a_Arr2DString_reader)
@@ -3612,22 +3208,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DUint16_reader := io.LimitReader(reader, int64(a_Arr2DUint16_len))
-		arrType, err := readUint16(a_Arr2DUint16_reader)
+		err := validateReaderArrayPrefix[uint16](a_Arr2DUint16_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DUint16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DUint16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint16 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DUint16 array prefix: %w", err)
 		}
 
 		a_Arr2DUint16_arr, err := readTwoDimensionalSlice[uint16](a_Arr2DUint16_reader)
@@ -3644,22 +3227,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DUint32_reader := io.LimitReader(reader, int64(a_Arr2DUint32_len))
-		arrType, err := readUint16(a_Arr2DUint32_reader)
+		err := validateReaderArrayPrefix[uint32](a_Arr2DUint32_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DUint32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DUint32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint32 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DUint32 array prefix: %w", err)
 		}
 
 		a_Arr2DUint32_arr, err := readTwoDimensionalSlice[uint32](a_Arr2DUint32_reader)
@@ -3676,22 +3246,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DUint64_reader := io.LimitReader(reader, int64(a_Arr2DUint64_len))
-		arrType, err := readUint16(a_Arr2DUint64_reader)
+		err := validateReaderArrayPrefix[uint64](a_Arr2DUint64_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DUint64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DUint64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint64 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DUint64 array prefix: %w", err)
 		}
 
 		a_Arr2DUint64_arr, err := readTwoDimensionalSlice[uint64](a_Arr2DUint64_reader)
@@ -3708,22 +3265,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr2DUint8_reader := io.LimitReader(reader, int64(a_Arr2DUint8_len))
-		arrType, err := readUint16(a_Arr2DUint8_reader)
+		err := validateReaderArrayPrefix[uint8](a_Arr2DUint8_reader, Tag2DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr2DUint8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr2DUint8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr2DUint8 overall items count: %w", err)
-		}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr2DUint8 array prefix: %w", err)
 		}
 
 		a_Arr2DUint8_arr, err := readTwoDimensionalSlice[uint8](a_Arr2DUint8_reader)
@@ -3740,22 +3284,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DBool_reader := io.LimitReader(reader, int64(a_Arr3DBool_len))
-		arrType, err := readUint16(a_Arr3DBool_reader)
+		err := validateReaderArrayPrefix[bool](a_Arr3DBool_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DBool_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DBool_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBool overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBool expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DBool array prefix: %w", err)
 		}
 
 		a_Arr3DBool_arr, err := readThreeDimensionalSlice[bool](a_Arr3DBool_reader)
@@ -3772,22 +3303,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DBytes_reader := io.LimitReader(reader, int64(a_Arr3DBytes_len))
-		arrType, err := readUint16(a_Arr3DBytes_reader)
+		err := validateReaderArrayPrefix[[]byte](a_Arr3DBytes_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DBytes_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DBytes_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DBytes overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBytes expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DBytes array prefix: %w", err)
 		}
 
 		a_Arr3DBytes_arr, err := readThreeDimensionalSlice[[]byte](a_Arr3DBytes_reader)
@@ -3804,22 +3322,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DDouble_reader := io.LimitReader(reader, int64(a_Arr3DDouble_len))
-		arrType, err := readUint16(a_Arr3DDouble_reader)
+		err := validateReaderArrayPrefix[float64](a_Arr3DDouble_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DDouble_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DDouble_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DDouble overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DDouble expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DDouble array prefix: %w", err)
 		}
 
 		a_Arr3DDouble_arr, err := readThreeDimensionalSlice[float64](a_Arr3DDouble_reader)
@@ -3836,22 +3341,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DFloat_reader := io.LimitReader(reader, int64(a_Arr3DFloat_len))
-		arrType, err := readUint16(a_Arr3DFloat_reader)
+		err := validateReaderArrayPrefix[float32](a_Arr3DFloat_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DFloat_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DFloat_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DFloat overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DFloat expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DFloat array prefix: %w", err)
 		}
 
 		a_Arr3DFloat_arr, err := readThreeDimensionalSlice[float32](a_Arr3DFloat_reader)
@@ -3868,22 +3360,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DInt16_reader := io.LimitReader(reader, int64(a_Arr3DInt16_len))
-		arrType, err := readUint16(a_Arr3DInt16_reader)
+		err := validateReaderArrayPrefix[int16](a_Arr3DInt16_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DInt16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DInt16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt16 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DInt16 array prefix: %w", err)
 		}
 
 		a_Arr3DInt16_arr, err := readThreeDimensionalSlice[int16](a_Arr3DInt16_reader)
@@ -3900,22 +3379,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DInt32_reader := io.LimitReader(reader, int64(a_Arr3DInt32_len))
-		arrType, err := readUint16(a_Arr3DInt32_reader)
+		err := validateReaderArrayPrefix[int32](a_Arr3DInt32_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DInt32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DInt32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt32 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DInt32 array prefix: %w", err)
 		}
 
 		a_Arr3DInt32_arr, err := readThreeDimensionalSlice[int32](a_Arr3DInt32_reader)
@@ -3932,22 +3398,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DInt64_reader := io.LimitReader(reader, int64(a_Arr3DInt64_len))
-		arrType, err := readUint16(a_Arr3DInt64_reader)
+		err := validateReaderArrayPrefix[int64](a_Arr3DInt64_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DInt64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DInt64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt64 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DInt64 array prefix: %w", err)
 		}
 
 		a_Arr3DInt64_arr, err := readThreeDimensionalSlice[int64](a_Arr3DInt64_reader)
@@ -3964,22 +3417,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DInt8_reader := io.LimitReader(reader, int64(a_Arr3DInt8_len))
-		arrType, err := readUint16(a_Arr3DInt8_reader)
+		err := validateReaderArrayPrefix[int8](a_Arr3DInt8_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DInt8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DInt8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DInt8 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DInt8 array prefix: %w", err)
 		}
 
 		a_Arr3DInt8_arr, err := readThreeDimensionalSlice[int8](a_Arr3DInt8_reader)
@@ -3996,22 +3436,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DNested_reader := io.LimitReader(reader, int64(a_Arr3DNested_len))
-		arrType, err := readUint16(a_Arr3DNested_reader)
+		err := validateReaderArrayPrefix[*OnlyVariableTypesMsg](a_Arr3DNested_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DNested_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DNested_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DNested overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DNested expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DNested array prefix: %w", err)
 		}
 
 		a_Arr3DNested_arr, err := readThreeDimensionalSlice[*OnlyVariableTypesMsg](a_Arr3DNested_reader)
@@ -4028,22 +3455,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DObject_reader := io.LimitReader(reader, int64(a_Arr3DObject_len))
-		arrType, err := readUint16(a_Arr3DObject_reader)
+		err := validateReaderArrayPrefix[*OnlyScalarTypesMsg](a_Arr3DObject_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DObject_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DObject_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DObject overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DObject expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DObject array prefix: %w", err)
 		}
 
 		a_Arr3DObject_arr, err := readThreeDimensionalSlice[*OnlyScalarTypesMsg](a_Arr3DObject_reader)
@@ -4060,22 +3474,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DString_reader := io.LimitReader(reader, int64(a_Arr3DString_len))
-		arrType, err := readUint16(a_Arr3DString_reader)
+		err := validateReaderArrayPrefix[string](a_Arr3DString_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DString_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DString_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DString overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DString expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DString array prefix: %w", err)
 		}
 
 		a_Arr3DString_arr, err := readThreeDimensionalSlice[string](a_Arr3DString_reader)
@@ -4092,22 +3493,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DUint16_reader := io.LimitReader(reader, int64(a_Arr3DUint16_len))
-		arrType, err := readUint16(a_Arr3DUint16_reader)
+		err := validateReaderArrayPrefix[uint16](a_Arr3DUint16_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DUint16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DUint16_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint16 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint16 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DUint16 array prefix: %w", err)
 		}
 
 		a_Arr3DUint16_arr, err := readThreeDimensionalSlice[uint16](a_Arr3DUint16_reader)
@@ -4124,22 +3512,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DUint32_reader := io.LimitReader(reader, int64(a_Arr3DUint32_len))
-		arrType, err := readUint16(a_Arr3DUint32_reader)
+		err := validateReaderArrayPrefix[uint32](a_Arr3DUint32_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DUint32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DUint32_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint32 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint32 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DUint32 array prefix: %w", err)
 		}
 
 		a_Arr3DUint32_arr, err := readThreeDimensionalSlice[uint32](a_Arr3DUint32_reader)
@@ -4156,22 +3531,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DUint64_reader := io.LimitReader(reader, int64(a_Arr3DUint64_len))
-		arrType, err := readUint16(a_Arr3DUint64_reader)
+		err := validateReaderArrayPrefix[uint64](a_Arr3DUint64_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DUint64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DUint64_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint64 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint64 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DUint64 array prefix: %w", err)
 		}
 
 		a_Arr3DUint64_arr, err := readThreeDimensionalSlice[uint64](a_Arr3DUint64_reader)
@@ -4188,22 +3550,9 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 		}
 
 		a_Arr3DUint8_reader := io.LimitReader(reader, int64(a_Arr3DUint8_len))
-		arrType, err := readUint16(a_Arr3DUint8_reader)
+		err := validateReaderArrayPrefix[uint8](a_Arr3DUint8_reader, Tag3DArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 type marker: %w", err)
-		}
-		_, err = readUint16(a_Arr3DUint8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16(a_Arr3DUint8_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading AllTypesOfArraysMsg.Arr3DUint8 overall items count: %w", err)
-		}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint8 expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading AllTypesOfArraysMsg.Arr3DUint8 array prefix: %w", err)
 		}
 
 		a_Arr3DUint8_arr, err := readThreeDimensionalSlice[uint8](a_Arr3DUint8_reader)
@@ -4533,9 +3882,10 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 
 	case []*OnlyScalarTypesMsg:
 		totalSize := 0
-		for i, v := range sl {
+		for _, v := range sl {
+			totalSize += ObjectSetUnsetPrefixSize
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *OnlyScalarTypesMsg element at index %d", i)
+				continue
 			}
 			totalSize += v.Size()
 		}
@@ -4543,6 +3893,14 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		binary.BigEndian.PutUint16(buf[0:], uint16(count))
 		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
+			if v == nil {
+				buf[dynOff] = 0
+				dynOff += ObjectSetUnsetPrefixSize
+				continue
+			}
+			buf[dynOff] = 1
+			dynOff += ObjectSetUnsetPrefixSize
+
 			b, err := v.Marshal()
 			if err != nil {
 				return 0, nil, fmt.Errorf("failed to serialize *OnlyScalarTypesMsg element: %w", err)
@@ -4554,9 +3912,10 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 
 	case []*OnlyVariableTypesMsg:
 		totalSize := 0
-		for i, v := range sl {
+		for _, v := range sl {
+			totalSize += ObjectSetUnsetPrefixSize
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *OnlyVariableTypesMsg element at index %d", i)
+				continue
 			}
 			totalSize += v.Size()
 		}
@@ -4564,6 +3923,14 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		binary.BigEndian.PutUint16(buf[0:], uint16(count))
 		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
+			if v == nil {
+				buf[dynOff] = 0
+				dynOff += ObjectSetUnsetPrefixSize
+				continue
+			}
+			buf[dynOff] = 1
+			dynOff += ObjectSetUnsetPrefixSize
+
 			b, err := v.Marshal()
 			if err != nil {
 				return 0, nil, fmt.Errorf("failed to serialize *OnlyVariableTypesMsg element: %w", err)
@@ -4575,9 +3942,10 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 
 	case []*AllTypesFieldsMsg:
 		totalSize := 0
-		for i, v := range sl {
+		for _, v := range sl {
+			totalSize += ObjectSetUnsetPrefixSize
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *AllTypesFieldsMsg element at index %d", i)
+				continue
 			}
 			totalSize += v.Size()
 		}
@@ -4585,6 +3953,14 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		binary.BigEndian.PutUint16(buf[0:], uint16(count))
 		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
+			if v == nil {
+				buf[dynOff] = 0
+				dynOff += ObjectSetUnsetPrefixSize
+				continue
+			}
+			buf[dynOff] = 1
+			dynOff += ObjectSetUnsetPrefixSize
+
 			b, err := v.Marshal()
 			if err != nil {
 				return 0, nil, fmt.Errorf("failed to serialize *AllTypesFieldsMsg element: %w", err)
@@ -4596,9 +3972,10 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 
 	case []*RecursiveNestedMsg:
 		totalSize := 0
-		for i, v := range sl {
+		for _, v := range sl {
+			totalSize += ObjectSetUnsetPrefixSize
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *RecursiveNestedMsg element at index %d", i)
+				continue
 			}
 			totalSize += v.Size()
 		}
@@ -4606,6 +3983,14 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		binary.BigEndian.PutUint16(buf[0:], uint16(count))
 		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
+			if v == nil {
+				buf[dynOff] = 0
+				dynOff += ObjectSetUnsetPrefixSize
+				continue
+			}
+			buf[dynOff] = 1
+			dynOff += ObjectSetUnsetPrefixSize
+
 			b, err := v.Marshal()
 			if err != nil {
 				return 0, nil, fmt.Errorf("failed to serialize *RecursiveNestedMsg element: %w", err)
@@ -4617,9 +4002,10 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 
 	case []*AllTypesOfArraysMsg:
 		totalSize := 0
-		for i, v := range sl {
+		for _, v := range sl {
+			totalSize += ObjectSetUnsetPrefixSize
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *AllTypesOfArraysMsg element at index %d", i)
+				continue
 			}
 			totalSize += v.Size()
 		}
@@ -4627,6 +4013,14 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		binary.BigEndian.PutUint16(buf[0:], uint16(count))
 		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
+			if v == nil {
+				buf[dynOff] = 0
+				dynOff += ObjectSetUnsetPrefixSize
+				continue
+			}
+			buf[dynOff] = 1
+			dynOff += ObjectSetUnsetPrefixSize
+
 			b, err := v.Marshal()
 			if err != nil {
 				return 0, nil, fmt.Errorf("failed to serialize *AllTypesOfArraysMsg element: %w", err)
@@ -4640,6 +4034,40 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		var zero T
 		return 0, nil, fmt.Errorf("unsupported primitive type: %T", zero)
 	}
+}
+
+func validateReaderArrayPrefix[T any](r io.Reader, expectedArrType uint16) error {
+	arrType, err := readUint16(r)
+	if err != nil {
+		return fmt.Errorf("error reading array type marker: %w", err)
+	}
+
+	if arrType != expectedArrType {
+		return fmt.Errorf("unexpected array type marker: got %d, expected %d", arrType, expectedArrType)
+	}
+
+	eleType, err := readUint16(r)
+	if err != nil {
+		return fmt.Errorf("error reading element type marker: %w", err)
+	}
+
+	var zero T
+	expectedEleType, err := getElementType(zero)
+	if err != nil {
+		return fmt.Errorf("error reading element type marker: %w", err)
+	}
+
+	if eleType != expectedEleType {
+		return fmt.Errorf("unexpected element type marker: got %d, expected %d", eleType, expectedEleType)
+	}
+
+	// Skip the overall items count written by sliceToBytes
+	_, err = readUint16(r)
+	if err != nil {
+		return fmt.Errorf("error reading overall items count: %w", err)
+	}
+
+	return nil
 }
 
 func readThreeDimensionalSlice[T any](r io.Reader) ([][][]T, error) {
@@ -4834,6 +4262,16 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 
 	case []*OnlyScalarTypesMsg:
 		for i := range sl {
+			set, err := readUint8(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read object set/unset prefix for *OnlyScalarTypesMsg at index %d: %w", i, err)
+			}
+
+			if set == 0 {
+				sl[i] = nil
+				continue
+			}
+
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read frame header for *OnlyScalarTypesMsg at index %d: %w", i, err)
@@ -4853,6 +4291,16 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 
 	case []*OnlyVariableTypesMsg:
 		for i := range sl {
+			set, err := readUint8(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read object set/unset prefix for *OnlyVariableTypesMsg at index %d: %w", i, err)
+			}
+
+			if set == 0 {
+				sl[i] = nil
+				continue
+			}
+
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read frame header for *OnlyVariableTypesMsg at index %d: %w", i, err)
@@ -4872,6 +4320,16 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 
 	case []*AllTypesFieldsMsg:
 		for i := range sl {
+			set, err := readUint8(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read object set/unset prefix for *AllTypesFieldsMsg at index %d: %w", i, err)
+			}
+
+			if set == 0 {
+				sl[i] = nil
+				continue
+			}
+
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read frame header for *AllTypesFieldsMsg at index %d: %w", i, err)
@@ -4891,6 +4349,16 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 
 	case []*RecursiveNestedMsg:
 		for i := range sl {
+			set, err := readUint8(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read object set/unset prefix for *RecursiveNestedMsg at index %d: %w", i, err)
+			}
+
+			if set == 0 {
+				sl[i] = nil
+				continue
+			}
+
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read frame header for *RecursiveNestedMsg at index %d: %w", i, err)
@@ -4910,6 +4378,16 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 
 	case []*AllTypesOfArraysMsg:
 		for i := range sl {
+			set, err := readUint8(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read object set/unset prefix for *AllTypesOfArraysMsg at index %d: %w", i, err)
+			}
+
+			if set == 0 {
+				sl[i] = nil
+				continue
+			}
+
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read frame header for *AllTypesOfArraysMsg at index %d: %w", i, err)
@@ -4983,6 +4461,29 @@ func getElementType(item any) (uint16, error) {
 	}
 }
 
+func isObjectType(eleType uint16) bool {
+	switch eleType {
+
+	case TagOnlyScalarTypesMsg:
+		return true
+
+	case TagOnlyVariableTypesMsg:
+		return true
+
+	case TagAllTypesFieldsMsg:
+		return true
+
+	case TagRecursiveNestedMsg:
+		return true
+
+	case TagAllTypesOfArraysMsg:
+		return true
+
+	default:
+		return false
+	}
+}
+
 func getArraySizer[T any](dimensions int) ArraySizer {
 	var zero T
 	elemType, err := getElementType(zero)
@@ -5004,6 +4505,14 @@ func getArraySizer[T any](dimensions int) ArraySizer {
 func getArrayPrefixSize() int {
 	// Type marker + element type marker + overall count + per-dimension count
 	return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+}
+
+func readUint8(r io.Reader) (uint8, error) {
+	var buf [1]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
+		return 0, err
+	}
+	return buf[0], nil
 }
 
 func readUint32(r io.Reader) (uint32, error) {

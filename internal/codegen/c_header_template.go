@@ -94,6 +94,7 @@ const cHeaderTemplateSource = `/*
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,6 +112,7 @@ extern "C" {
 #define WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE 4
 #define TYPE_MARKER_SIZE 2
 #define ARRAY_COUNT_PREFIX_SIZE 2
+#define OBJECT_SET_UNSET_PREFIX_SIZE 1
 #define STRING_OR_BYTE_LEN_PREFIX_SIZE 4
 #define MAX_ARRAY_ELEMENTS 65535
 
@@ -155,14 +157,22 @@ typedef enum {
 } dyn_arr_status_t;
 
 typedef struct {
+    bool _is_set;
+} base_object_t;
+
+typedef struct {
 	char *data;
 	uint32_t len;
 } string_t;
+
+void string_t_free(string_t *str);
 
 typedef struct {
 	uint8_t *data;
 	uint32_t len;
 } byte_array_t;
+
+void byte_array_t_free(byte_array_t *arr);
 
 typedef struct {
     void *data;
@@ -247,6 +257,8 @@ typedef struct {{snakeLower $msg.Name}} {{snakeLower $msg.Name}}_t;
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
 struct {{snakeLower $msg.Name}} {
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */
+
 {{- range padFields .}} {{$pad_field := .}}
 {{- if $pad_field.IsPadding}}
     uint8_t {{$pad_field.PadName}}[{{$pad_field.PadSize}}]; /**< Explicit alignment padding. */
@@ -255,15 +267,16 @@ struct {{snakeLower $msg.Name}} {
 {{- if $pad_field.Field.Description}}
     /** {{$pad_field.Field.Description}} */
 {{- end}} {{/* $pad_field.Field.Description */}}
-{{- if eq (cBaseType $pad_field.Field) "struct"}}
+{{- $pad_field_type := cBaseType $pad_field.Field}}
+{{- if eq $pad_field_type "struct"}}
 	{{snakeLower (cType $pad_field.Field $overallMessages)}}_t *{{$pad_field.Field.CName}};
-{{- else if eq (cBaseType $pad_field.Field) "[]any"}}
+{{- else if eq $pad_field_type "[]any"}}
 	dynamic_array_t {{$pad_field.Field.CName}};
-{{- else if eq (cBaseType $pad_field.Field) "string"}}
+{{- else if eq $pad_field_type "string"}}
 	string_t {{$pad_field.Field.CName}};
-{{- else if eq (cBaseType $pad_field.Field) "[]byte"}}
+{{- else if eq $pad_field_type "[]byte"}}
 	byte_array_t {{$pad_field.Field.CName}};
-{{end}}{{/* eq (cBaseType $pad_field.Field) */}}
+{{end}}{{/* eq $pad_field_type */}}
 
 {{- else}} {{/* not (isVariable $pad_field.Field.Type) */}}
 {{- if $pad_field.Field.Description}}
@@ -286,23 +299,24 @@ _Static_assert(sizeof({{snakeLower $msg.Name}}_t) >= {{.TotalFixedSize}},
  * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
  */
 {{- if isVariable $field.Type}}
-{{- if eq (cBaseType $field) "[]any"}}
+{{- $variableType := cBaseType $field}}
+{{- if eq $variableType "[]any"}}
 void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value);
-{{- else if eq (cBaseType $field) "struct"}}
+{{- else if eq $variableType "struct"}}
 void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cType $field $overallMessages}}_t *value);
-{{- else if eq (cBaseType $field) "string"}}
+{{- else if eq $variableType "string"}}
 void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const char *value, const size_t len);
-{{- else if eq (cBaseType $field) "[]byte"}}
+{{- else if eq $variableType "[]byte"}}
 void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const uint8_t *value, const size_t len);
-{{- end}}{{/* if (cBaseType $field) */}}
+{{- end}}{{/* if $variableType */}}
 {{- else}}{{/* not (isVariable $field.Type) */}}
 void {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cBaseType $field}} value);
 {{- end}}{{/* isVariable $field.Type */}}
 {{- end}}{{/* range $msg.Fields */}}
 
-size_t {{snakeLower $msg.Name}}_t_dynamic_payload_size(const {{snakeLower $msg.Name}}_t *msg);
+size_t {{snakeLower $msg.Name}}_t_dynamic_payload_size({{snakeLower $msg.Name}}_t *msg);
 
-size_t {{snakeLower $msg.Name}}_t_size(const {{snakeLower $msg.Name}}_t *msg);
+size_t {{snakeLower $msg.Name}}_t_size(void *in_item);
 
 /**
  * Serialize a {{$msg.Name}} message into out_buf in wire format.
@@ -314,7 +328,7 @@ size_t {{snakeLower $msg.Name}}_t_size(const {{snakeLower $msg.Name}}_t *msg);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int {{snakeLower $msg.Name}}_t_marshal(const {{snakeLower $msg.Name}}_t *msg, uint8_t **out_buf);
+int {{snakeLower $msg.Name}}_t_marshal(void *in_item, uint8_t **out_buf);
 
 /**
  * Deserialize a {{$msg.Name}} message from a contiguous buffer.
@@ -329,8 +343,8 @@ int {{snakeLower $msg.Name}}_t_marshal(const {{snakeLower $msg.Name}}_t *msg, ui
  * On success, caller MUST call {{snakeLower $msg.Name}}_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int {{snakeLower $msg.Name}}_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, {{snakeLower $msg.Name}}_t *out_msg);
+int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a {{snakeLower $msg.Name}}_t struct.
@@ -348,19 +362,19 @@ void {{snakeLower $msg.Name}}_t_free({{snakeLower $msg.Name}}_t *msg);
  * Internal Helpers
  */
 
-typedef size_t (*custom_size_fn)(const void *item);
-typedef int (*custom_marshal_fn)(const void *item, uint8_t **out_buf);
-typedef int (*custom_unmarshal_fn)(const uint8_t *buf, uint16_t buf_len,
+typedef size_t (*custom_size_fn)(void *item);
+typedef int (*custom_marshal_fn)(void *item, uint8_t **out_buf);
+typedef int (*custom_unmarshal_fn)(uint8_t *buf, uint16_t buf_len,
 	uint32_t overall_payload_len, void *out_item);
 
 size_t calc_type_size(
-    const void *item,
+    void *item,
     element_type_t ele_type,
     custom_size_fn size_fn
 );
 
 size_t calc_array_size(
-    const dynamic_array_t *arr,
+    dynamic_array_t *arr,
     element_type_t ele_type,
     custom_size_fn size_fn
 );

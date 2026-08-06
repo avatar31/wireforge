@@ -40,6 +40,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +58,7 @@ extern "C" {
 #define WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE 4
 #define TYPE_MARKER_SIZE 2
 #define ARRAY_COUNT_PREFIX_SIZE 2
+#define OBJECT_SET_UNSET_PREFIX_SIZE 1
 #define STRING_OR_BYTE_LEN_PREFIX_SIZE 4
 #define MAX_ARRAY_ELEMENTS 65535
 
@@ -103,14 +105,22 @@ typedef enum {
 } dyn_arr_status_t;
 
 typedef struct {
+    bool _is_set;
+} base_object_t;
+
+typedef struct {
 	char *data;
 	uint32_t len;
 } string_t;
+
+void string_t_free(string_t *str);
 
 typedef struct {
 	uint8_t *data;
 	uint32_t len;
 } byte_array_t;
+
+void byte_array_t_free(byte_array_t *arr);
 
 typedef struct {
     void *data;
@@ -202,7 +212,8 @@ typedef struct all_types_of_arrays_msg all_types_of_arrays_msg_t;
  *
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
-struct only_scalar_types_msg {  
+struct only_scalar_types_msg {
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */  
     /** Unsigned 64-bit integer. */ 
     uint64_t val_uint64;    
     /** Signed 64-bit integer. */ 
@@ -298,9 +309,9 @@ void only_scalar_types_msg_t_set_val_int8(only_scalar_types_msg_t *msg, const in
  */
 void only_scalar_types_msg_t_set_val_bool(only_scalar_types_msg_t *msg, const uint8_t value);
 
-size_t only_scalar_types_msg_t_dynamic_payload_size(const only_scalar_types_msg_t *msg);
+size_t only_scalar_types_msg_t_dynamic_payload_size(only_scalar_types_msg_t *msg);
 
-size_t only_scalar_types_msg_t_size(const only_scalar_types_msg_t *msg);
+size_t only_scalar_types_msg_t_size(void *in_item);
 
 /**
  * Serialize a OnlyScalarTypesMsg message into out_buf in wire format.
@@ -312,7 +323,7 @@ size_t only_scalar_types_msg_t_size(const only_scalar_types_msg_t *msg);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int only_scalar_types_msg_t_marshal(const only_scalar_types_msg_t *msg, uint8_t **out_buf);
+int only_scalar_types_msg_t_marshal(void *in_item, uint8_t **out_buf);
 
 /**
  * Deserialize a OnlyScalarTypesMsg message from a contiguous buffer.
@@ -327,8 +338,8 @@ int only_scalar_types_msg_t_marshal(const only_scalar_types_msg_t *msg, uint8_t 
  * On success, caller MUST call only_scalar_types_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int only_scalar_types_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, only_scalar_types_msg_t *out_msg);
+int only_scalar_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a only_scalar_types_msg_t struct.
@@ -364,7 +375,8 @@ void only_scalar_types_msg_t_free(only_scalar_types_msg_t *msg);
  *
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
-struct only_variable_types_msg { 
+struct only_variable_types_msg {
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */ 
     /** UTF-8 string. */ 
 	string_t name;   
     /** Raw binary blob. */ 
@@ -420,9 +432,9 @@ void only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const 
  */
 void only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dynamic_array_t *value);
 
-size_t only_variable_types_msg_t_dynamic_payload_size(const only_variable_types_msg_t *msg);
+size_t only_variable_types_msg_t_dynamic_payload_size(only_variable_types_msg_t *msg);
 
-size_t only_variable_types_msg_t_size(const only_variable_types_msg_t *msg);
+size_t only_variable_types_msg_t_size(void *in_item);
 
 /**
  * Serialize a OnlyVariableTypesMsg message into out_buf in wire format.
@@ -434,7 +446,7 @@ size_t only_variable_types_msg_t_size(const only_variable_types_msg_t *msg);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int only_variable_types_msg_t_marshal(const only_variable_types_msg_t *msg, uint8_t **out_buf);
+int only_variable_types_msg_t_marshal(void *in_item, uint8_t **out_buf);
 
 /**
  * Deserialize a OnlyVariableTypesMsg message from a contiguous buffer.
@@ -449,8 +461,8 @@ int only_variable_types_msg_t_marshal(const only_variable_types_msg_t *msg, uint
  * On success, caller MUST call only_variable_types_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int only_variable_types_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, only_variable_types_msg_t *out_msg);
+int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a only_variable_types_msg_t struct.
@@ -486,7 +498,8 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg);
  *
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
-struct all_types_fields_msg {  
+struct all_types_fields_msg {
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */  
     /** Unsigned 64-bit integer. */ 
     uint64_t val_uint64;    
     /** Signed 64-bit integer. */ 
@@ -631,9 +644,9 @@ void all_types_fields_msg_t_set_val_int8(all_types_fields_msg_t *msg, const int8
  */
 void all_types_fields_msg_t_set_val_bool(all_types_fields_msg_t *msg, const uint8_t value);
 
-size_t all_types_fields_msg_t_dynamic_payload_size(const all_types_fields_msg_t *msg);
+size_t all_types_fields_msg_t_dynamic_payload_size(all_types_fields_msg_t *msg);
 
-size_t all_types_fields_msg_t_size(const all_types_fields_msg_t *msg);
+size_t all_types_fields_msg_t_size(void *in_item);
 
 /**
  * Serialize a AllTypesFieldsMsg message into out_buf in wire format.
@@ -645,7 +658,7 @@ size_t all_types_fields_msg_t_size(const all_types_fields_msg_t *msg);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int all_types_fields_msg_t_marshal(const all_types_fields_msg_t *msg, uint8_t **out_buf);
+int all_types_fields_msg_t_marshal(void *in_item, uint8_t **out_buf);
 
 /**
  * Deserialize a AllTypesFieldsMsg message from a contiguous buffer.
@@ -660,8 +673,8 @@ int all_types_fields_msg_t_marshal(const all_types_fields_msg_t *msg, uint8_t **
  * On success, caller MUST call all_types_fields_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int all_types_fields_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, all_types_fields_msg_t *out_msg);
+int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a all_types_fields_msg_t struct.
@@ -697,7 +710,8 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg);
  *
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
-struct recursive_nested_msg { 
+struct recursive_nested_msg {
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */ 
     /** UTF-8 string. */ 
 	string_t name;    
 	recursive_nested_msg_t *nested;   
@@ -719,9 +733,9 @@ void recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *va
  */
 void recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg, const recursive_nested_msg_t *value);
 
-size_t recursive_nested_msg_t_dynamic_payload_size(const recursive_nested_msg_t *msg);
+size_t recursive_nested_msg_t_dynamic_payload_size(recursive_nested_msg_t *msg);
 
-size_t recursive_nested_msg_t_size(const recursive_nested_msg_t *msg);
+size_t recursive_nested_msg_t_size(void *in_item);
 
 /**
  * Serialize a RecursiveNestedMsg message into out_buf in wire format.
@@ -733,7 +747,7 @@ size_t recursive_nested_msg_t_size(const recursive_nested_msg_t *msg);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int recursive_nested_msg_t_marshal(const recursive_nested_msg_t *msg, uint8_t **out_buf);
+int recursive_nested_msg_t_marshal(void *in_item, uint8_t **out_buf);
 
 /**
  * Deserialize a RecursiveNestedMsg message from a contiguous buffer.
@@ -748,8 +762,8 @@ int recursive_nested_msg_t_marshal(const recursive_nested_msg_t *msg, uint8_t **
  * On success, caller MUST call recursive_nested_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int recursive_nested_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, recursive_nested_msg_t *out_msg);
+int recursive_nested_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a recursive_nested_msg_t struct.
@@ -785,7 +799,8 @@ void recursive_nested_msg_t_free(recursive_nested_msg_t *msg);
  *
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
-struct all_types_of_arrays_msg { 
+struct all_types_of_arrays_msg {
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */ 
     /** 1-D array of booleans. */ 
 	dynamic_array_t arr1_d_bool;   
     /** 1-D array of binary blobs. */ 
@@ -1152,9 +1167,9 @@ void all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
 
-size_t all_types_of_arrays_msg_t_dynamic_payload_size(const all_types_of_arrays_msg_t *msg);
+size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t *msg);
 
-size_t all_types_of_arrays_msg_t_size(const all_types_of_arrays_msg_t *msg);
+size_t all_types_of_arrays_msg_t_size(void *in_item);
 
 /**
  * Serialize a AllTypesOfArraysMsg message into out_buf in wire format.
@@ -1166,7 +1181,7 @@ size_t all_types_of_arrays_msg_t_size(const all_types_of_arrays_msg_t *msg);
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
-int all_types_of_arrays_msg_t_marshal(const all_types_of_arrays_msg_t *msg, uint8_t **out_buf);
+int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t **out_buf);
 
 /**
  * Deserialize a AllTypesOfArraysMsg message from a contiguous buffer.
@@ -1181,8 +1196,8 @@ int all_types_of_arrays_msg_t_marshal(const all_types_of_arrays_msg_t *msg, uint
  * On success, caller MUST call all_types_of_arrays_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
-int all_types_of_arrays_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, all_types_of_arrays_msg_t *out_msg);
+int all_types_of_arrays_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+		uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a all_types_of_arrays_msg_t struct.
@@ -1200,19 +1215,19 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg);
  * Internal Helpers
  */
 
-typedef size_t (*custom_size_fn)(const void *item);
-typedef int (*custom_marshal_fn)(const void *item, uint8_t **out_buf);
-typedef int (*custom_unmarshal_fn)(const uint8_t *buf, uint16_t buf_len,
+typedef size_t (*custom_size_fn)(void *item);
+typedef int (*custom_marshal_fn)(void *item, uint8_t **out_buf);
+typedef int (*custom_unmarshal_fn)(uint8_t *buf, uint16_t buf_len,
 	uint32_t overall_payload_len, void *out_item);
 
 size_t calc_type_size(
-    const void *item,
+    void *item,
     element_type_t ele_type,
     custom_size_fn size_fn
 );
 
 size_t calc_array_size(
-    const dynamic_array_t *arr,
+    dynamic_array_t *arr,
     element_type_t ele_type,
     custom_size_fn size_fn
 );

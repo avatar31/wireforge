@@ -138,6 +138,9 @@ const (
 	// 4 bytes for the length prefix of any string or byte slice
 	StrOrByteLenPrefixSize = 4
 
+	// 1 byte for the length prefix of any object set or unset field
+	ObjectSetUnsetPrefixSize = 1
+
 	// MaxAllowedPacket is the hard ceiling on any single message size (16 MB).
 	// Any incoming length field exceeding this value is treated as corrupted
 	// data and rejected immediately, preventing denial-of-service via
@@ -214,6 +217,9 @@ func (arr *array1D[T]) CalcSize() int {
 	if arr.EleType == TagString || arr.EleType == TagBytes {
 		legthPrefixSize = StrOrByteLenPrefixSize
 	}
+	if isObjectType(arr.EleType) {
+		legthPrefixSize = ObjectSetUnsetPrefixSize
+	}
 
 	for _, item := range arr.Elements {
 		size +=  legthPrefixSize + calcTypeSize(item)
@@ -257,6 +263,9 @@ func (arr *array2D[T]) CalcSize() int {
 	legthPrefixSize := 0
 	if arr.EleType == TagString || arr.EleType == TagBytes {
 		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+	if isObjectType(arr.EleType) {
+		legthPrefixSize = 1
 	}
 
 	for _, row := range arr.Elements {
@@ -305,6 +314,9 @@ func (arr *array3D[T]) CalcSize() int {
 	legthPrefixSize := 0
 	if arr.EleType == TagString || arr.EleType == TagBytes {
 		legthPrefixSize = StrOrByteLenPrefixSize
+	}
+	if isObjectType(arr.EleType) {
+		legthPrefixSize = 1
 	}
 
 	for _, plane := range arr.Elements {
@@ -621,35 +633,25 @@ func ({{receiver $msg.Name}} *{{$msg.Name}}) Unmarshal(reader io.Reader, fixedPa
 		}
 
 		{{receiver $msg.Name}}_{{$field.GoName}}_reader := io.LimitReader(reader, int64({{receiver $msg.Name}}_{{$field.GoName}}_len))
-		arrType, err := readUint16({{receiver $msg.Name}}_{{$field.GoName}}_reader)
+{{- $arrDim := arrayDimension $field}}
+{{- if eq $arrDim 1}}
+		err := validateReaderArrayPrefix[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, TagArray)
 		if err != nil {
-			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} type marker: %w", err)
-		}
-		_, err = readUint16({{receiver $msg.Name}}_{{$field.GoName}}_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} element type marker: %w", err)
-		}
-		// Skip the overall items count written by sliceToBytes; the dimension-specific
-		// read functions re-read the per-dimension count from the inner serialised bytes.
-		_, err = readUint16({{receiver $msg.Name}}_{{$field.GoName}}_reader)
-		if err != nil {
-			return fmt.Errorf("wireforge: reading {{$msg.Name}}.{{$field.GoName}} overall items count: %w", err)
-		}
-{{- if eq (arrayDimension $field) 1}}
-		if arrType != TagArray {
-			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
+			return fmt.Errorf("wireforge: error reading {{$msg.Name}}.{{$field.GoName}} array prefix: %w", err)
 		}
 
 		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readOneDimensionalSlice[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
-{{- else if eq (arrayDimension $field) 2}}
-		if arrType != Tag2DArray {
-			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
+{{- else if eq $arrDim 2}}
+		err := validateReaderArrayPrefix[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, Tag2DArray)
+		if err != nil {
+			return fmt.Errorf("wireforge: error reading {{$msg.Name}}.{{$field.GoName}} array prefix: %w", err)
 		}
 
 		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readTwoDimensionalSlice[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
-{{- else if eq (arrayDimension $field) 3}}
-		if arrType != Tag3DArray {
-			return fmt.Errorf("wireforge: {{$msg.Name}}.{{$field.GoName}} expected array type marker %d, got %d", TagArray, arrType)
+{{- else if eq $arrDim 3}}
+		err := validateReaderArrayPrefix[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader, Tag3DArray)	
+		if err != nil {
+			return fmt.Errorf("wireforge: error reading {{$msg.Name}}.{{$field.GoName}} array prefix: %w", err)
 		}
 
 		{{receiver $msg.Name}}_{{$field.GoName}}_arr , err := readThreeDimensionalSlice[{{(arrayRootGoType $field $overallMessages true)}}]({{receiver $msg.Name}}_{{$field.GoName}}_reader)
@@ -1009,9 +1011,10 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 {{range .Messages}}{{$msg := .}}
 	case []*{{$msg.Name}}:
 		totalSize := 0
-		for i, v := range sl {
+		for _, v := range sl {
+			totalSize += ObjectSetUnsetPrefixSize
 			if v == nil {
-				return 0, nil, fmt.Errorf("cannot serialize nil *{{$msg.Name}} element at index %d", i)
+				continue
 			}
 			totalSize += v.Size()
 		}
@@ -1019,6 +1022,14 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		binary.BigEndian.PutUint16(buf[0:], uint16(count))
 		dynOff := ArrayCountPrefixSize
 		for _, v := range sl {
+			if v == nil {
+				buf[dynOff] = 0
+				dynOff += ObjectSetUnsetPrefixSize
+				continue
+			}
+			buf[dynOff] = 1
+			dynOff += ObjectSetUnsetPrefixSize
+
 			b, err := v.Marshal()
 			if err != nil {
 				return 0, nil, fmt.Errorf("failed to serialize *{{$msg.Name}} element: %w", err)
@@ -1032,6 +1043,40 @@ func oneDimensionalSliceToBytes[T any](elements []T) (int, []byte, error) {
 		var zero T
 		return 0, nil, fmt.Errorf("unsupported primitive type: %T", zero)
 	}
+}
+
+func validateReaderArrayPrefix[T any](r io.Reader, expectedArrType uint16) error {
+	arrType, err := readUint16(r)
+	if err != nil {
+		return fmt.Errorf("error reading array type marker: %w", err)
+	}
+
+	if arrType != expectedArrType {
+		return fmt.Errorf("unexpected array type marker: got %d, expected %d", arrType, expectedArrType)
+	}
+
+	eleType, err := readUint16(r)
+	if err != nil {
+		return fmt.Errorf("error reading element type marker: %w", err)
+	}
+
+	var zero T
+	expectedEleType, err := getElementType(zero)
+	if err != nil {
+		return fmt.Errorf("error reading element type marker: %w", err)
+	}
+
+	if eleType != expectedEleType {
+		return fmt.Errorf("unexpected element type marker: got %d, expected %d", eleType, expectedEleType)
+	}
+
+	// Skip the overall items count written by sliceToBytes
+	_, err = readUint16(r)
+	if err != nil {
+		return fmt.Errorf("error reading overall items count: %w", err)
+	}
+
+	return nil
 }
 
 func readThreeDimensionalSlice[T any](r io.Reader) ([][][]T, error) {
@@ -1226,6 +1271,16 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 {{range .Messages}}{{$msg := .}}
 	case []*{{$msg.Name}}:
 		for i := range sl {
+			set, err := readUint8(r)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read object set/unset prefix for *{{$msg.Name}} at index %d: %w", i, err)
+			}
+
+			if set == 0 {
+				sl[i] = nil
+				continue
+			}
+
 			typeID, fixedPayloadLen, overallPayloadLen, err := ReadMessageFrame(r)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read frame header for *{{$msg.Name}} at index %d: %w", i, err)
@@ -1287,6 +1342,17 @@ func getElementType(item any) (uint16, error) {
 	}
 }
 
+func isObjectType(eleType uint16) bool {
+	switch eleType {
+{{range .Messages}}{{$msg := .}}
+	case Tag{{$msg.Name}}:
+		return true
+{{end}} {{/* range .Messages */}}
+	default:
+		return false
+	}
+}
+
 func getArraySizer[T any](dimensions int) ArraySizer {
 	var zero T
 	elemType, err := getElementType(zero)
@@ -1308,6 +1374,14 @@ func getArraySizer[T any](dimensions int) ArraySizer {
 func getArrayPrefixSize() int {
 	// Type marker + element type marker + overall count + per-dimension count
 	return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+}
+
+func readUint8(r io.Reader) (uint8, error) {
+	var buf [1]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
+		return 0, err
+	}
+	return buf[0], nil
 }
 
 func readUint32(r io.Reader) (uint32, error) {

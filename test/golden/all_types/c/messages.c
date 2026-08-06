@@ -9,6 +9,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "messages.h"
 
@@ -68,6 +69,22 @@ uint32_t get_message_overall_payload_length(const uint8_t *buf) {
     return get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
 }
 
+void string_t_free(string_t *str) {
+    if (str && str->data) {
+        free(str->data);
+        str->data = NULL;
+        str->len = 0;
+    }
+}
+
+void byte_array_t_free(byte_array_t *byte_arr) {
+    if (byte_arr && byte_arr->data) {
+        free(byte_arr->data);
+        byte_arr->data = NULL;
+        byte_arr->len = 0;
+    }
+}
+
 /* =========================================================================
  * HELPER: Calculate flat index from 3D coordinates (Row-Major Order)
  * ========================================================================= */
@@ -103,6 +120,7 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
         return DYN_ARR_ERR_INVALID_PARAM;
     }
 
+    // Allocate and zeroed memory for the flattened array
     arr->data = calloc(total_elements, elem_size);
     if (!arr->data) {
         return DYN_ARR_ERR_NO_MEMORY;
@@ -364,10 +382,10 @@ static dyn_arr_status_t one_dimensional_array_to_bytes(
                 return (DYN_ARR_ERR_INVALID_PARAM);
             }
 
-            const uint8_t *src_bytes = (const uint8_t*)arr->data + flat_offset;
+            uint8_t *src_bytes = (uint8_t*)arr->data + flat_offset;
             for (size_t i = 0; i < count; i++) {
-                const void *item = src_bytes + (i * arr->elem_size);
-                total_payload_size += size_fn(item);
+                void *item = src_bytes + (i * arr->elem_size);
+                total_payload_size += OBJECT_SET_UNSET_PREFIX_SIZE + size_fn(item);
             }
 
             buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
@@ -378,9 +396,18 @@ static dyn_arr_status_t one_dimensional_array_to_bytes(
             put_u16_be(buf, (uint16_t)count);
             size_t dyn_off = ARRAY_COUNT_PREFIX_SIZE;
             for (size_t i = 0; i < count; i++) {
-                const void *item = src_bytes + (i * arr->elem_size);
-                uint8_t* item_buf = NULL;
+                void *item = src_bytes + (i * arr->elem_size);
 
+                base_object_t *obj = (base_object_t *)item;
+                if (!obj->_is_set) {
+                    buf[dyn_off] = 0; // Unset
+                    dyn_off += OBJECT_SET_UNSET_PREFIX_SIZE;
+                    continue;
+                }
+                buf[dyn_off] = 1; // Set
+                dyn_off += OBJECT_SET_UNSET_PREFIX_SIZE;
+
+                uint8_t* item_buf = NULL;
                 int written = marshal_fn(item, &item_buf);
                 if (written < 0) {
                     free(buf);
@@ -405,7 +432,7 @@ static dyn_arr_status_t one_dimensional_array_to_bytes(
 }
 
 static dyn_arr_status_t two_dimensional_array_to_bytes(
-    const dynamic_array_t *arr,
+    dynamic_array_t *arr,
     element_type_t ele_type,
     size_t flat_offset,
     custom_size_fn size_fn,
@@ -504,7 +531,7 @@ static dyn_arr_status_t two_dimensional_array_to_bytes(
 }
 
 static dyn_arr_status_t three_dimensional_array_to_bytes(
-    const dynamic_array_t *arr,
+    dynamic_array_t *arr,
     element_type_t ele_type,
     size_t flat_offset,
     custom_size_fn size_fn,
@@ -613,7 +640,7 @@ static dyn_arr_status_t three_dimensional_array_to_bytes(
  *  +------------------+------------------+------------------+------------------------------------+
  */
 dyn_arr_status_t array_to_bytes(
-    const dynamic_array_t *arr,
+    dynamic_array_t *arr,
     uint8_t **out_buf,
     size_t *out_size,
     custom_size_fn size_fn,
@@ -696,7 +723,7 @@ dyn_arr_status_t array_to_bytes(
 }
 
 static dyn_arr_status_t read_one_dimensional_array(
-    const uint8_t **stream,
+    uint8_t **stream,
     size_t *remaining,
     element_type_t ele_type,
     dynamic_array_t *arr,
@@ -712,12 +739,8 @@ static dyn_arr_status_t read_one_dimensional_array(
     *stream += ARRAY_COUNT_PREFIX_SIZE;
     *remaining -= ARRAY_COUNT_PREFIX_SIZE;
 
-    if (count > MAX_ARRAY_ELEMENTS) {
-        return DYN_ARR_ERR_OVERFLOW;
-    }
-
     *out_count = count;
-    if (count == 0) {
+    if ((size_t)count == 0) {
         return DYN_ARR_OK;
     }
 
@@ -867,6 +890,26 @@ static dyn_arr_status_t read_one_dimensional_array(
             }
 
             for (size_t i = 0; i < count; i++) {
+                void *item_dst = dst_base + (i * arr->elem_size);
+
+                if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) {
+                    return DYN_ARR_ERR_EOF;
+                }
+
+                bool is_set = **stream == 1; // First byte of payload indicates set/unset
+                if (!is_set) {
+                    // Mark the object as unset and skip the payload
+                    base_object_t *obj = (base_object_t *)item_dst;
+                    obj->_is_set = false;
+
+                    *stream    += OBJECT_SET_UNSET_PREFIX_SIZE;
+                    *remaining -= OBJECT_SET_UNSET_PREFIX_SIZE;
+                    continue;
+                }
+
+                *stream    += OBJECT_SET_UNSET_PREFIX_SIZE;
+                *remaining -= OBJECT_SET_UNSET_PREFIX_SIZE;
+
                 if (*remaining < WIRE_FRAME_HEADER_SIZE) {
                     return DYN_ARR_ERR_EOF;
                 }
@@ -881,7 +924,6 @@ static dyn_arr_status_t read_one_dimensional_array(
                     return DYN_ARR_ERR_EOF;
                 }
 
-                void *item_dst = dst_base + (i * arr->elem_size);
                 int status = unmarshal_fn(*stream, fixed_len, full_payload_len, (void *)item_dst);
                 if (status != 0) {
                     return DYN_ARR_ERR_FAIL;
@@ -902,7 +944,7 @@ static dyn_arr_status_t read_one_dimensional_array(
 }
 
 static dyn_arr_status_t read_two_dimensional_array(
-    const uint8_t **stream,
+    uint8_t **stream,
     size_t *remaining,
     element_type_t ele_type,
     dynamic_array_t *arr,
@@ -919,10 +961,6 @@ static dyn_arr_status_t read_two_dimensional_array(
     uint16_t x_count = get_u16_be(*stream);
     *stream += ARRAY_COUNT_PREFIX_SIZE;
     *remaining -= ARRAY_COUNT_PREFIX_SIZE;
-
-    if (x_count > MAX_ARRAY_ELEMENTS) {
-        return DYN_ARR_ERR_OVERFLOW;
-    }
 
     *out_x_count = x_count;
     *out_y_count = 0;
@@ -959,7 +997,7 @@ static dyn_arr_status_t read_two_dimensional_array(
 }
 
 static dyn_arr_status_t read_three_dimensional_array(
-    const uint8_t **stream,
+    uint8_t **stream,
     size_t *remaining,
     element_type_t ele_type,
     dynamic_array_t *arr,
@@ -977,10 +1015,6 @@ static dyn_arr_status_t read_three_dimensional_array(
     uint16_t x_count = get_u16_be(*stream);
     *stream += ARRAY_COUNT_PREFIX_SIZE;
     *remaining -= ARRAY_COUNT_PREFIX_SIZE;
-
-    if (x_count > MAX_ARRAY_ELEMENTS) {
-        return DYN_ARR_ERR_OVERFLOW;
-    }
 
     *out_x_count = x_count;
     *out_y_count = 0;
@@ -1020,7 +1054,7 @@ static dyn_arr_status_t read_three_dimensional_array(
 }
 
 dyn_arr_status_t bytes_to_array(
-    const uint8_t *in_buf,
+    uint8_t *in_buf,
     size_t in_size,
     dynamic_array_t *out_arr,
     custom_unmarshal_fn unmarshal_fn
@@ -1036,7 +1070,7 @@ dyn_arr_status_t bytes_to_array(
         return DYN_ARR_ERR_EOF;
     }
 
-    const uint8_t *stream = in_buf;
+    uint8_t *stream = in_buf;
     size_t remaining = in_size;
 
     uint16_t wire_tag = get_u16_be(stream);
@@ -1146,76 +1180,11 @@ dyn_arr_status_t bytes_to_array(
 }
 
 /**
- * Calculates the size of a single element (including variable-length prefixes).
- * Corresponds to Go's calcTypeSize(ele any)
- */
-size_t calc_type_size(
-    const void *item,
-    element_type_t ele_type,
-    custom_size_fn size_fn)
-{
-    if (!item) {
-        return 0;
-    }
-
-    switch (ele_type) {
-        // --- Primitives ---
-        case TAG_BOOL:
-        case TAG_UINT8:
-        case TAG_INT8:
-            return 1;
-
-        case TAG_UINT16:
-        case TAG_INT16:
-            return 2;
-
-        case TAG_UINT32:
-        case TAG_INT32:
-        case TAG_FLOAT32:
-            return 4;
-
-        case TAG_UINT64:
-        case TAG_INT64:
-        case TAG_FLOAT64:
-            return 8;
-
-        // --- Strings & Byte Slices ---
-        case TAG_STRING:
-        case TAG_BYTES: {
-            // Memory layout: typedef struct { void *data; uint32_t len; }
-            typedef struct {
-                const uint8_t *data;
-                uint32_t len;
-            } var_len_item_t;
-
-            const var_len_item_t *v = (const var_len_item_t*)item;
-            return STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-        }
-
-        // --- Custom Structs ---
-        case TAG_ONLY_SCALAR_TYPES_MSG:
-        case TAG_ONLY_VARIABLE_TYPES_MSG:
-        case TAG_ALL_TYPES_FIELDS_MSG:
-        case TAG_RECURSIVE_NESTED_MSG:
-        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-        {
-            if (size_fn) {
-                return size_fn(item);
-            }
-            return 0;
-        }
-
-        default:
-            return 0;
-    }
-}
-
-/**
  * Calculates the total binary wire size of a dynamic_array_t.
  * Corresponds to Go's calcArraySize(elements ...T)
  */
 size_t calc_array_size(
-    const dynamic_array_t *arr,
+    dynamic_array_t *arr,
     element_type_t ele_type,
     custom_size_fn size_fn)
 {
@@ -1271,11 +1240,33 @@ size_t calc_array_size(
         total_size += arr->x * arr->y * ARRAY_COUNT_PREFIX_SIZE;
     }
 
-    const uint8_t *src_bytes = (const uint8_t*)arr->data;
+    uint8_t *src_bytes = (uint8_t*)arr->data;
 
     for (size_t i = 0; i < total_elements; i++) {
-        const void *item = src_bytes + (i * arr->elem_size);
-        total_size += calc_type_size(item, ele_type, size_fn);
+        switch (ele_type) {
+            case TAG_STRING:
+            case TAG_BYTES: {
+                byte_array_t *v = (byte_array_t *)(src_bytes + (i * arr->elem_size));
+                total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
+                break;
+            }
+            case TAG_ONLY_SCALAR_TYPES_MSG:
+            case TAG_ONLY_VARIABLE_TYPES_MSG:
+            case TAG_ALL_TYPES_FIELDS_MSG:
+            case TAG_RECURSIVE_NESTED_MSG:
+            case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+            {
+                total_size += OBJECT_SET_UNSET_PREFIX_SIZE;
+                void *item = src_bytes + (i * arr->elem_size);
+                if (size_fn) {
+                    total_size += size_fn(item);
+                }
+                break;
+            }
+            default:
+                // For primitive types, the size is already accounted for in the earlier calculation.
+                break;
+        }
     }
 
     return total_size;
@@ -1291,85 +1282,120 @@ size_t calc_array_size(
  * Sets the value of the val_uint64 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_uint64(only_scalar_types_msg_t* msg, const uint64_t value) {
-    if (msg) msg->val_uint64 = value;
+    if (msg) {
+        msg->val_uint64 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int64 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_int64(only_scalar_types_msg_t* msg, const int64_t value) {
-    if (msg) msg->val_int64 = value;
+    if (msg) {
+        msg->val_int64 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_double field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_double(only_scalar_types_msg_t* msg, const double value) {
-    if (msg) msg->val_double = value;
+    if (msg) {
+        msg->val_double = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_uint32 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_uint32(only_scalar_types_msg_t* msg, const uint32_t value) {
-    if (msg) msg->val_uint32 = value;
+    if (msg) {
+        msg->val_uint32 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int32 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_int32(only_scalar_types_msg_t* msg, const int32_t value) {
-    if (msg) msg->val_int32 = value;
+    if (msg) {
+        msg->val_int32 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_float field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_float(only_scalar_types_msg_t* msg, const float value) {
-    if (msg) msg->val_float = value;
+    if (msg) {
+        msg->val_float = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_uint16 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_uint16(only_scalar_types_msg_t* msg, const uint16_t value) {
-    if (msg) msg->val_uint16 = value;
+    if (msg) {
+        msg->val_uint16 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int16 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_int16(only_scalar_types_msg_t* msg, const int16_t value) {
-    if (msg) msg->val_int16 = value;
+    if (msg) {
+        msg->val_int16 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_uint8 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_uint8(only_scalar_types_msg_t* msg, const uint8_t value) {
-    if (msg) msg->val_uint8 = value;
+    if (msg) {
+        msg->val_uint8 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int8 field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_int8(only_scalar_types_msg_t* msg, const int8_t value) {
-    if (msg) msg->val_int8 = value;
+    if (msg) {
+        msg->val_int8 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_bool field in the only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_set_val_bool(only_scalar_types_msg_t* msg, const uint8_t value) {
-    if (msg) msg->val_bool = value;
+    if (msg) {
+        msg->val_bool = value;
+        msg->_is_set = true;
+    }
 }
 
-size_t only_scalar_types_msg_t_dynamic_payload_size(const only_scalar_types_msg_t *msg) {
+size_t only_scalar_types_msg_t_dynamic_payload_size(only_scalar_types_msg_t *msg) {
     size_t dyn_size = 0;
+    (void)msg;
     return dyn_size;
 }
 
-size_t only_scalar_types_msg_t_size(const only_scalar_types_msg_t *msg) {
+size_t only_scalar_types_msg_t_size(void *in_item) {
+    only_scalar_types_msg_t *msg = in_item;
     return WIRE_FRAME_HEADER_SIZE + ONLY_SCALAR_TYPES_MSG_FIXED_SIZE + only_scalar_types_msg_t_dynamic_payload_size(msg);
 }
 
@@ -1384,9 +1410,10 @@ size_t only_scalar_types_msg_t_size(const only_scalar_types_msg_t *msg) {
  *   [8:56]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [56:end]   Dynamic payload (variable-length field data)
  */
-int only_scalar_types_msg_t_marshal(const only_scalar_types_msg_t* msg, uint8_t** out_buf) {
-    if (!msg || !out_buf) return -1;
+int only_scalar_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
+    if (!in_item || !out_buf) return -1;
 
+    only_scalar_types_msg_t *msg = in_item;
     size_t payload_size = ONLY_SCALAR_TYPES_MSG_FIXED_SIZE + only_scalar_types_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
@@ -1461,15 +1488,16 @@ int only_scalar_types_msg_t_marshal(const only_scalar_types_msg_t* msg, uint8_t*
  * Variable-length fields are malloc'd; caller must call only_scalar_types_msg_t_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int only_scalar_types_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, only_scalar_types_msg_t *out_msg) {
-    if (!in_buf || !out_msg ||
+int only_scalar_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item ||
         fixed_payload_len < ONLY_SCALAR_TYPES_MSG_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
+    only_scalar_types_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(only_scalar_types_msg_t));
 
     const uint8_t *hdr = in_buf;
@@ -1530,6 +1558,7 @@ void only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg, const ch
 
     memcpy(msg->name.data, value, len);
     msg->name.data[len] = '\0';
+    msg->_is_set = true;
 }
 
 /**
@@ -1547,6 +1576,7 @@ void only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg, const ui
     if (!msg->data.data) return;
 
     memcpy(msg->data.data, value, len);
+    msg->_is_set = true;
 }
 
 /**
@@ -1563,6 +1593,7 @@ void only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg, const 
     if (!msg->nested) return;
 
     *msg->nested = *value;
+    msg->_is_set = true;
 }
 
 /**
@@ -1570,12 +1601,11 @@ void only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg, const 
  */
 void only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->byte_array.data) {
         size_t _existing = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _existing; _i++) {
             byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->byte_array);
@@ -1601,6 +1631,7 @@ void only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, co
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -1622,6 +1653,7 @@ void only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->matrix.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -1629,12 +1661,11 @@ void only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const 
  */
 void only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->tags.data) {
         size_t _existing = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            string_t *_e = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
+            string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->tags);
@@ -1660,22 +1691,25 @@ void only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dy
             }
         }
     }
+    msg->_is_set = true;
 }
 
-size_t only_variable_types_msg_t_dynamic_payload_size(const only_variable_types_msg_t *msg) {
+size_t only_variable_types_msg_t_dynamic_payload_size(only_variable_types_msg_t *msg) {
     size_t dyn_size = 0;
     dyn_size += msg->name.len;
     dyn_size += msg->data.len;
     if (msg->nested) {
-        dyn_size += calc_type_size(msg->nested, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
+        dyn_size += only_scalar_types_msg_t_size(msg->nested);
     }
     dyn_size += calc_array_size(&msg->byte_array, TAG_BYTES, NULL);
     dyn_size += calc_array_size(&msg->matrix, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->tags, TAG_STRING, NULL);
+    (void)msg;
     return dyn_size;
 }
 
-size_t only_variable_types_msg_t_size(const only_variable_types_msg_t *msg) {
+size_t only_variable_types_msg_t_size(void *in_item) {
+    only_variable_types_msg_t *msg = in_item;
     return WIRE_FRAME_HEADER_SIZE + ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE + only_variable_types_msg_t_dynamic_payload_size(msg);
 }
 
@@ -1690,9 +1724,10 @@ size_t only_variable_types_msg_t_size(const only_variable_types_msg_t *msg) {
  *   [8:32]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [32:end]   Dynamic payload (variable-length field data)
  */
-int only_variable_types_msg_t_marshal(const only_variable_types_msg_t* msg, uint8_t** out_buf) {
-    if (!msg || !out_buf) return -1;
+int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
+    if (!in_item || !out_buf) return -1;
 
+    only_variable_types_msg_t *msg = in_item;
     size_t payload_size = ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE + only_variable_types_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
@@ -1806,15 +1841,16 @@ int only_variable_types_msg_t_marshal(const only_variable_types_msg_t* msg, uint
  * Variable-length fields are malloc'd; caller must call only_variable_types_msg_t_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int only_variable_types_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, only_variable_types_msg_t *out_msg) {
-    if (!in_buf || !out_msg ||
+int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item ||
         fixed_payload_len < ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
+    only_variable_types_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(only_variable_types_msg_t));
 
     const uint8_t *hdr = in_buf;
@@ -1849,7 +1885,7 @@ int only_variable_types_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_pa
     /* Decode variable-length dynamic fields safely */
     if (name_len > 0) {
         out_msg->name.len = name_len;
-        out_msg->name.data = (char*) malloc(name_len + 1);
+        out_msg->name.data = (char *) malloc(name_len + 1);
         if (!out_msg->name.data) {
             only_variable_types_msg_t_free(out_msg);
             return -1;
@@ -1861,7 +1897,7 @@ int only_variable_types_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_pa
     }
     if (data_len > 0) {
         out_msg->data.len = data_len;
-        out_msg->data.data = (char*) malloc(data_len);
+        out_msg->data.data = (uint8_t *) malloc(data_len);
         if (!out_msg->data.data) {
             only_variable_types_msg_t_free(out_msg);
             return -1;
@@ -1941,22 +1977,20 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
         free(msg->nested);
         msg->nested = NULL;
     }
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->byte_array.data) {
         size_t _total = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            byte_array_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->byte_array);
     dynamic_array_destroy(&msg->matrix);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->tags.data) {
         size_t _total = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            string_t *_elem = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
+            string_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->tags);
@@ -1971,42 +2005,60 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
  * Sets the value of the val_uint64 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_uint64(all_types_fields_msg_t* msg, const uint64_t value) {
-    if (msg) msg->val_uint64 = value;
+    if (msg) {
+        msg->val_uint64 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int64 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_int64(all_types_fields_msg_t* msg, const int64_t value) {
-    if (msg) msg->val_int64 = value;
+    if (msg) {
+        msg->val_int64 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_double field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_double(all_types_fields_msg_t* msg, const double value) {
-    if (msg) msg->val_double = value;
+    if (msg) {
+        msg->val_double = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_uint32 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_uint32(all_types_fields_msg_t* msg, const uint32_t value) {
-    if (msg) msg->val_uint32 = value;
+    if (msg) {
+        msg->val_uint32 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int32 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_int32(all_types_fields_msg_t* msg, const int32_t value) {
-    if (msg) msg->val_int32 = value;
+    if (msg) {
+        msg->val_int32 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_float field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_float(all_types_fields_msg_t* msg, const float value) {
-    if (msg) msg->val_float = value;
+    if (msg) {
+        msg->val_float = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
@@ -2025,6 +2077,7 @@ void all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *va
 
     memcpy(msg->name.data, value, len);
     msg->name.data[len] = '\0';
+    msg->_is_set = true;
 }
 
 /**
@@ -2042,6 +2095,7 @@ void all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t 
     if (!msg->data.data) return;
 
     memcpy(msg->data.data, value, len);
+    msg->_is_set = true;
 }
 
 /**
@@ -2058,6 +2112,7 @@ void all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg, const only_s
     if (!msg->nested) return;
 
     *msg->nested = *value;
+    msg->_is_set = true;
 }
 
 /**
@@ -2065,12 +2120,11 @@ void all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg, const only_s
  */
 void all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->byte_array.data) {
         size_t _existing = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _existing; _i++) {
             byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->byte_array);
@@ -2096,6 +2150,7 @@ void all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dy
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2117,6 +2172,7 @@ void all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg, const dynami
         size_t total_size = _total * value->elem_size;
         memcpy(msg->matrix.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2124,12 +2180,11 @@ void all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg, const dynami
  */
 void all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->tags.data) {
         size_t _existing = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            string_t *_e = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
+            string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->tags);
@@ -2155,57 +2210,75 @@ void all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
  * Sets the value of the val_uint16 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_uint16(all_types_fields_msg_t* msg, const uint16_t value) {
-    if (msg) msg->val_uint16 = value;
+    if (msg) {
+        msg->val_uint16 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int16 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_int16(all_types_fields_msg_t* msg, const int16_t value) {
-    if (msg) msg->val_int16 = value;
+    if (msg) {
+        msg->val_int16 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_uint8 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_uint8(all_types_fields_msg_t* msg, const uint8_t value) {
-    if (msg) msg->val_uint8 = value;
+    if (msg) {
+        msg->val_uint8 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_int8 field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_int8(all_types_fields_msg_t* msg, const int8_t value) {
-    if (msg) msg->val_int8 = value;
+    if (msg) {
+        msg->val_int8 = value;
+        msg->_is_set = true;
+    }
 }
 
 /**
  * Sets the value of the val_bool field in the all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_set_val_bool(all_types_fields_msg_t* msg, const uint8_t value) {
-    if (msg) msg->val_bool = value;
+    if (msg) {
+        msg->val_bool = value;
+        msg->_is_set = true;
+    }
 }
 
-size_t all_types_fields_msg_t_dynamic_payload_size(const all_types_fields_msg_t *msg) {
+size_t all_types_fields_msg_t_dynamic_payload_size(all_types_fields_msg_t *msg) {
     size_t dyn_size = 0;
     dyn_size += msg->name.len;
     dyn_size += msg->data.len;
     if (msg->nested) {
-        dyn_size += calc_type_size(msg->nested, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
+        dyn_size += only_scalar_types_msg_t_size(msg->nested);
     }
     dyn_size += calc_array_size(&msg->byte_array, TAG_BYTES, NULL);
     dyn_size += calc_array_size(&msg->matrix, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->tags, TAG_STRING, NULL);
+    (void)msg;
     return dyn_size;
 }
 
-size_t all_types_fields_msg_t_size(const all_types_fields_msg_t *msg) {
+size_t all_types_fields_msg_t_size(void *in_item) {
+    all_types_fields_msg_t *msg = in_item;
     return WIRE_FRAME_HEADER_SIZE + ALL_TYPES_FIELDS_MSG_FIXED_SIZE + all_types_fields_msg_t_dynamic_payload_size(msg);
 }
 
@@ -2220,9 +2293,10 @@ size_t all_types_fields_msg_t_size(const all_types_fields_msg_t *msg) {
  *   [8:80]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [80:end]   Dynamic payload (variable-length field data)
  */
-int all_types_fields_msg_t_marshal(const all_types_fields_msg_t* msg, uint8_t** out_buf) {
-    if (!msg || !out_buf) return -1;
+int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
+    if (!in_item || !out_buf) return -1;
 
+    all_types_fields_msg_t *msg = in_item;
     size_t payload_size = ALL_TYPES_FIELDS_MSG_FIXED_SIZE + all_types_fields_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
@@ -2377,15 +2451,16 @@ int all_types_fields_msg_t_marshal(const all_types_fields_msg_t* msg, uint8_t** 
  * Variable-length fields are malloc'd; caller must call all_types_fields_msg_t_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int all_types_fields_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, all_types_fields_msg_t *out_msg) {
-    if (!in_buf || !out_msg ||
+int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item ||
         fixed_payload_len < ALL_TYPES_FIELDS_MSG_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
+    all_types_fields_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(all_types_fields_msg_t));
 
     const uint8_t *hdr = in_buf;
@@ -2437,7 +2512,7 @@ int all_types_fields_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_paylo
     /* Decode variable-length dynamic fields safely */
     if (name_len > 0) {
         out_msg->name.len = name_len;
-        out_msg->name.data = (char*) malloc(name_len + 1);
+        out_msg->name.data = (char *) malloc(name_len + 1);
         if (!out_msg->name.data) {
             all_types_fields_msg_t_free(out_msg);
             return -1;
@@ -2449,7 +2524,7 @@ int all_types_fields_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_paylo
     }
     if (data_len > 0) {
         out_msg->data.len = data_len;
-        out_msg->data.data = (char*) malloc(data_len);
+        out_msg->data.data = (uint8_t *) malloc(data_len);
         if (!out_msg->data.data) {
             all_types_fields_msg_t_free(out_msg);
             return -1;
@@ -2529,22 +2604,20 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
         free(msg->nested);
         msg->nested = NULL;
     }
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->byte_array.data) {
         size_t _total = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            byte_array_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->byte_array);
     dynamic_array_destroy(&msg->matrix);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->tags.data) {
         size_t _total = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            string_t *_elem = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
+            string_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->tags);
@@ -2571,6 +2644,7 @@ void recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *va
 
     memcpy(msg->name.data, value, len);
     msg->name.data[len] = '\0';
+    msg->_is_set = true;
 }
 
 /**
@@ -2587,18 +2661,21 @@ void recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg, const recurs
     if (!msg->nested) return;
 
     *msg->nested = *value;
+    msg->_is_set = true;
 }
 
-size_t recursive_nested_msg_t_dynamic_payload_size(const recursive_nested_msg_t *msg) {
+size_t recursive_nested_msg_t_dynamic_payload_size(recursive_nested_msg_t *msg) {
     size_t dyn_size = 0;
     dyn_size += msg->name.len;
     if (msg->nested) {
-        dyn_size += calc_type_size(msg->nested, TAG_RECURSIVE_NESTED_MSG, recursive_nested_msg_t_size);
+        dyn_size += recursive_nested_msg_t_size(msg->nested);
     }
+    (void)msg;
     return dyn_size;
 }
 
-size_t recursive_nested_msg_t_size(const recursive_nested_msg_t *msg) {
+size_t recursive_nested_msg_t_size(void *in_item) {
+    recursive_nested_msg_t *msg = in_item;
     return WIRE_FRAME_HEADER_SIZE + RECURSIVE_NESTED_MSG_FIXED_SIZE + recursive_nested_msg_t_dynamic_payload_size(msg);
 }
 
@@ -2613,9 +2690,10 @@ size_t recursive_nested_msg_t_size(const recursive_nested_msg_t *msg) {
  *   [8:16]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [16:end]   Dynamic payload (variable-length field data)
  */
-int recursive_nested_msg_t_marshal(const recursive_nested_msg_t* msg, uint8_t** out_buf) {
-    if (!msg || !out_buf) return -1;
+int recursive_nested_msg_t_marshal(void *in_item, uint8_t** out_buf) {
+    if (!in_item || !out_buf) return -1;
 
+    recursive_nested_msg_t *msg = in_item;
     size_t payload_size = RECURSIVE_NESTED_MSG_FIXED_SIZE + recursive_nested_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
@@ -2671,15 +2749,16 @@ int recursive_nested_msg_t_marshal(const recursive_nested_msg_t* msg, uint8_t** 
  * Variable-length fields are malloc'd; caller must call recursive_nested_msg_t_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int recursive_nested_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, recursive_nested_msg_t *out_msg) {
-    if (!in_buf || !out_msg ||
+int recursive_nested_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item ||
         fixed_payload_len < RECURSIVE_NESTED_MSG_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
+    recursive_nested_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(recursive_nested_msg_t));
 
     const uint8_t *hdr = in_buf;
@@ -2698,7 +2777,7 @@ int recursive_nested_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_paylo
     /* Decode variable-length dynamic fields safely */
     if (name_len > 0) {
         out_msg->name.len = name_len;
-        out_msg->name.data = (char*) malloc(name_len + 1);
+        out_msg->name.data = (char *) malloc(name_len + 1);
         if (!out_msg->name.data) {
             recursive_nested_msg_t_free(out_msg);
             return -1;
@@ -2773,6 +2852,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg, c
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_bool.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2780,12 +2860,11 @@ void all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg, c
  */
 void all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->arr1_d_bytes.data) {
         size_t _existing = msg->arr1_d_bytes.x * msg->arr1_d_bytes.y * msg->arr1_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
             byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data + _i * msg->arr1_d_bytes.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_bytes);
@@ -2811,6 +2890,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, 
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2832,6 +2912,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_double.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2853,6 +2934,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_float.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2874,6 +2956,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_int16.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2895,6 +2978,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_int32.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2916,6 +3000,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_int64.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2937,6 +3022,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg, c
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_int8.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2944,6 +3030,13 @@ void all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg, c
  */
 void all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+    if (msg->arr1_d_nested.data) {
+        size_t _existing = msg->arr1_d_nested.x * msg->arr1_d_nested.y * msg->arr1_d_nested.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            only_variable_types_msg_t *_e = (only_variable_types_msg_t *)((uint8_t *)msg->arr1_d_nested.data + _i * msg->arr1_d_nested.elem_size);
+            only_variable_types_msg_t_free(_e);
+        }
+    }
     dynamic_array_destroy(&msg->arr1_d_nested);
 
     if (value->data != NULL && value->capacity > 0) {
@@ -2958,6 +3051,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_nested.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2965,6 +3059,13 @@ void all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+    if (msg->arr1_d_object.data) {
+        size_t _existing = msg->arr1_d_object.x * msg->arr1_d_object.y * msg->arr1_d_object.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            only_scalar_types_msg_t *_e = (only_scalar_types_msg_t *)((uint8_t *)msg->arr1_d_object.data + _i * msg->arr1_d_object.elem_size);
+            only_scalar_types_msg_t_free(_e);
+        }
+    }
     dynamic_array_destroy(&msg->arr1_d_object);
 
     if (value->data != NULL && value->capacity > 0) {
@@ -2979,6 +3080,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_object.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -2986,12 +3088,11 @@ void all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->arr1_d_string.data) {
         size_t _existing = msg->arr1_d_string.x * msg->arr1_d_string.y * msg->arr1_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            string_t *_e = (string_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
+            string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_string);
@@ -3017,6 +3118,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg,
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3038,6 +3140,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_uint16.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3059,6 +3162,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_uint32.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3080,6 +3184,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_uint64.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3101,6 +3206,7 @@ void all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr1_d_uint8.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3122,6 +3228,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg, c
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_bool.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3129,12 +3236,11 @@ void all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg, c
  */
 void all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->arr2_d_bytes.data) {
         size_t _existing = msg->arr2_d_bytes.x * msg->arr2_d_bytes.y * msg->arr2_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
             byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data + _i * msg->arr2_d_bytes.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_bytes);
@@ -3160,6 +3266,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, 
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3181,6 +3288,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_double.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3202,6 +3310,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_float.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3223,6 +3332,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_int16.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3244,6 +3354,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_int32.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3265,6 +3376,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_int64.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3286,6 +3398,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg, c
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_int8.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3293,6 +3406,13 @@ void all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg, c
  */
 void all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+    if (msg->arr2_d_nested.data) {
+        size_t _existing = msg->arr2_d_nested.x * msg->arr2_d_nested.y * msg->arr2_d_nested.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            only_variable_types_msg_t *_e = (only_variable_types_msg_t *)((uint8_t *)msg->arr2_d_nested.data + _i * msg->arr2_d_nested.elem_size);
+            only_variable_types_msg_t_free(_e);
+        }
+    }
     dynamic_array_destroy(&msg->arr2_d_nested);
 
     if (value->data != NULL && value->capacity > 0) {
@@ -3307,6 +3427,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_nested.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3314,6 +3435,13 @@ void all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+    if (msg->arr2_d_object.data) {
+        size_t _existing = msg->arr2_d_object.x * msg->arr2_d_object.y * msg->arr2_d_object.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            only_scalar_types_msg_t *_e = (only_scalar_types_msg_t *)((uint8_t *)msg->arr2_d_object.data + _i * msg->arr2_d_object.elem_size);
+            only_scalar_types_msg_t_free(_e);
+        }
+    }
     dynamic_array_destroy(&msg->arr2_d_object);
 
     if (value->data != NULL && value->capacity > 0) {
@@ -3328,6 +3456,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_object.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3335,12 +3464,11 @@ void all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->arr2_d_string.data) {
         size_t _existing = msg->arr2_d_string.x * msg->arr2_d_string.y * msg->arr2_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            string_t *_e = (string_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
+            string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_string);
@@ -3366,6 +3494,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg,
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3387,6 +3516,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_uint16.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3408,6 +3538,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_uint32.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3429,6 +3560,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_uint64.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3450,6 +3582,7 @@ void all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr2_d_uint8.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3471,6 +3604,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg, c
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_bool.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3478,12 +3612,11 @@ void all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg, c
  */
 void all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->arr3_d_bytes.data) {
         size_t _existing = msg->arr3_d_bytes.x * msg->arr3_d_bytes.y * msg->arr3_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
             byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data + _i * msg->arr3_d_bytes.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_bytes);
@@ -3509,6 +3642,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, 
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3530,6 +3664,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_double.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3551,6 +3686,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_float.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3572,6 +3708,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_int16.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3593,6 +3730,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_int32.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3614,6 +3752,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_int64.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3635,6 +3774,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg, c
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_int8.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3642,6 +3782,13 @@ void all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg, c
  */
 void all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+    if (msg->arr3_d_nested.data) {
+        size_t _existing = msg->arr3_d_nested.x * msg->arr3_d_nested.y * msg->arr3_d_nested.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            only_variable_types_msg_t *_e = (only_variable_types_msg_t *)((uint8_t *)msg->arr3_d_nested.data + _i * msg->arr3_d_nested.elem_size);
+            only_variable_types_msg_t_free(_e);
+        }
+    }
     dynamic_array_destroy(&msg->arr3_d_nested);
 
     if (value->data != NULL && value->capacity > 0) {
@@ -3656,6 +3803,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_nested.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3663,6 +3811,13 @@ void all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
+    if (msg->arr3_d_object.data) {
+        size_t _existing = msg->arr3_d_object.x * msg->arr3_d_object.y * msg->arr3_d_object.z;
+        for (size_t _i = 0; _i < _existing; _i++) {
+            only_scalar_types_msg_t *_e = (only_scalar_types_msg_t *)((uint8_t *)msg->arr3_d_object.data + _i * msg->arr3_d_object.elem_size);
+            only_scalar_types_msg_t_free(_e);
+        }
+    }
     dynamic_array_destroy(&msg->arr3_d_object);
 
     if (value->data != NULL && value->capacity > 0) {
@@ -3677,6 +3832,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_object.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3684,12 +3840,11 @@ void all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg,
  */
 void all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
     if (!msg || !value) return;
-    // TODO: Reevaluate this
     if (msg->arr3_d_string.data) {
         size_t _existing = msg->arr3_d_string.x * msg->arr3_d_string.y * msg->arr3_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
-            if (_e->data) { free(_e->data); _e->data = NULL; }
+            string_t *_e = (string_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
+            string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_string);
@@ -3715,6 +3870,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg,
             }
         }
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3736,6 +3892,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_uint16.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3757,6 +3914,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_uint32.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3778,6 +3936,7 @@ void all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg,
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_uint64.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
 /**
@@ -3799,9 +3958,10 @@ void all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg, 
         size_t total_size = _total * value->elem_size;
         memcpy(msg->arr3_d_uint8.data, value->data, total_size);
     }
+    msg->_is_set = true;
 }
 
-size_t all_types_of_arrays_msg_t_dynamic_payload_size(const all_types_of_arrays_msg_t *msg) {
+size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t *msg) {
     size_t dyn_size = 0;
     dyn_size += calc_array_size(&msg->arr1_d_bool, TAG_UINT8, NULL);
     dyn_size += calc_array_size(&msg->arr1_d_bytes, TAG_BYTES, NULL);
@@ -3848,10 +4008,12 @@ size_t all_types_of_arrays_msg_t_dynamic_payload_size(const all_types_of_arrays_
     dyn_size += calc_array_size(&msg->arr3_d_uint32, TAG_UINT32, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_uint64, TAG_UINT64, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_uint8, TAG_UINT8, NULL);
+    (void)msg;
     return dyn_size;
 }
 
-size_t all_types_of_arrays_msg_t_size(const all_types_of_arrays_msg_t *msg) {
+size_t all_types_of_arrays_msg_t_size(void *in_item) {
+    all_types_of_arrays_msg_t *msg = in_item;
     return WIRE_FRAME_HEADER_SIZE + ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE + all_types_of_arrays_msg_t_dynamic_payload_size(msg);
 }
 
@@ -3866,9 +4028,10 @@ size_t all_types_of_arrays_msg_t_size(const all_types_of_arrays_msg_t *msg) {
  *   [8:188]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [188:end]   Dynamic payload (variable-length field data)
  */
-int all_types_of_arrays_msg_t_marshal(const all_types_of_arrays_msg_t* msg, uint8_t** out_buf) {
-    if (!msg || !out_buf) return -1;
+int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
+    if (!in_item || !out_buf) return -1;
 
+    all_types_of_arrays_msg_t *msg = in_item;
     size_t payload_size = ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE + all_types_of_arrays_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
@@ -4667,15 +4830,16 @@ int all_types_of_arrays_msg_t_marshal(const all_types_of_arrays_msg_t* msg, uint
  * Variable-length fields are malloc'd; caller must call all_types_of_arrays_msg_t_free().
  * On any error, partial allocations are cleaned up before returning.
  */
-int all_types_of_arrays_msg_t_unmarshal(const uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, all_types_of_arrays_msg_t *out_msg) {
-    if (!in_buf || !out_msg ||
+int all_types_of_arrays_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
+        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item ||
         fixed_payload_len < ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
         return -1;
     }
 
+    all_types_of_arrays_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(all_types_of_arrays_msg_t));
 
     const uint8_t *hdr = in_buf;
@@ -5282,12 +5446,11 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         return;
     }
     dynamic_array_destroy(&msg->arr1_d_bool);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->arr1_d_bytes.data) {
         size_t _total = msg->arr1_d_bytes.x * msg->arr1_d_bytes.y * msg->arr1_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data + _i * msg->arr1_d_bytes.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            byte_array_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_bytes);
@@ -5297,14 +5460,27 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     dynamic_array_destroy(&msg->arr1_d_int32);
     dynamic_array_destroy(&msg->arr1_d_int64);
     dynamic_array_destroy(&msg->arr1_d_int8);
+    if (msg->arr1_d_nested.data) {
+        size_t _total = msg->arr1_d_nested.x * msg->arr1_d_nested.y * msg->arr1_d_nested.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            only_variable_types_msg_t *_elem = (only_variable_types_msg_t *)((uint8_t *)msg->arr1_d_nested.data + _i * msg->arr1_d_nested.elem_size);
+            only_variable_types_msg_t_free(_elem);
+        }
+    }
     dynamic_array_destroy(&msg->arr1_d_nested);
+    if (msg->arr1_d_object.data) {
+        size_t _total = msg->arr1_d_object.x * msg->arr1_d_object.y * msg->arr1_d_object.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            only_scalar_types_msg_t *_elem = (only_scalar_types_msg_t *)((uint8_t *)msg->arr1_d_object.data + _i * msg->arr1_d_object.elem_size);
+            only_scalar_types_msg_t_free(_elem);
+        }
+    }
     dynamic_array_destroy(&msg->arr1_d_object);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->arr1_d_string.data) {
         size_t _total = msg->arr1_d_string.x * msg->arr1_d_string.y * msg->arr1_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            string_t *_elem = (string_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
+            string_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_string);
@@ -5313,12 +5489,11 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     dynamic_array_destroy(&msg->arr1_d_uint64);
     dynamic_array_destroy(&msg->arr1_d_uint8);
     dynamic_array_destroy(&msg->arr2_d_bool);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->arr2_d_bytes.data) {
         size_t _total = msg->arr2_d_bytes.x * msg->arr2_d_bytes.y * msg->arr2_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data + _i * msg->arr2_d_bytes.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            byte_array_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_bytes);
@@ -5328,14 +5503,27 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     dynamic_array_destroy(&msg->arr2_d_int32);
     dynamic_array_destroy(&msg->arr2_d_int64);
     dynamic_array_destroy(&msg->arr2_d_int8);
+    if (msg->arr2_d_nested.data) {
+        size_t _total = msg->arr2_d_nested.x * msg->arr2_d_nested.y * msg->arr2_d_nested.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            only_variable_types_msg_t *_elem = (only_variable_types_msg_t *)((uint8_t *)msg->arr2_d_nested.data + _i * msg->arr2_d_nested.elem_size);
+            only_variable_types_msg_t_free(_elem);
+        }
+    }
     dynamic_array_destroy(&msg->arr2_d_nested);
+    if (msg->arr2_d_object.data) {
+        size_t _total = msg->arr2_d_object.x * msg->arr2_d_object.y * msg->arr2_d_object.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            only_scalar_types_msg_t *_elem = (only_scalar_types_msg_t *)((uint8_t *)msg->arr2_d_object.data + _i * msg->arr2_d_object.elem_size);
+            only_scalar_types_msg_t_free(_elem);
+        }
+    }
     dynamic_array_destroy(&msg->arr2_d_object);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->arr2_d_string.data) {
         size_t _total = msg->arr2_d_string.x * msg->arr2_d_string.y * msg->arr2_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            string_t *_elem = (string_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
+            string_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_string);
@@ -5344,12 +5532,11 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     dynamic_array_destroy(&msg->arr2_d_uint64);
     dynamic_array_destroy(&msg->arr2_d_uint8);
     dynamic_array_destroy(&msg->arr3_d_bool);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->arr3_d_bytes.data) {
         size_t _total = msg->arr3_d_bytes.x * msg->arr3_d_bytes.y * msg->arr3_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data + _i * msg->arr3_d_bytes.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            byte_array_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_bytes);
@@ -5359,14 +5546,27 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     dynamic_array_destroy(&msg->arr3_d_int32);
     dynamic_array_destroy(&msg->arr3_d_int64);
     dynamic_array_destroy(&msg->arr3_d_int8);
+    if (msg->arr3_d_nested.data) {
+        size_t _total = msg->arr3_d_nested.x * msg->arr3_d_nested.y * msg->arr3_d_nested.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            only_variable_types_msg_t *_elem = (only_variable_types_msg_t *)((uint8_t *)msg->arr3_d_nested.data + _i * msg->arr3_d_nested.elem_size);
+            only_variable_types_msg_t_free(_elem);
+        }
+    }
     dynamic_array_destroy(&msg->arr3_d_nested);
+    if (msg->arr3_d_object.data) {
+        size_t _total = msg->arr3_d_object.x * msg->arr3_d_object.y * msg->arr3_d_object.z;
+        for (size_t _i = 0; _i < _total; _i++) {
+            only_scalar_types_msg_t *_elem = (only_scalar_types_msg_t *)((uint8_t *)msg->arr3_d_object.data + _i * msg->arr3_d_object.elem_size);
+            only_scalar_types_msg_t_free(_elem);
+        }
+    }
     dynamic_array_destroy(&msg->arr3_d_object);
-    // Deep-free variable-length element data before destroying flat buffer
     if (msg->arr3_d_string.data) {
         size_t _total = msg->arr3_d_string.x * msg->arr3_d_string.y * msg->arr3_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
-            if (_elem->data) { free(_elem->data); _elem->data = NULL; }
+            string_t *_elem = (string_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
+            string_t_free(_elem);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_string);

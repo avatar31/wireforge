@@ -90,6 +90,17 @@ func TestOnlyScalarTypesMsgRoundTrip(t *testing.T) {
 		assert.Equal(t, uint16(1), src.MessageTypeID())
 	})
 
+	t.Run("DynamicPayloadSize()", func(t *testing.T) {
+		src := &OnlyScalarTypesMsg{
+			ValInt64: math.MinInt64,
+			ValInt32: math.MinInt32,
+			ValInt16: math.MinInt16,
+			ValInt8:  math.MinInt8,
+		}
+		actual := src.DynamicPayloadSize()
+		assert.Equal(t, 0, actual, "DynamicPayloadSize is not matching")
+	})
+
 	t.Run("Size()", func(t *testing.T) {
 		src := &OnlyScalarTypesMsg{
 			ValInt64: math.MinInt64,
@@ -100,17 +111,6 @@ func TestOnlyScalarTypesMsgRoundTrip(t *testing.T) {
 		actual := src.Size()
 		expected := FrameHeaderSize + OnlyScalarTypesMsgFixedSize
 		assert.Equal(t, expected, actual, "Size is not matching")
-	})
-
-	t.Run("DynamicPayloadSize()", func(t *testing.T) {
-		src := &OnlyScalarTypesMsg{
-			ValInt64: math.MinInt64,
-			ValInt32: math.MinInt32,
-			ValInt16: math.MinInt16,
-			ValInt8:  math.MinInt8,
-		}
-		actual := src.DynamicPayloadSize()
-		assert.Equal(t, 0, actual, "DynamicPayloadSize is not matching")
 	})
 
 	t.Run("Marshal()", func(t *testing.T) {
@@ -256,16 +256,16 @@ func TestOnlyVariableTypesMsgRoundTrip(t *testing.T) {
 		assert.Equal(t, uint16(2), msg.MessageTypeID())
 	})
 
-	t.Run("Size()", func(t *testing.T) {
-		expected := FrameHeaderSize + OnlyVariableTypesMsgFixedSize + msgDynSize(msg)
-		actual := msg.Size()
-		assert.Equal(t, expected, actual, "Size is not matching")
-	})
-
 	t.Run("DynamicPayloadSize()", func(t *testing.T) {
 		expected := msgDynSize(msg)
 		actual := msg.DynamicPayloadSize()
 		assert.Equal(t, expected, actual, "DynamicPayloadSize is not matching")
+	})
+
+	t.Run("Size()", func(t *testing.T) {
+		expected := FrameHeaderSize + OnlyVariableTypesMsgFixedSize + msgDynSize(msg)
+		actual := msg.Size()
+		assert.Equal(t, expected, actual, "Size is not matching")
 	})
 
 	t.Run("Marshal()", func(t *testing.T) {
@@ -424,16 +424,16 @@ func TestAllTypesFieldsMsgRoundTrip(t *testing.T) {
 		assert.Equal(t, uint16(3), msg.MessageTypeID())
 	})
 
-	t.Run("Size()", func(t *testing.T) {
-		expected := FrameHeaderSize + AllTypesFieldsMsgFixedSize + msgDynSize(msg)
-		actual := msg.Size()
-		assert.Equal(t, expected, actual, "Size is not matching")
-	})
-
 	t.Run("DynamicPayloadSize()", func(t *testing.T) {
 		expected := msgDynSize(msg)
 		actual := msg.DynamicPayloadSize()
 		assert.Equal(t, expected, actual, "DynamicPayloadSize is not matching")
+	})
+
+	t.Run("Size()", func(t *testing.T) {
+		expected := FrameHeaderSize + AllTypesFieldsMsgFixedSize + msgDynSize(msg)
+		actual := msg.Size()
+		assert.Equal(t, expected, actual, "Size is not matching")
 	})
 
 	t.Run("Marshal()", func(t *testing.T) {
@@ -520,16 +520,16 @@ func TestRecursiveNestedMsgRoundTrip(t *testing.T) {
 		assert.Equal(t, uint16(4), src.MessageTypeID())
 	})
 
-	t.Run("Size()", func(t *testing.T) {
-		expected := FrameHeaderSize + RecursiveNestedMsgFixedSize + msgDynSize(msg)
-		actual := msg.Size()
-		assert.Equal(t, expected, actual, "Size is not matching")
-	})
-
 	t.Run("DynamicPayloadSize()", func(t *testing.T) {
 		expected := msgDynSize(msg)
 		actual := msg.DynamicPayloadSize()
 		assert.Equal(t, expected, actual, "DynamicPayloadSize is not matching")
+	})
+
+	t.Run("Size()", func(t *testing.T) {
+		expected := FrameHeaderSize + RecursiveNestedMsgFixedSize + msgDynSize(msg)
+		actual := msg.Size()
+		assert.Equal(t, expected, actual, "Size is not matching")
 	})
 
 	t.Run("Marshal()", func(t *testing.T) {
@@ -571,6 +571,7 @@ func TestRecursiveNestedMsgRoundTrip(t *testing.T) {
 
 func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 	msg := &AllTypesOfArraysMsg{
+		// All 1D arrays with 3 elements each
 		Arr1DBool:   []bool{true, false, true},
 		Arr1DUint8:  []uint8{0, 128, 255},
 		Arr1DInt8:   []int8{-128, 0, 127},
@@ -582,11 +583,12 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 		Arr1DUint64: []uint64{0, 1, math.MaxUint64},
 		Arr1DInt64:  []int64{math.MinInt64, 0, math.MaxInt64},
 		Arr1DDouble: []float64{-math.Pi, 0.0, math.Pi},
-		// Arr1DString: []string{"hello", "world", "日本語"},
-		// Arr1DBytes:  [][]byte{{0x01, 0x02}, {}, {0xFF}},
-		Arr1DNested: []*OnlyVariableTypesMsg{{Name: "something"}},
-		Arr1DObject: []*OnlyScalarTypesMsg{{ValUint64: 100}},
+		Arr1DString: []string{"hello", "world", "日本語"},
+		Arr1DBytes:  [][]byte{{0x01, 0x02}, {0xFF}, {0xFF}},
+		Arr1DNested: []*OnlyVariableTypesMsg{{Name: "something"}, {Name: "something"}, {Name: "something"}},
+		Arr1DObject: []*OnlyScalarTypesMsg{{ValUint64: 100}, {ValUint64: 100}, {ValUint64: 100}},
 
+		// All 2D arrays with 2x2 elements each
 		Arr2DBool:   [][]bool{{true, false}, {false, true}},
 		Arr2DUint8:  [][]uint8{{0, 128}, {255, 64}},
 		Arr2DInt8:   [][]int8{{-128, 0}, {127, -64}},
@@ -598,11 +600,12 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 		Arr2DInt64:  [][]int64{{math.MinInt64, 0}, {math.MaxInt64, -1000}},
 		Arr2DFloat:  [][]float32{{-1.5, 0.0}, {1.5, -2.5}},
 		Arr2DDouble: [][]float64{{-math.Pi, 0.0}, {math.Pi, -math.E}},
-		// Arr2DString: [][]string{{"a", "b"}, {"c"}},
-		// Arr2DBytes:  [][][]byte{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}},
-		Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}}, {{Name: "nested2"}}},
-		Arr2DObject: [][]*OnlyScalarTypesMsg{{{ValUint64: 1}}, {{ValUint64: 2}}},
+		Arr2DString: [][]string{{"a", "b"}, {"c", "d"}},
+		Arr2DBytes:  [][][]byte{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}},
+		Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}, {Name: "nested4"}}},
+		Arr2DObject: [][]*OnlyScalarTypesMsg{{{ValUint64: 1}, {ValUint64: 2}}, {{ValUint64: 3}, {ValUint64: 4}}},
 
+		// All 3D arrays with 2x2x2 elements each
 		Arr3DBool:   [][][]bool{{{true, false}, {false, true}}, {{true, true}, {false, false}}},
 		Arr3DUint8:  [][][]uint8{{{0, 128}, {255, 64}}, {{1, 2}, {3, 4}}},
 		Arr3DInt8:   [][][]int8{{{-128, 0}, {127, -64}}, {{-1, -2}, {-3, -4}}},
@@ -614,10 +617,23 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 		Arr3DInt64:  [][][]int64{{{math.MinInt64, 0}, {math.MaxInt64, -1000}}, {{-1, -2}, {-3, -4}}},
 		Arr3DFloat:  [][][]float32{{{-1.5, 0.0}, {1.5, -2.5}}, {{-3.5, 4.5}, {5.5, -6.5}}},
 		Arr3DDouble: [][][]float64{{{-math.Pi, 0.0}, {math.Pi, -math.E}}, {{-1.0, 2.0}, {3.0, -4.0}}},
-		// Arr3DString: [][][]string{{{"a", "b"}, {"c"}}, {{"d"}, {"e", "f"}}},
-		// Arr3DBytes:  [][][][]byte{{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}}, {{{0x06}}, {{0x07, 0x08}}}},
-		Arr3DNested: [][][]*OnlyVariableTypesMsg{{{{Name: "nested1"}}}, {{{Name: "nested2"}}}},
-		Arr3DObject: [][][]*OnlyScalarTypesMsg{{{{ValUint64: 1}}}, {{{ValUint64: 2}}}},
+		Arr3DString: [][][]string{{{"a", "b"}, {"c", "d"}}, {{"e", "f"}, {"g", "h"}}},
+		Arr3DBytes:  [][][][]byte{{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}}, {{{0x06}, {0x07}}, {{0x07, 0x08}, {0x09}}}},
+		Arr3DNested: [][][]*OnlyVariableTypesMsg{{
+				{{Name: "nested1"}, {Name: "nested2"}}, 
+				{{Name: "nested3"}, {Name: "nested4"}},
+			},{
+				{{Name: "nested5"}, {Name: "nested6"}}, 
+				{{Name: "nested7"}, {Name: "nested8"}},
+			}},
+		Arr3DObject: [][][]*OnlyScalarTypesMsg{{
+			{{ValUint64: 1}, {ValUint64: 2}},
+			{{ValUint64: 3}, {ValUint64: 4}},
+			}, {
+				{{ValUint64: 5}, {ValUint64: 6}},
+				{{ValUint64: 7}, {ValUint64: 8}},
+			},
+		},
 	}
 
 	msgDynSize := func(msg *AllTypesOfArraysMsg) int {
@@ -647,25 +663,25 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 		// Arr1DDouble: []float64{-math.Pi, 0.0, math.Pi},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DDouble)*8
 
-		// // Arr1DString: []string{"hello", "world", "日本語"},
-		// expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		// for _, s := range msg.Arr1DString {
-		// 	expected += StrOrByteLenPrefixSize + len(s)
-		// }
-		// // Arr1DBytes:  [][]byte{{0x01, 0x02}, {}, {0xFF}},
-		// expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		// for _, b := range msg.Arr1DBytes {
-		// 	expected += StrOrByteLenPrefixSize + len(b)
-		// }
-		// Arr1DNested: []*OnlyVariableTypesMsg{{Name: "something"}},
+		// Arr1DString: []string{"hello", "world", "日本語"},
+		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+		for _, s := range msg.Arr1DString {
+			expected += StrOrByteLenPrefixSize + len(s)
+		}
+		// Arr1DBytes:  [][]byte{{0x01, 0x02}, {0xFF}, {0xFF}},
+		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+		for _, b := range msg.Arr1DBytes {
+			expected += StrOrByteLenPrefixSize + len(b)
+		}
+		// Arr1DNested: []*OnlyVariableTypesMsg{{Name: "something"}, {Name: "something"}, {Name: "something"}},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 		for _, n := range msg.Arr1DNested {
-			expected += n.Size()
+			expected += ObjectSetUnsetPrefixSize + n.Size()
 		}
-		// Arr1DObject: []*OnlyScalarTypesMsg{{ValUint64: 100}},
+		// Arr1DObject: []*OnlyScalarTypesMsg{{ValUint64: 100}, {ValUint64: 100}, {ValUint64: 100}},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 		for _, o := range msg.Arr1DObject {
-			expected += o.Size()
+			expected += ObjectSetUnsetPrefixSize + o.Size()
 		}
 
 		// Arr2DBool:   [][]bool{{true, false}, {false, true}},
@@ -724,36 +740,36 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 			expected += ArrayCountPrefixSize + len(arr2D)*8
 		}
 
-		// // Arr2DString: [][]string{{"a", "b"}, {"c"}},
-		// expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		// for _, arr2D := range msg.Arr2DString {
-		// 	expected += ArrayCountPrefixSize
-		// 	for _, s := range arr2D {
-		// 		expected += StrOrByteLenPrefixSize + len(s)
-		// 	}
-		// }
-		// // Arr2DBytes:  [][][]byte{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}},
-		// expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		// for _, arr2D := range msg.Arr2DBytes {
-		// 	expected += ArrayCountPrefixSize
-		// 	for _, b := range arr2D {
-		// 		expected += StrOrByteLenPrefixSize + len(b)
-		// 	}
-		// }
-		// Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}}, {{Name: "nested2"}}},
+		// Arr2DString: [][]string{{"a", "b"}, {"c", "d"}},
+		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+		for _, arr2D := range msg.Arr2DString {
+			expected += ArrayCountPrefixSize
+			for _, s := range arr2D {
+				expected += StrOrByteLenPrefixSize + len(s)
+			}
+		}
+		// Arr2DBytes:  [][][]byte{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}},
+		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+		for _, arr2D := range msg.Arr2DBytes {
+			expected += ArrayCountPrefixSize
+			for _, b := range arr2D {
+				expected += StrOrByteLenPrefixSize + len(b)
+			}
+		}
+		// Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}, {Name: "nested4"}}},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 		for _, arr2D := range msg.Arr2DNested {
 			expected += ArrayCountPrefixSize
 			for _, n := range arr2D {
-				expected += n.Size()
+				expected += ObjectSetUnsetPrefixSize + n.Size()
 			}
 		}
-		// Arr2DObject: [][]*OnlyScalarTypesMsg{{{ValUint64: 1}}, {{ValUint64: 2}}},
+		// Arr2DObject: [][]*OnlyScalarTypesMsg{{{ValUint64: 1}, {ValUint64: 2}}, {{ValUint64: 3}, {ValUint64: 4}}},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 		for _, arr2D := range msg.Arr2DObject {
 			expected += ArrayCountPrefixSize
 			for _, o := range arr2D {
-				expected += o.Size()
+				expected += ObjectSetUnsetPrefixSize + o.Size()
 			}
 		}
 
@@ -845,68 +861,69 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 				expected += ArrayCountPrefixSize + len(arr2D)*8
 			}
 		}
-		// // Arr3DString: [][][]string{{{"a", "b"}, {"c"}}, {{"d"}, {"e", "f"}}},
-		// expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		// for _, arr3D := range msg.Arr3DString {
-		// 	expected += ArrayCountPrefixSize
-		// 	for _, arr2D := range arr3D {
-		// 		expected += ArrayCountPrefixSize
-		// 		for _, s := range arr2D {
-		// 			expected += StrOrByteLenPrefixSize + len(s)
-		// 		}
-		// 	}
-		// }
-		// // Arr3DBytes:  [][][][]byte{{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}}, {{{0x06}}, {{0x07, 0x08}}}},
-		// expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		// for _, arr3D := range msg.Arr3DBytes {
-		// 	expected += ArrayCountPrefixSize
-		// 	for _, arr2D := range arr3D {
-		// 		expected += ArrayCountPrefixSize
-		// 		for _, b := range arr2D {
-		// 			expected += StrOrByteLenPrefixSize + len(b)
-		// 		}
-		// 	}
-		// }
-		// Arr3DNested: [][][]*OnlyVariableTypesMsg{{{{Name: "nested1"}}}, {{{Name: "nested2"}}}},
+		// Arr3DString: [][][]string{{{"a", "b"}, {"c", "d"}}, {{"e", "f"}, {"g", "h"}}},
+		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+		for _, arr3D := range msg.Arr3DString {
+			expected += ArrayCountPrefixSize
+			for _, arr2D := range arr3D {
+				expected += ArrayCountPrefixSize
+				for _, s := range arr2D {
+					expected += StrOrByteLenPrefixSize + len(s)
+				}
+			}
+		}
+		// Arr3DBytes:  [][][][]byte{{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}}, {{{0x06}, {0x07}}, {{0x07, 0x08}, {0x09}}}},
+		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+		for _, arr3D := range msg.Arr3DBytes {
+			expected += ArrayCountPrefixSize
+			for _, arr2D := range arr3D {
+				expected += ArrayCountPrefixSize
+				for _, b := range arr2D {
+					expected += StrOrByteLenPrefixSize + len(b)
+				}
+			}
+		}
+		// Arr3DNested: [][][]*OnlyVariableTypesMsg{{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}, {Name: "nested4"}}},{{{Name: "nested5"}, {Name: "nested6"}}, {{Name: "nested7"}, {Name: "nested8"}}}},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 		for _, arr3D := range msg.Arr3DNested {
 			expected += ArrayCountPrefixSize
 			for _, arr2D := range arr3D {
 				expected += ArrayCountPrefixSize
 				for _, n := range arr2D {
-					expected += n.Size()
+					expected += ObjectSetUnsetPrefixSize + n.Size()
 				}
 			}
 		}
-		// Arr3DObject: [][][]*OnlyScalarTypesMsg{{{{ValUint64: 1}}}, {{{ValUint64: 2}}}},
+		// Arr3DObject: [][][]*OnlyScalarTypesMsg{{{{ValUint64: 1}, {ValUint64: 2}},{{ValUint64: 3}, {ValUint64: 4}}}, {{{ValUint64: 5}, {ValUint64: 6}}{{ValUint64: 7}, {ValUint64: 8}}}},
 		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 		for _, arr3D := range msg.Arr3DObject {
 			expected += ArrayCountPrefixSize
 			for _, arr2D := range arr3D {
 				expected += ArrayCountPrefixSize
 				for _, o := range arr2D {
-					expected += o.Size()
+					expected += ObjectSetUnsetPrefixSize + o.Size()
 				}
 			}
 		}
 
-		return expected	// 1634
+		fmt.Printf("DynamicPayloadSize: %d\n", expected)
+		return expected	// 2059
 	}
 
 	t.Run("MessageTypeID()", func(t *testing.T) {
 		assert.Equal(t, uint16(5), msg.MessageTypeID())
 	})
 
-	t.Run("Size()", func(t *testing.T) {
-		expected := FrameHeaderSize + AllTypesOfArraysMsgFixedSize + msgDynSize(msg)
-		actual := msg.Size()
-		assert.Equal(t, expected, actual, "Size is not matching")
-	})
-
 	t.Run("DynamicPayloadSize()", func(t *testing.T) {
 		expected := msgDynSize(msg)
 		actual := msg.DynamicPayloadSize()
 		assert.Equal(t, expected, actual, "DynamicPayloadSize is not matching")
+	})
+
+	t.Run("Size()", func(t *testing.T) {
+		expected := FrameHeaderSize + AllTypesOfArraysMsgFixedSize + msgDynSize(msg)
+		actual := msg.Size()
+		assert.Equal(t, expected, actual, "Size is not matching")
 	})
 
 	t.Run("Marshal()", func(t *testing.T) {
