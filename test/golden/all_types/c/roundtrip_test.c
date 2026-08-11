@@ -94,13 +94,13 @@ static int initialize_only_variable_types_msg_t(only_variable_types_msg_t *msg)
 
     dynamic_array_t tags = {0};
     dynamic_array_init(&tags, TAG_STRING, sizeof (string_t), 1, 4, 1, 1);
-    string_t str1 = {.data = (char *)"alpha", .len = 5};
+    string_t str1 = {0}; string_t_set_value(&str1, "alpha", 5);
     ASSERT(dynamic_array_set(&tags, 0, 0, 0, &str1) == DYN_ARR_OK);
-    string_t str2 = {.data = (char *)"beta", .len = 4};
+    string_t str2 = {0}; string_t_set_value(&str2, "beta", 4);
     ASSERT(dynamic_array_set(&tags, 1, 0, 0, &str2) == DYN_ARR_OK);
-    string_t str3 = {.data = (char *)"gamma", .len = 5};
+    string_t str3 = {0}; string_t_set_value(&str3, "gamma", 5);
     ASSERT(dynamic_array_set(&tags, 2, 0, 0, &str3) == DYN_ARR_OK);
-    string_t str4 = {.data = (char *)"xyz", .len = 3};
+    string_t str4 = {0}; string_t_set_value(&str4, "xyz", 3);
     ASSERT(dynamic_array_set(&tags, 3, 0, 0, &str4) == DYN_ARR_OK);
     only_variable_types_msg_t_set_tags(msg, &tags);
     dynamic_array_destroy(&tags);
@@ -122,15 +122,15 @@ static int initialize_only_variable_types_msg_t(only_variable_types_msg_t *msg)
     dynamic_array_t byte_array = {0};
     dynamic_array_init(&byte_array, TAG_BYTES, sizeof (byte_array_t), 1, 2, 1, 1);
     static uint8_t buf1[] = {0x01, 0x02};
-    byte_array_t data1 = {.data = buf1, .len = 2};
+    byte_array_t data1 = {0}; byte_array_t_set_value(&data1, buf1, 2);
     ASSERT(dynamic_array_set(&byte_array, 0, 0, 0, &data1) == DYN_ARR_OK);
     static uint8_t buf2[] = {0x03, 0x04, 0x05};
-    byte_array_t data2 = {.data = buf2, .len = 3};
+    byte_array_t data2 = {0}; byte_array_t_set_value(&data2, buf2, 3);
     ASSERT(dynamic_array_set(&byte_array, 1, 0, 0, &data2) == DYN_ARR_OK);
     only_variable_types_msg_t_set_byte_array(msg, &byte_array);
     dynamic_array_destroy(&byte_array);
 
-    return 183; /* expected dynamic payload size for this test case, from roundtrip_test.go */
+    return 183; // verified against Go roundtrip_test.go
 }
 
 static void dynamic_array_compare(uint16_t ele_type, const dynamic_array_t *a,
@@ -305,9 +305,6 @@ static void dynamic_array_compare(uint16_t ele_type, const dynamic_array_t *a,
     }
 }
 
-/* ---------------------------------------------------------------------------
- * Helper: compare_all_types_fields_msg_t
- * --------------------------------------------------------------------------*/
 static void compare_all_types_fields_msg_t(const all_types_fields_msg_t *a,
                                             const all_types_fields_msg_t *b)
 {
@@ -337,15 +334,6 @@ static void compare_all_types_fields_msg_t(const all_types_fields_msg_t *a,
     dynamic_array_compare(TAG_BYTES,  &a->byte_array, &b->byte_array);
 }
 
-/* Match Go test:
- *   AllTypesFieldsMsg{ ValUint64:0x0102030405060708, ValInt64:-1234567890123456789,
- *     ValDouble:Pi, ValUint32:0xABCDEF01, ValInt32:-1000000, ValFloat:1.234,
- *     Name:"hello world", Data:{DE,AD,BE,EF},
- *     Nested:{ValUint64:42}, Tags:["alpha","beta","gamma","xyz"],
- *     Matrix:[[1..9]], ByteArray:[[01,02],[03,04,05]],
- *     ValUint16:0x1234, ValInt16:-100, ValUint8:200, ValInt8:-50, ValBool:true }
- * Returns expected dynamic payload size (183).
- */
 static int initialize_all_types_fields_msg_t(all_types_fields_msg_t *msg)
 {
     memset(msg, 0, sizeof(*msg));
@@ -368,12 +356,15 @@ static int initialize_all_types_fields_msg_t(all_types_fields_msg_t *msg)
     {
         dynamic_array_t tags = {0};
         dynamic_array_init(&tags, TAG_STRING, sizeof(string_t), 1, 4, 1, 1);
-        string_t s0={.data=(char*)"alpha",.len=5}, s1={.data=(char*)"beta", .len=4};
-        string_t s2={.data=(char*)"gamma",.len=5}, s3={.data=(char*)"xyz",  .len=3};
-        ASSERT(dynamic_array_set(&tags, 0, 0, 0, &s0) == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&tags, 1, 0, 0, &s1) == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&tags, 2, 0, 0, &s2) == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&tags, 3, 0, 0, &s3) == DYN_ARR_OK);
+        dynamic_array_init(&tags, TAG_STRING, sizeof (string_t), 1, 4, 1, 1);
+        string_t str1 = {0}; string_t_set_value(&str1, "alpha", 5);
+        ASSERT(dynamic_array_set(&tags, 0, 0, 0, &str1) == DYN_ARR_OK);
+        string_t str2 = {0}; string_t_set_value(&str2, "beta", 4);
+        ASSERT(dynamic_array_set(&tags, 1, 0, 0, &str2) == DYN_ARR_OK);
+        string_t str3 = {0}; string_t_set_value(&str3, "gamma", 5);
+        ASSERT(dynamic_array_set(&tags, 2, 0, 0, &str3) == DYN_ARR_OK);
+        string_t str4 = {0}; string_t_set_value(&str4, "xyz", 3);
+        ASSERT(dynamic_array_set(&tags, 3, 0, 0, &str4) == DYN_ARR_OK);
         all_types_fields_msg_t_set_tags(msg, &tags);
         dynamic_array_destroy(&tags);
     }
@@ -388,14 +379,15 @@ static int initialize_all_types_fields_msg_t(all_types_fields_msg_t *msg)
         dynamic_array_destroy(&matrix);
     }
     {
-        dynamic_array_t ba = {0};
-        dynamic_array_init(&ba, TAG_BYTES, sizeof(byte_array_t), 1, 2, 1, 1);
-        static uint8_t d0[]={0x01,0x02}, d1[]={0x03,0x04,0x05};
-        byte_array_t ba0={.data=d0,.len=2}, ba1={.data=d1,.len=3};
-        ASSERT(dynamic_array_set(&ba, 0, 0, 0, &ba0) == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&ba, 1, 0, 0, &ba1) == DYN_ARR_OK);
-        all_types_fields_msg_t_set_byte_array(msg, &ba);
-        dynamic_array_destroy(&ba);
+        dynamic_array_t byte_array = {0};
+        dynamic_array_init(&byte_array, TAG_BYTES, sizeof(byte_array_t), 1, 2, 1, 1);
+        static uint8_t buf1[] = {0x01, 0x02};
+        byte_array_t data1 = {0}; byte_array_t_set_value(&data1, buf1, 2);
+        ASSERT(dynamic_array_set(&byte_array, 0, 0, 0, &data1) == DYN_ARR_OK);
+        static uint8_t buf2[] = {0x03, 0x04, 0x05};
+        byte_array_t data2 = {0}; byte_array_t_set_value(&data2, buf2, 3);
+        ASSERT(dynamic_array_set(&byte_array, 1, 0, 0, &data2) == DYN_ARR_OK);
+        all_types_fields_msg_t_set_byte_array(msg, &byte_array);
     }
 
     all_types_fields_msg_t_set_val_uint16(msg, 0x1234);
@@ -404,12 +396,9 @@ static int initialize_all_types_fields_msg_t(all_types_fields_msg_t *msg)
     all_types_fields_msg_t_set_val_int8(msg,   (int8_t)-50);
     all_types_fields_msg_t_set_val_bool(msg,   1);
 
-    return 183; /* verified against Go roundtrip_test.go */
+    return 183; // verified against Go roundtrip_test.go
 }
 
-/* ---------------------------------------------------------------------------
- * Helper: compare_recursive_nested_msg_t  (recursive)
- * --------------------------------------------------------------------------*/
 static void compare_recursive_nested_msg_t(const recursive_nested_msg_t *a,
                                              const recursive_nested_msg_t *b)
 {
@@ -420,15 +409,6 @@ static void compare_recursive_nested_msg_t(const recursive_nested_msg_t *a,
     compare_recursive_nested_msg_t(a->nested, b->nested);
 }
 
-/* Match Go test:
- *   RecursiveNestedMsg{ Name:"level1",
- *     Nested:{ Name:"level2", Nested:{ Name:"level3" }}}
- *
- * MEMORY NOTE: set_nested does a shallow copy, so level2/level3 local structs
- * share name.data pointers with msg. Only call recursive_nested_msg_t_free(msg)
- * — do NOT separately free the intermediate level2/level3 vars.
- * Returns expected dynamic size (50).
- */
 static int initialize_recursive_nested_msg_t(recursive_nested_msg_t *msg)
 {
     memset(msg, 0, sizeof(*msg));
@@ -442,16 +422,9 @@ static int initialize_recursive_nested_msg_t(recursive_nested_msg_t *msg)
     recursive_nested_msg_t_set_nested(&level2, &level3);
 
     recursive_nested_msg_t_set_nested(msg, &level2);
-    /* dyn = len("level1")=6 + Size(level2)=(8+8+6+Size(level3))
-     *     Size(level3) = 8+8+6 = 22
-     *     Size(level2) = 8+8+28 = 44
-     *     dyn = 6 + 44 = 50 */
-    return 50;
+    return 50; // verified against Go roundtrip_test.go
 }
 
-/* ---------------------------------------------------------------------------
- * Helper: compare_all_types_of_arrays_msg_t
- * --------------------------------------------------------------------------*/
 static void compare_all_types_of_arrays_msg_t(const all_types_of_arrays_msg_t *a,
                                                const all_types_of_arrays_msg_t *b)
 {
@@ -505,16 +478,6 @@ static void compare_all_types_of_arrays_msg_t(const all_types_of_arrays_msg_t *a
     dynamic_array_compare(TAG_UINT8,                   &a->arr3_d_uint8,  &b->arr3_d_uint8);
 }
 
-/* ---------------------------------------------------------------------------
- * Helper: initialize_all_types_of_arrays_msg_t
- *
- * Uses the same values as Go roundtrip_test.go for all numeric types.
- * 2D/3D string arrays use uniform inner sizes (not jagged) because
- * dynamic_array_t requires a fixed layout. nested arrays use zero-init
- * OnlyVariableTypesMsg to keep free() semantics ASAN-clean.
- *
- * Returns expected dynamic payload size (1844).
- * --------------------------------------------------------------------------*/
 static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
 {
     memset(msg, 0, sizeof(*msg));
@@ -636,12 +599,12 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     {
         dynamic_array_t a = {0};
         dynamic_array_init(&a, TAG_STRING, sizeof(string_t), 1, 3, 1, 1);
-        string_t s0 = {.data=(char*)"hello",.len=5};
-        string_t s1 = {.data=(char*)"world",.len=5};
-        /* 日本語 in UTF-8: E6 97 A5 E6 9C AC E8 AA 9E = 9 bytes */
-        string_t s2 = {.data=(char*)"\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e",.len=9};
+        string_t s0 = {0}; string_t_set_value(&s0, "hello", 5);
         ASSERT(dynamic_array_set(&a, 0,0,0, &s0) == DYN_ARR_OK);
+        string_t s1 = {0}; string_t_set_value(&s1, "world", 5);
         ASSERT(dynamic_array_set(&a, 1,0,0, &s1) == DYN_ARR_OK);
+        /* 日本語 in UTF-8: E6 97 A5 E6 9C AC E8 AA 9E = 9 bytes */
+        string_t s2 = {0}; string_t_set_value(&s2, "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", 9);
         ASSERT(dynamic_array_set(&a, 2,0,0, &s2) == DYN_ARR_OK);
         all_types_of_arrays_msg_t_set_arr1_d_string(msg, &a);
         dynamic_array_destroy(&a);
@@ -650,11 +613,12 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     {
         dynamic_array_t a = {0};
         dynamic_array_init(&a, TAG_BYTES, sizeof(byte_array_t), 1, 3, 1, 1);
-        static uint8_t d0[]={0x01,0x02}, d2[]={0xFF};
-        byte_array_t ba0={.data=d0,.len=2}, ba1={.data=d2,.len=1}, ba2={.data=d2,.len=1};
-        ASSERT(dynamic_array_set(&a, 0,0,0, &ba0) == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&a, 1,0,0, &ba1) == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&a, 2,0,0, &ba2) == DYN_ARR_OK);
+        byte_array_t b0 = {0}; byte_array_t_set_value(&b0, (uint8_t[]){0x01, 0x02}, 2);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &b0) == DYN_ARR_OK);
+        byte_array_t b1 = {0}; byte_array_t_set_value(&b1, (uint8_t[]){0xFF}, 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &b1) == DYN_ARR_OK);
+        byte_array_t b2 = {0}; byte_array_t_set_value(&b2, (uint8_t[]){0xFF}, 1);
+        ASSERT(dynamic_array_set(&a, 2,0,0, &b2) == DYN_ARR_OK);
         all_types_of_arrays_msg_t_set_arr1_d_bytes(msg, &a);
         dynamic_array_destroy(&a);
     }
@@ -817,11 +781,13 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     {
         dynamic_array_t a = {0};
         dynamic_array_init(&a, TAG_STRING, sizeof(string_t), 2, 2, 2, 1);
-        string_t sa={.data=(char*)"a",.len=1}, sb={.data=(char*)"b",.len=1};
-        string_t sc={.data=(char*)"c",.len=1}, sd={.data=(char*)"d",.len=1};
+        string_t sa = {0}; string_t_set_value(&sa, "a", 1);
         ASSERT(dynamic_array_set(&a, 0,0,0, &sa) == DYN_ARR_OK);
+        string_t sb = {0}; string_t_set_value(&sb, "b", 1);
         ASSERT(dynamic_array_set(&a, 0,1,0, &sb) == DYN_ARR_OK);
+        string_t sc = {0}; string_t_set_value(&sc, "c", 1);
         ASSERT(dynamic_array_set(&a, 1,0,0, &sc) == DYN_ARR_OK);
+        string_t sd = {0}; string_t_set_value(&sd, "d", 1);
         ASSERT(dynamic_array_set(&a, 1,1,0, &sd) == DYN_ARR_OK);
         all_types_of_arrays_msg_t_set_arr2_d_string(msg, &a);
         dynamic_array_destroy(&a);
@@ -830,13 +796,14 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     {
         dynamic_array_t a = {0};
         dynamic_array_init(&a, TAG_BYTES, sizeof(byte_array_t), 2, 2, 2, 1);
-        static uint8_t d01[]={0x01}, d02[]={0x02}, d03[]={0x03}, d04[]={0x04,0x05};
-        byte_array_t ba01={.data=d01,.len=1}, ba02={.data=d02,.len=1};
-        byte_array_t ba03={.data=d03,.len=1}, ba0405={.data=d04,.len=2};
-        ASSERT(dynamic_array_set(&a, 0,0,0, &ba01)   == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&a, 0,1,0, &ba02)   == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&a, 1,0,0, &ba03)   == DYN_ARR_OK);
-        ASSERT(dynamic_array_set(&a, 1,1,0, &ba0405) == DYN_ARR_OK);
+        byte_array_t b01={0}; byte_array_t_set_value(&b01, (uint8_t[]){0x01}, 1);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &b01)   == DYN_ARR_OK);
+        byte_array_t b02={0}; byte_array_t_set_value(&b02, (uint8_t[]){0x02}, 1);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &b02)   == DYN_ARR_OK);
+        byte_array_t b03={0}; byte_array_t_set_value(&b03, (uint8_t[]){0x03}, 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &b03)   == DYN_ARR_OK);
+        byte_array_t b0405={0}; byte_array_t_set_value(&b0405, (uint8_t[]){0x04,0x05}, 2);
+        ASSERT(dynamic_array_set(&a, 1,1,0, &b0405) == DYN_ARR_OK);
         all_types_of_arrays_msg_t_set_arr2_d_bytes(msg, &a);
         dynamic_array_destroy(&a);
     }
@@ -991,21 +958,21 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     {
         dynamic_array_t a = {0};
         dynamic_array_init(&a, TAG_STRING, sizeof(string_t), 3, 2, 2, 2);
-        string_t s1 = {.data=(char*)"a", .len=1};
+        string_t s1 = {0}; string_t_set_value(&s1, "a", 1);
         ASSERT(dynamic_array_set(&a,0,0,0,&s1) == DYN_ARR_OK);
-        string_t s2 = {.data=(char*)"b", .len=1};
+        string_t s2 = {0}; string_t_set_value(&s2, "b", 1);
         ASSERT(dynamic_array_set(&a,0,0,1,&s2) == DYN_ARR_OK);
-        string_t s3 = {.data=(char*)"c", .len=1};
+        string_t s3 = {0}; string_t_set_value(&s3, "c", 1);
         ASSERT(dynamic_array_set(&a,0,1,0,&s3) == DYN_ARR_OK);
-        string_t s4 = {.data=(char*)"d", .len=1};
+        string_t s4 = {0}; string_t_set_value(&s4, "d", 1);
         ASSERT(dynamic_array_set(&a,0,1,1,&s4) == DYN_ARR_OK);
-        string_t s5 = {.data=(char*)"e", .len=1};
+        string_t s5 = {0}; string_t_set_value(&s5, "e", 1);
         ASSERT(dynamic_array_set(&a,1,0,0,&s5) == DYN_ARR_OK);
-        string_t s6 = {.data=(char*)"f", .len=1};
+        string_t s6 = {0}; string_t_set_value(&s6, "f", 1);
         ASSERT(dynamic_array_set(&a,1,0,1,&s6) == DYN_ARR_OK);
-        string_t s7 = {.data=(char*)"g", .len=1};
+        string_t s7 = {0}; string_t_set_value(&s7, "g", 1);
         ASSERT(dynamic_array_set(&a,1,1,0,&s7) == DYN_ARR_OK);
-        string_t s8 = {.data=(char*)"h", .len=1};
+        string_t s8 = {0}; string_t_set_value(&s8, "h", 1);
         ASSERT(dynamic_array_set(&a,1,1,1,&s8) == DYN_ARR_OK);
 
         all_types_of_arrays_msg_t_set_arr3_d_string(msg, &a);
@@ -1015,21 +982,21 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     {
         dynamic_array_t a = {0};
         dynamic_array_init(&a, TAG_BYTES, sizeof(byte_array_t), 3, 2, 2, 2);
-        byte_array_t ba1 = {.data=(uint8_t[]){0x01}, .len=1};
+        byte_array_t ba1 = {0}; byte_array_t_set_value(&ba1, (uint8_t[]){0x01}, 1);
         ASSERT(dynamic_array_set(&a,0,0,0,&ba1) == DYN_ARR_OK);
-        byte_array_t ba2 = {.data=(uint8_t[]){0x02}, .len=1};
+        byte_array_t ba2 = {0}; byte_array_t_set_value(&ba2, (uint8_t[]){0x02}, 1);
         ASSERT(dynamic_array_set(&a,0,0,1,&ba2) == DYN_ARR_OK);
-        byte_array_t ba3 = {.data=(uint8_t[]){0x03}, .len=1};
+        byte_array_t ba3 = {0}; byte_array_t_set_value(&ba3, (uint8_t[]){0x03}, 1);
         ASSERT(dynamic_array_set(&a,0,1,0,&ba3) == DYN_ARR_OK);
-        byte_array_t ba4 = {.data=(uint8_t[]){0x04, 0x05}, .len=2};
+        byte_array_t ba4 = {0}; byte_array_t_set_value(&ba4, (uint8_t[]){0x04, 0x05}, 2);
         ASSERT(dynamic_array_set(&a,0,1,1,&ba4) == DYN_ARR_OK);
-        byte_array_t ba5 = {.data=(uint8_t[]){0x06}, .len=1};
+        byte_array_t ba5 = {0}; byte_array_t_set_value(&ba5, (uint8_t[]){0x06}, 1);
         ASSERT(dynamic_array_set(&a,1,0,0,&ba5) == DYN_ARR_OK);
-        byte_array_t ba6 = {.data=(uint8_t[]){0x07}, .len=1};
+        byte_array_t ba6 = {0}; byte_array_t_set_value(&ba6, (uint8_t[]){0x07}, 1);
         ASSERT(dynamic_array_set(&a,1,0,1,&ba6) == DYN_ARR_OK);
-        byte_array_t ba7 = {.data=(uint8_t[]){0x07, 0x08}, .len=2};
+        byte_array_t ba7 = {0}; byte_array_t_set_value(&ba7, (uint8_t[]){0x07, 0x08}, 2);
         ASSERT(dynamic_array_set(&a,1,1,0,&ba7) == DYN_ARR_OK);
-        byte_array_t ba8 = {.data=(uint8_t[]){0x09}, .len=1};
+        byte_array_t ba8 = {0}; byte_array_t_set_value(&ba8, (uint8_t[]){0x09}, 1);
         ASSERT(dynamic_array_set(&a,1,1,1,&ba8) == DYN_ARR_OK);
 
         all_types_of_arrays_msg_t_set_arr3_d_bytes(msg, &a);
@@ -1094,7 +1061,190 @@ static int initialize_all_types_of_arrays_msg_t(all_types_of_arrays_msg_t *msg)
     }
 
 #undef SET_3D_2x2x2
-    return 2876; // From roundtrip_test.go
+    return 2876; // verified against Go roundtrip_test.go
+}
+
+static int initialize_all_types_of_arrays_msg_t_jagged_arrays(all_types_of_arrays_msg_t *msg)
+{
+    memset(msg, 0, sizeof(*msg));
+
+    /* 1D Arrays */
+    /* arr1_d_int32: {1, 2, 6} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_INT32, sizeof(int32_t), 1, 3, 1, 1);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &(int32_t){1}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &(int32_t){2}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 2,0,0, &(int32_t){6}) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr1_d_int32(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr1_d_string: {"hello", "world", "go"} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_STRING, sizeof(string_t), 1, 3, 1, 1);
+        string_t s0 = {0}; string_t_set_value(&s0, "hello", 5);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &s0) == DYN_ARR_OK);
+        string_t s1 = {0}; string_t_set_value(&s1, "world", 5);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &s1) == DYN_ARR_OK);
+        string_t s2 = {0}; string_t_set_value(&s2, "go", 2);
+        ASSERT(dynamic_array_set(&a, 2,0,0, &s2) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr1_d_string(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr1_d_bytes: {{0x01, 0x02}, {0x03}, {0x04}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_BYTES, sizeof(byte_array_t), 1, 3, 1, 1);
+        byte_array_t b0 = {0}; byte_array_t_set_value(&b0, (uint8_t[]){0x01, 0x02}, 2);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &b0) == DYN_ARR_OK);
+        byte_array_t b1 = {0}; byte_array_t_set_value(&b1, (uint8_t[]){0x03}, 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &b1) == DYN_ARR_OK);
+        byte_array_t b2 = {0}; byte_array_t_set_value(&b2, (uint8_t[]){0x04}, 1);
+        ASSERT(dynamic_array_set(&a, 2,0,0, &b2) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr1_d_bytes(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr1_d_nested: {{Name: "nested1"}, {Name: "nested2"}, {Name: "nested3"}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_ONLY_VARIABLE_TYPES_MSG,
+                           sizeof(only_variable_types_msg_t), 1, 3, 1, 1);
+        only_variable_types_msg_t z1 = {0};
+        only_variable_types_msg_t_set_name(&z1, "nested1", 7);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &z1) == DYN_ARR_OK);
+        only_variable_types_msg_t z2 = {0};
+        only_variable_types_msg_t_set_name(&z2, "nested2", 7);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &z2) == DYN_ARR_OK);
+        only_variable_types_msg_t z3 = {0};
+        only_variable_types_msg_t_set_name(&z3, "nested3", 7);
+        ASSERT(dynamic_array_set(&a, 2,0,0, &z3) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr1_d_nested(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+
+    /* 2D Array */
+    /* arr2_d_int32: {{1, 2}, {3}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_INT32, sizeof(int32_t), 2, 2, 2, 1);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &(int32_t){1}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &(int32_t){2}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &(int32_t){3}) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr2_d_int32(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr2_d_string: {{"a", "b"}, {"c"}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_STRING, sizeof(string_t), 2, 2, 2, 1);
+        string_t s0 = {0}; string_t_set_value(&s0, "a", 1);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &s0) == DYN_ARR_OK);
+        string_t s1 = {0}; string_t_set_value(&s1, "b", 1);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &s1) == DYN_ARR_OK);
+        string_t s2 = {0}; string_t_set_value(&s2, "c", 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &s2) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr2_d_string(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr2_d_bytes: {{{0x01, 0x02}, {0x03}}, {{0x04}}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_BYTES, sizeof(byte_array_t), 2, 2, 2, 1);
+        byte_array_t b0 = {0}; byte_array_t_set_value(&b0, (uint8_t[]){0x01, 0x02}, 2);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &b0) == DYN_ARR_OK);
+        byte_array_t b1 = {0}; byte_array_t_set_value(&b1, (uint8_t[]){0x03}, 1);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &b1) == DYN_ARR_OK);
+        byte_array_t b2 = {0}; byte_array_t_set_value(&b2, (uint8_t[]){0x04}, 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &b2) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr2_d_bytes(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr2_d_nested: {{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_ONLY_VARIABLE_TYPES_MSG,
+                           sizeof(only_variable_types_msg_t), 2, 2, 2, 1);
+        only_variable_types_msg_t z1 = {0};
+        only_variable_types_msg_t_set_name(&z1, "nested1", 7);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &z1) == DYN_ARR_OK);
+        only_variable_types_msg_t z2 = {0};
+        only_variable_types_msg_t_set_name(&z2, "nested2", 7);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &z2) == DYN_ARR_OK);
+        only_variable_types_msg_t z3 = {0};
+        only_variable_types_msg_t_set_name(&z3, "nested3", 7);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &z3) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr2_d_nested(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+
+    /* 3D Array */
+    /* arr3_d_int32: {{{1, 2, 3, 4, 5}, {6}}, {{7}}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_INT32, sizeof(int32_t), 3, 2, 2, 5);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &(int32_t){1}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 0,0,1, &(int32_t){2}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 0,0,2, &(int32_t){3}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 0,0,3, &(int32_t){4}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 0,0,4, &(int32_t){5}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &(int32_t){6}) == DYN_ARR_OK);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &(int32_t){7}) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr3_d_int32(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr3_d_string: {{{"a", "b"}, {"c"}}, {{"d"}}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_STRING, sizeof(string_t), 3, 2, 2, 2);
+        string_t s0 = {0}; string_t_set_value(&s0, "a", 1);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &s0) == DYN_ARR_OK);
+        string_t s1 = {0}; string_t_set_value(&s1, "b", 1);
+        ASSERT(dynamic_array_set(&a, 0,0,1, &s1) == DYN_ARR_OK);
+        string_t s2 = {0}; string_t_set_value(&s2, "c", 1);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &s2) == DYN_ARR_OK);
+        string_t s3 = {0}; string_t_set_value(&s3, "d", 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &s3) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr3_d_string(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr3_d_bytes: {{{{0x01, 0x02}, {0x03}}, {{0x04}}}, {{{0x05}}}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_BYTES, sizeof(byte_array_t), 3, 2, 2, 2);
+        byte_array_t b0 = {0}; byte_array_t_set_value(&b0, (uint8_t[]){0x01, 0x02}, 2);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &b0) == DYN_ARR_OK);
+        byte_array_t b1 = {0}; byte_array_t_set_value(&b1, (uint8_t[]){0x03}, 1);
+        ASSERT(dynamic_array_set(&a, 0,0,1, &b1) == DYN_ARR_OK);
+        byte_array_t b2 = {0}; byte_array_t_set_value(&b2, (uint8_t[]){0x04}, 1);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &b2) == DYN_ARR_OK);
+        byte_array_t b3 = {0}; byte_array_t_set_value(&b3, (uint8_t[]){0x05}, 1);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &b3) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr3_d_bytes(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+    /* arr3_d_nested: {{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}}}, {{{Name: "nested4"}}}} */
+    {
+        dynamic_array_t a = {0};
+        dynamic_array_init(&a, TAG_ONLY_VARIABLE_TYPES_MSG,
+                           sizeof(only_variable_types_msg_t), 3, 2, 2, 2);
+        only_variable_types_msg_t z1 = {0};
+        only_variable_types_msg_t_set_name(&z1, "nested1", 7);
+        ASSERT(dynamic_array_set(&a, 0,0,0, &z1) == DYN_ARR_OK);
+        only_variable_types_msg_t z2 = {0};
+        only_variable_types_msg_t_set_name(&z2, "nested2", 7);
+        ASSERT(dynamic_array_set(&a, 0,0,1, &z2) == DYN_ARR_OK);
+        only_variable_types_msg_t z3 = {0};
+        only_variable_types_msg_t_set_name(&z3, "nested3", 7);
+        ASSERT(dynamic_array_set(&a, 0,1,0, &z3) == DYN_ARR_OK);
+        only_variable_types_msg_t z4 = {0};
+        only_variable_types_msg_t_set_name(&z4, "nested4", 7);
+        ASSERT(dynamic_array_set(&a, 1,0,0, &z4) == DYN_ARR_OK);
+        all_types_of_arrays_msg_t_set_arr3_d_nested(msg, &a);
+        dynamic_array_destroy(&a);
+    }
+
+    return 716; // verified against Go roundtrip_test.go
 }
 
 /* ---------------------------------------------------------------------------
@@ -1726,6 +1876,36 @@ static void test_all_types_of_arrays_msg_t_roundtrip_empty_fields(void)
     PASS();
 }
 
+static void test_all_types_of_arrays_msg_t_roundtrip_jagged_arrays(void)
+{
+    TEST(all_types_of_arrays_msg_t_roundtrip_jagged_arrays);
+
+    all_types_of_arrays_msg_t src = {0};
+    int expected_dyn = initialize_all_types_of_arrays_msg_t_jagged_arrays(&src);
+
+    ASSERT_EQ_INT((int)all_types_of_arrays_msg_t_dynamic_payload_size(&src), expected_dyn);
+
+    uint8_t *buf = NULL;
+    int total = all_types_of_arrays_msg_t_marshal(&src, &buf);
+    ASSERT_EQ_INT(WIRE_FRAME_HEADER_SIZE + ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE + expected_dyn, total);
+    ASSERT(buf != NULL);
+
+    uint16_t fixed_len   = get_message_fixed_payload_length(buf);
+    uint32_t overall_len = get_message_overall_payload_length(buf);
+    
+    all_types_of_arrays_msg_t dst = {0};
+    int rc = all_types_of_arrays_msg_t_unmarshal(
+        buf + WIRE_FRAME_HEADER_SIZE, fixed_len, overall_len, &dst);
+    ASSERT_EQ_INT(rc, 0);
+
+    compare_all_types_of_arrays_msg_t(&src, &dst);
+
+    all_types_of_arrays_msg_t_free(&dst);
+    all_types_of_arrays_msg_t_free(&src);
+    free(buf);
+    PASS();
+}
+
 /* ---------------------------------------------------------------------------
  * Test: Free safety — NULL pointer is a no-op
  * --------------------------------------------------------------------------*/
@@ -1863,6 +2043,7 @@ int main(void)
     test_all_types_of_arrays_msg_t_marshal();
     test_all_types_of_arrays_msg_t_unmarshal();
     test_all_types_of_arrays_msg_t_roundtrip_empty_fields();
+    test_all_types_of_arrays_msg_t_roundtrip_jagged_arrays();
 
     printf("\n--- Memory safety ---\n");
     test_free_null_safety();

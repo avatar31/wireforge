@@ -69,12 +69,45 @@ uint32_t get_message_overall_payload_length(const uint8_t *buf) {
     return get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
 }
 
+dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size_t len) {
+    if (!str) return DYN_ARR_ERR_INVALID_PARAM;
+
+    str->data = NULL;
+    str->len = 0;
+    if (!value || len == 0) return DYN_ARR_OK;
+
+    str->data = (char*)malloc(len + 1);
+    if (!str->data) {
+        return DYN_ARR_ERR_NO_MEMORY;
+    }
+    memcpy(str->data, value, len);
+    str->data[len] = '\0';
+    str->len = len;
+    return DYN_ARR_OK;
+}
+
 void string_t_free(string_t *str) {
     if (str && str->data) {
         free(str->data);
         str->data = NULL;
         str->len = 0;
     }
+}
+
+dyn_arr_status_t byte_array_t_set_value(byte_array_t *byte_arr, const uint8_t *value, const size_t len) {
+    if (!byte_arr) return DYN_ARR_ERR_INVALID_PARAM;
+
+    byte_arr->data = NULL;
+    byte_arr->len = 0;
+    if (!value || len == 0) return DYN_ARR_OK;
+
+    byte_arr->data = (uint8_t*)malloc(len);
+    if (!byte_arr->data) {
+        return DYN_ARR_ERR_NO_MEMORY;
+    }
+    memcpy(byte_arr->data, value, len);
+    byte_arr->len = len;
+    return DYN_ARR_OK;
 }
 
 void byte_array_t_free(byte_array_t *byte_arr) {
@@ -112,7 +145,7 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
 
     // Check integer overflow for element calculation
     size_t total_elements = dim_x * dim_y * dim_z;
-    if (total_elements / dim_x / dim_y != dim_z) {
+    if (dim_x != 0 && (total_elements / dim_x / dim_y != dim_z)) {
         return DYN_ARR_ERR_OVERFLOW;
     }
 
@@ -125,14 +158,20 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
     if (!arr->data) {
         return DYN_ARR_ERR_NO_MEMORY;
     }
+    arr->is_set = calloc(total_elements, sizeof(uint8_t));
+    if (!arr->is_set) {
+        free(arr->data);
+        arr->data = NULL;
+        return DYN_ARR_ERR_NO_MEMORY;
+    }
 
-    arr->elem_size = elem_size;
     arr->num_dims = num_dims;
+    arr->ele_type = ele_type;
+    arr->elem_size = elem_size;
+    arr->capacity = total_elements;
     arr->x = dim_x;
     arr->y = dim_y;
     arr->z = dim_z;
-    arr->capacity = total_elements;
-    arr->ele_type = ele_type;
 
     return DYN_ARR_OK;
 }
@@ -170,43 +209,161 @@ dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t 
 /* =========================================================================
  * UPDATE / SET: Set element value at (i, j, k)
  * ========================================================================= */
-dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val) {
-    if (!in_val) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t
+dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val)
+{
+    if (!arr || !arr->data || !arr->is_set || !in_val)  return DYN_ARR_ERR_INVALID_PARAM;
+    if (i >= arr->x || j >= arr->y || k >= arr->z)      return DYN_ARR_ERR_OUT_OF_BOUNDS;
 
-    void *elem_ptr = dynamic_array_get_ptr(arr, i, j, k);
-    if (!elem_ptr) {
-        return DYN_ARR_ERR_OUT_OF_BOUNDS;
+    // Check for non-contiguous element in row (i, j)
+    for (size_t m = 0; m < k; m++) {
+        size_t prev_idx = get_flat_index(arr, i, j, m);
+        if (!arr->is_set || !arr->is_set[prev_idx]) {
+            return DYN_ARR_ERR_INVALID_PARAM;
+        }
     }
 
+    size_t flat_idx = get_flat_index(arr, i, j, k);
+    void *elem_ptr = (uint8_t*)arr->data + (flat_idx * arr->elem_size);
     memcpy(elem_ptr, in_val, arr->elem_size);
+    arr->is_set[flat_idx] = 1;
+
     return DYN_ARR_OK;
 }
 
-/* =========================================================================
- * RESIZE: Grow or reshape internal storage capacity
- * ========================================================================= */
-dyn_arr_status_t dynamic_array_resize(dynamic_array_t *arr, size_t new_x, size_t new_y, size_t new_z) {
-    if (!arr) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_array_t *src) {
+    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
 
-    size_t dim_x = new_x;
-    size_t dim_y = (arr->num_dims >= 2) ? new_y : 1;
-    size_t dim_z = (arr->num_dims == 3) ? new_z : 1;
-
-    size_t total_elements = dim_x * dim_y * dim_z;
-
-    if (total_elements > arr->capacity) {
-        void *new_data = realloc(arr->data, total_elements * arr->elem_size);
-        if (!new_data) {
-            return DYN_ARR_ERR_NO_MEMORY;
+    size_t eff_x = src->x;
+    if (src->data != NULL && src->capacity > 0) {
+        size_t max_i = 0;
+        bool has_any = false;
+        for (size_t i = 0; i < src->x; i++) {
+            if (src->is_set && src->is_set[i]) {
+                has_any = true;
+                if (i + 1 > max_i) max_i = i + 1;
+            }
         }
-        arr->data = new_data;
-        arr->capacity = total_elements;
+        if (has_any) eff_x = max_i;
     }
 
-    arr->x = dim_x;
-    arr->y = dim_y;
-    arr->z = dim_z;
+    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 1, eff_x, 1, 1);
+    if (status != DYN_ARR_OK) {
+        dynamic_array_destroy(dest);
+        return status;
+    }
 
+    if (src->data != NULL && src->capacity > 0) {
+        for (size_t i = 0; i < eff_x; i++) {
+            if (src->is_set && src->is_set[i]) {
+                memcpy((uint8_t*)dest->data + (i * src->elem_size),
+                       (const uint8_t*)src->data + (i * src->elem_size),
+                       src->elem_size);
+                dest->is_set[i] = 1;
+            }
+        }
+    }
+    return DYN_ARR_OK;
+}
+
+dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_array_t *src) {
+    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+
+    size_t eff_x = src->x;
+    size_t eff_y = src->y;
+    if (src->data != NULL && src->capacity > 0) {
+        size_t max_i = 0, max_j = 0;
+        bool has_any = false;
+        for (size_t i = 0; i < src->x; i++) {
+            for (size_t j = 0; j < src->y; j++) {
+                size_t idx = get_flat_index(src, i, j, 0);
+                if (src->is_set && src->is_set[idx]) {
+                    has_any = true;
+                    if (i + 1 > max_i) max_i = i + 1;
+                    if (j + 1 > max_j) max_j = j + 1;
+                }
+            }
+        }
+        if (has_any) {
+            eff_x = max_i;
+            eff_y = max_j;
+        }
+    }
+
+    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 2, eff_x, eff_y, 1);
+    if (status != DYN_ARR_OK) {
+        dynamic_array_destroy(dest);
+        return status;
+    }
+
+    if (src->data != NULL && src->capacity > 0) {
+        for (size_t i = 0; i < eff_x; i++) {
+            for (size_t j = 0; j < eff_y; j++) {
+                size_t src_idx = get_flat_index(src, i, j, 0);
+                size_t dst_idx = get_flat_index(dest, i, j, 0);
+                if (src->is_set && src->is_set[src_idx]) {
+                    memcpy((uint8_t*)dest->data + (dst_idx * src->elem_size),
+                           (const uint8_t*)src->data + (src_idx * src->elem_size),
+                           src->elem_size);
+                    dest->is_set[dst_idx] = 1;
+                }
+            }
+        }
+    }
+    return DYN_ARR_OK;
+}
+
+dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_array_t *src) {
+    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+
+    size_t eff_x = src->x;
+    size_t eff_y = src->y;
+    size_t eff_z = src->z;
+    if (src->data != NULL && src->capacity > 0) {
+        size_t max_i = 0, max_j = 0, max_k = 0;
+        bool has_any = false;
+        for (size_t i = 0; i < src->x; i++) {
+            for (size_t j = 0; j < src->y; j++) {
+                for (size_t k = 0; k < src->z; k++) {
+                    size_t idx = get_flat_index(src, i, j, k);
+                    if (src->is_set && src->is_set[idx]) {
+                        has_any = true;
+                        if (i + 1 > max_i) max_i = i + 1;
+                        if (j + 1 > max_j) max_j = j + 1;
+                        if (k + 1 > max_k) max_k = k + 1;
+                    }
+                }
+            }
+        }
+        if (has_any) {
+            eff_x = max_i;
+            eff_y = max_j;
+            eff_z = max_k;
+        }
+    }
+
+    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 3, eff_x, eff_y, eff_z);
+    if (status != DYN_ARR_OK) {
+        dynamic_array_destroy(dest);
+        return status;
+    }
+
+    if (src->data != NULL && src->capacity > 0) {
+        for (size_t i = 0; i < eff_x; i++) {
+            for (size_t j = 0; j < eff_y; j++) {
+                for (size_t k = 0; k < eff_z; k++) {
+                    size_t src_idx = get_flat_index(src, i, j, k);
+                    size_t dst_idx = get_flat_index(dest, i, j, k);
+                    if (src->is_set && src->is_set[src_idx]) {
+                        memcpy((uint8_t*)dest->data + (dst_idx * src->elem_size),
+                               (const uint8_t*)src->data + (src_idx * src->elem_size),
+                               src->elem_size);
+                        dest->is_set[dst_idx] = 1;
+                    }
+                }
+            }
+        }
+    }
     return DYN_ARR_OK;
 }
 
@@ -219,6 +376,10 @@ void dynamic_array_destroy(dynamic_array_t *arr) {
             free(arr->data);
             arr->data = NULL;
         }
+        if (arr->is_set) {
+            free(arr->is_set);
+            arr->is_set = NULL;
+        }
         arr->x = 0;
         arr->y = 0;
         arr->z = 0;
@@ -228,406 +389,313 @@ void dynamic_array_destroy(dynamic_array_t *arr) {
     }
 }
 
-static dyn_arr_status_t one_dimensional_array_to_bytes(
-    const dynamic_array_t *arr,
-    element_type_t ele_type,
-    size_t flat_offset, // starting index inside flattened arr->data
-    custom_size_fn size_fn,
-    custom_marshal_fn marshal_fn,
-    size_t *out_items_count,
-    uint8_t **out_buf,
-    size_t *out_len)
+/* =========================================================================
+ * Serialization helpers with is_set support
+ * ========================================================================= */
+
+static void get_array_counts(const dynamic_array_t *arr,
+                             size_t *out_x_count,
+                             size_t *out_y_counts,
+                             size_t *out_z_counts,
+                             size_t *out_total_items)
 {
-    size_t count = arr->x;
-    if (count == 0) {
-        uint8_t *buf = (uint8_t*)malloc(ARRAY_COUNT_PREFIX_SIZE);
-        if (!buf) {
-            return (DYN_ARR_ERR_NO_MEMORY);
-        }
-
-        put_u16_be(buf, (uint16_t)count);
-
-        *out_items_count = 0;
-        *out_buf = buf;
-        *out_len = ARRAY_COUNT_PREFIX_SIZE;
-        return (DYN_ARR_OK);
+    if (!arr || !arr->is_set) {
+        if (out_x_count) *out_x_count = 0;
+        if (out_total_items) *out_total_items = 0;
+        return;
     }
 
-    if (count > MAX_ARRAY_ELEMENTS) {
-        return (DYN_ARR_ERR_OVERFLOW);
+    if (arr->num_dims == 1) {
+        size_t c = 0;
+        for (size_t k = 0; k < arr->x; k++) {
+            if (arr->is_set[k]) c++;
+            else break;
+        }
+        if (out_x_count) *out_x_count = c;
+        if (out_total_items) *out_total_items = c;
+        return;
     }
 
-    *out_buf = NULL;
-    uint8_t *buf = NULL;
-    size_t total_payload_size = 0;
+    if (arr->num_dims == 2) {
+        size_t x_count = 0;
+        size_t overall_items = 0;
 
-    switch (ele_type) {
-        // --- 1-Byte Primitives ---
-        case TAG_BOOL:
-        case TAG_UINT8:
-        case TAG_INT8: {
-            total_payload_size = count * 1;
-            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
-            if (!buf) {
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
+        for (size_t i = 0; i < arr->x; i++) {
+            size_t row_count = 0;
+            bool row_has_set = false;
 
-            put_u16_be(buf, (uint16_t)count);
-            const uint8_t *src = (const uint8_t*)arr->data + flat_offset;
-            memcpy(buf + ARRAY_COUNT_PREFIX_SIZE, src, count);
-            break;
-        }
-
-        // --- 2-Byte Primitives ---
-        case TAG_UINT16:
-        case TAG_INT16: {
-            total_payload_size = count * 2;
-            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
-            if (!buf) {
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-
-            put_u16_be(buf, (uint16_t)count);
-            const uint16_t *src = (const uint16_t*)((const uint8_t*)arr->data + flat_offset);
-            uint8_t *dst = buf + ARRAY_COUNT_PREFIX_SIZE;
-            for (size_t i = 0; i < count; i++) {
-                put_u16_be(dst + (i * 2), src[i]);
-            }
-            break;
-        }
-
-        // --- 4-Byte Primitives ---
-        case TAG_UINT32:
-        case TAG_INT32:
-        case TAG_FLOAT32: {
-            total_payload_size = count * 4;
-            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
-            if (!buf) {
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-
-            put_u16_be(buf, (uint16_t)count);
-            const uint32_t *src = (const uint32_t*)((const uint8_t*)arr->data + flat_offset);
-            uint8_t *dst = buf + ARRAY_COUNT_PREFIX_SIZE;
-            for (size_t i = 0; i < count; i++) {
-                put_u32_be(dst + (i * 4), src[i]);
-            }
-            break;
-        }
-
-        // --- 8-Byte Primitives ---
-        case TAG_UINT64:
-        case TAG_INT64:
-        case TAG_FLOAT64: {
-            total_payload_size = count * 8;
-            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
-            if (!buf) {
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-
-            put_u16_be(buf, (uint16_t)count);
-            const uint64_t *src = (const uint64_t*)((const uint8_t*)arr->data + flat_offset);
-            uint8_t *dst = buf + ARRAY_COUNT_PREFIX_SIZE;
-            for (size_t i = 0; i < count; i++) {
-                put_u64_be(dst + (i * 8), src[i]);
-            }
-            break;
-        }
-
-        // --- Variable-Length Sequences (Strings & Bytes) ---
-        case TAG_STRING:
-        case TAG_BYTES: {
-            // Memory layout of string_t and byte_array_t are identical in memory:
-            // { void *data; uint32_t len; }
-            typedef struct {
-                const uint8_t *data;
-                uint32_t len;
-            } var_len_item_t;
-
-            const var_len_item_t *src = (const var_len_item_t*)((const uint8_t*)arr->data + flat_offset);
-            for (size_t i = 0; i < count; i++) {
-                size_t item_len = (src[i].data != NULL) ? src[i].len : 0;
-                total_payload_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + item_len;
-            }
-
-            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
-            if (!buf) {
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-
-            put_u16_be(buf, (uint16_t)count);
-            size_t dyn_off = ARRAY_COUNT_PREFIX_SIZE;
-            for (size_t i = 0; i < count; i++) {
-                uint32_t item_len = (src[i].data != NULL) ? src[i].len : 0;
-
-                put_u32_be(buf + dyn_off, item_len);
-                dyn_off += STRING_OR_BYTE_LEN_PREFIX_SIZE;
-
-                if (item_len > 0) {
-                    memcpy(buf + dyn_off, src[i].data, item_len);
-                    dyn_off += item_len;
+            for (size_t j = 0; j < arr->y; j++) {
+                size_t idx = get_flat_index(arr, i, j, 0);
+                if (arr->is_set[idx]) {
+                    row_has_set = true;
+                    row_count++;
+                } else {
+                    // Assuming consecutive set elements from the start of the row
+                    break; 
                 }
             }
+
+            // If this row has any set elements, update our active x_count boundary
+            if (row_has_set) {
+                x_count = i + 1;
+            }
+
+            if (out_y_counts) {
+                out_y_counts[i] = row_count;
+            }
+            overall_items += row_count;
+        }
+
+        if (out_x_count) *out_x_count = x_count;
+        if (out_total_items) *out_total_items = overall_items;
+        return;
+    }
+
+    if (arr->num_dims == 3) {
+        size_t x_count = 0;
+        size_t overall_items = 0;
+
+        // First pass: Find x_count (last plane index containing at least one set element)
+        for (size_t i = 0; i < arr->x; i++) {
+            bool plane_has_set = false;
+            for (size_t j = 0; j < arr->y; j++) {
+                for (size_t k = 0; k < arr->z; k++) {
+                    size_t idx = get_flat_index(arr, i, j, k);
+                    if (arr->is_set[idx]) {
+                        plane_has_set = true;
+                        break;
+                    }
+                }
+                if (plane_has_set) break;
+            }
+            if (plane_has_set) {
+                x_count = i + 1;
+            }
+        }
+
+        // Second pass: Process only up to x_count to compute y counts, z counts, and total items
+        for (size_t i = 0; i < x_count; i++) {
+            size_t y_cnt = 0;
+
+            for (size_t j = 0; j < arr->y; j++) {
+                size_t z_cnt = 0;
+
+                for (size_t k = 0; k < arr->z; k++) {
+                    size_t idx = get_flat_index(arr, i, j, k);
+                    if (arr->is_set[idx]) {
+                        z_cnt++;
+                    } else {
+                        break; // Assumes consecutive items from start for z_cnt
+                    }
+                }
+
+                if (z_cnt > 0) {
+                    y_cnt = j + 1;
+                }
+
+                if (out_z_counts) {
+                    out_z_counts[i * arr->y + j] = z_cnt;
+                }
+                overall_items += z_cnt;
+            }
+
+            if (out_y_counts) {
+                out_y_counts[i] = y_cnt;
+            }
+        }
+
+        if (out_x_count) *out_x_count = x_count;
+        if (out_total_items) *out_total_items = overall_items;
+        return;
+    }
+}
+
+size_t calc_array_size(
+    dynamic_array_t *arr,
+    element_type_t ele_type,
+    custom_size_fn size_fn)
+{
+    if (!arr || !arr->data || !arr->is_set || arr->x == 0) {
+        return 0;
+    }
+
+    size_t x_count = 0, overall_items = 0;
+    size_t *y_counts = (size_t*)calloc(arr->x, sizeof(size_t));
+    size_t *z_counts = (size_t*)calloc(arr->x * arr->y, sizeof(size_t));
+
+    get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items);
+
+    if (overall_items == 0) {
+        free(y_counts);
+        free(z_counts);
+        return 0;
+    }
+
+    size_t total_size = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
+
+    size_t elem_bytes = 0;
+    switch (ele_type) {
+        case TAG_BOOL:   case TAG_UINT8:  case TAG_INT8:   elem_bytes = 1; break;
+        case TAG_UINT16: case TAG_INT16:                   elem_bytes = 2; break;
+        case TAG_UINT32: case TAG_INT32:  case TAG_FLOAT32:elem_bytes = 4; break;
+        case TAG_UINT64: case TAG_INT64:  case TAG_FLOAT64:elem_bytes = 8; break;
+        default: elem_bytes = 0; break;
+    }
+
+    if (arr->num_dims == 1) {
+        total_size += ARRAY_COUNT_PREFIX_SIZE;
+        if (elem_bytes > 0) {
+            total_size += x_count * elem_bytes;
+        } else {
+            uint8_t *src = (uint8_t*)arr->data;
+            for (size_t k = 0; k < x_count; k++) {
+                uint8_t *item = (uint8_t*)src + k * arr->elem_size;
+                switch (ele_type) {
+                    case TAG_STRING: case TAG_BYTES: {
+                        byte_array_t *v = (byte_array_t*)item;
+                        total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
+                        break;
+                    }
+                    case TAG_ONLY_SCALAR_TYPES_MSG:
+                    case TAG_ONLY_VARIABLE_TYPES_MSG:
+                    case TAG_ALL_TYPES_FIELDS_MSG:
+                    case TAG_RECURSIVE_NESTED_MSG:
+                    case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+                    {
+                        total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
+                        break;
+                    }
+                    default:
+                        break; // For fixed-size types, already accounted for in elem_bytes
+                }
+            }
+        }
+    } else if (arr->num_dims == 2) {
+        total_size += ARRAY_COUNT_PREFIX_SIZE;
+        for (size_t i = 0; i < x_count; i++) {
+            size_t y_cnt = y_counts[i];
+            total_size += ARRAY_COUNT_PREFIX_SIZE;
+
+            if (elem_bytes > 0) {
+                total_size += y_cnt * elem_bytes;
+            } else {
+                for (size_t j = 0; j < y_cnt; j++) {
+                    size_t idx = get_flat_index(arr, i, j, 0);
+                    uint8_t *item = (uint8_t*)arr->data + (idx * arr->elem_size);
+                    switch (ele_type) {
+                        case TAG_STRING: case TAG_BYTES: {
+                            byte_array_t *v = (byte_array_t*)item;
+                            total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
+                            break;
+                        }
+                        case TAG_ONLY_SCALAR_TYPES_MSG:
+                        case TAG_ONLY_VARIABLE_TYPES_MSG:
+                        case TAG_ALL_TYPES_FIELDS_MSG:
+                        case TAG_RECURSIVE_NESTED_MSG:
+                        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+                        {
+                            total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
+                            break;
+                        }
+                        default:
+                            break; // For fixed-size types, already accounted for in elem_bytes
+                    }
+                }
+            }
+        }
+    } else if (arr->num_dims == 3) {
+        total_size += ARRAY_COUNT_PREFIX_SIZE;
+        for (size_t i = 0; i < x_count; i++) {
+            size_t y_cnt = y_counts[i];
+            total_size += ARRAY_COUNT_PREFIX_SIZE;
+
+            for (size_t j = 0; j < y_cnt; j++) {
+                size_t z_cnt = z_counts[i * arr->y + j];
+                total_size += ARRAY_COUNT_PREFIX_SIZE;
+
+                if (elem_bytes > 0) {
+                    total_size += z_cnt * elem_bytes;
+                } else {
+                    for (size_t k = 0; k < z_cnt; k++) {
+                        size_t idx = get_flat_index(arr, i, j, k);
+                        uint8_t *item = (uint8_t*)arr->data + (idx * arr->elem_size);
+
+                        switch (ele_type) {
+                            case TAG_STRING: case TAG_BYTES: {
+                                byte_array_t *v = (byte_array_t*)item;
+                                total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
+                                break;
+                            }
+                            case TAG_ONLY_SCALAR_TYPES_MSG:
+                            case TAG_ONLY_VARIABLE_TYPES_MSG:
+                            case TAG_ALL_TYPES_FIELDS_MSG:
+                            case TAG_RECURSIVE_NESTED_MSG:
+                            case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+                            {
+                                total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
+                                break;
+                            }
+                            default:
+                                break; // For fixed-size types, already accounted for in elem_bytes
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    free(y_counts);
+    free(z_counts);
+    return total_size;
+}
+
+// Static utility function to marshal a single element
+static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, custom_marshal_fn marshal_fn) {
+    size_t off = 0;
+    switch (ele_type) {
+        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
+            dest[off++] = *src; break;
+        case TAG_UINT16: case TAG_INT16:
+            put_u16_be(dest + off, *(uint16_t*)src); off += 2; break;
+        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
+            put_u32_be(dest + off, *(uint32_t*)src); off += 4; break;
+        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
+            put_u64_be(dest + off, *(uint64_t*)src); off += 8; break;
+        case TAG_STRING: case TAG_BYTES: {
+            byte_array_t *v = (byte_array_t*)src;
+            uint32_t len = v->data ? v->len : 0;
+            put_u32_be(dest + off, len); 
+            off += 4;
+            if (len > 0) { 
+                memcpy(dest + off, v->data, len); 
+                off += len; 
+            }
             break;
         }
-        
-        // --- Custom Structs ---
+
         case TAG_ONLY_SCALAR_TYPES_MSG:
         case TAG_ONLY_VARIABLE_TYPES_MSG:
         case TAG_ALL_TYPES_FIELDS_MSG:
         case TAG_RECURSIVE_NESTED_MSG:
         case TAG_ALL_TYPES_OF_ARRAYS_MSG:
         {
-            if (!size_fn || !marshal_fn) {
-                return (DYN_ARR_ERR_INVALID_PARAM);
-            }
-
-            uint8_t *src_bytes = (uint8_t*)arr->data + flat_offset;
-            for (size_t i = 0; i < count; i++) {
-                void *item = src_bytes + (i * arr->elem_size);
-                total_payload_size += OBJECT_SET_UNSET_PREFIX_SIZE + size_fn(item);
-            }
-
-            buf = (uint8_t*) malloc(ARRAY_COUNT_PREFIX_SIZE + total_payload_size);
-            if (!buf) {
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-
-            put_u16_be(buf, (uint16_t)count);
-            size_t dyn_off = ARRAY_COUNT_PREFIX_SIZE;
-            for (size_t i = 0; i < count; i++) {
-                void *item = src_bytes + (i * arr->elem_size);
-
-                base_object_t *obj = (base_object_t *)item;
-                if (!obj->_is_set) {
-                    buf[dyn_off] = 0; // Unset
-                    dyn_off += OBJECT_SET_UNSET_PREFIX_SIZE;
-                    continue;
+            base_object_t *obj = (base_object_t*)src;
+            dest[off++] = obj->_is_set ? 1 : 0;
+            if (obj->_is_set && marshal_fn) {
+                uint8_t *mbuf = NULL;
+                int w = marshal_fn(src, &mbuf);
+                if (w > 0) { 
+                    memcpy(dest + off, mbuf, w); 
+                    off += w; 
+                    free(mbuf); 
                 }
-                buf[dyn_off] = 1; // Set
-                dyn_off += OBJECT_SET_UNSET_PREFIX_SIZE;
-
-                uint8_t* item_buf = NULL;
-                int written = marshal_fn(item, &item_buf);
-                if (written < 0) {
-                    free(buf);
-                    return (DYN_ARR_ERR_FAIL);
-                }
-
-                memcpy(buf + dyn_off, item_buf, written);
-                dyn_off += written;
-                free(item_buf);
             }
             break;
         }
-
-        default:
-            return (DYN_ARR_ERR_INVALID_PARAM);
+        default: 
+            break;
     }
-
-    *out_items_count = count;
-    *out_buf = buf;
-    *out_len = ARRAY_COUNT_PREFIX_SIZE + total_payload_size;
-    return (DYN_ARR_OK);
-}
-
-static dyn_arr_status_t two_dimensional_array_to_bytes(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    size_t flat_offset,
-    custom_size_fn size_fn,
-    custom_marshal_fn marshal_fn,
-    size_t *out_items_count,
-    uint8_t **out_buf,
-    size_t *out_len)
-{
-    size_t x_count = arr->x;
-
-    if (x_count == 0) {
-        uint8_t *buf = (uint8_t*)malloc(ARRAY_COUNT_PREFIX_SIZE);
-        if (!buf) {
-            return (DYN_ARR_ERR_NO_MEMORY);
-        }
-
-        put_u16_be(buf, 0);
-
-        *out_items_count = 0;
-        *out_buf = buf;
-        *out_len = ARRAY_COUNT_PREFIX_SIZE;
-        return (DYN_ARR_OK);
-    }
-
-    if (x_count > MAX_ARRAY_ELEMENTS) {
-        return (DYN_ARR_ERR_OVERFLOW);
-    }
-
-    size_t total_items = 0;
-    size_t buf_cap = 256;
-    size_t buf_len = ARRAY_COUNT_PREFIX_SIZE;
-    uint8_t *buf = (uint8_t*) malloc(buf_cap);
-    if (!buf) {
-        return (DYN_ARR_ERR_NO_MEMORY);
-    }
-
-    // Write top-level 2D row count prefix (x_count)
-    put_u16_be(buf, (uint16_t)x_count);
-
-    // Create a 1D sub-array descriptor (width = arr->y)
-    dynamic_array_t sub_arr = *arr;
-    sub_arr.num_dims = 1;
-    sub_arr.x = arr->y;
-
-    // Row stride: total byte size of one complete 1D row
-    size_t row_stride_bytes = arr->y * arr->elem_size;
-
-    // Loop through each row and serialize via 1D helper
-    for (size_t i = 0; i < x_count; i++) {
-        size_t row_offset = flat_offset + (i * row_stride_bytes);
-        size_t sub_items_count = 0;
-        size_t sub_len = 0;
-        uint8_t *sub_bytes = NULL;
-
-        int status = one_dimensional_array_to_bytes(
-            &sub_arr,
-            ele_type,
-            row_offset,
-            size_fn,
-            marshal_fn,
-            &sub_items_count,
-            &sub_bytes,
-            &sub_len
-        );
-
-        if (status != DYN_ARR_OK) {
-            free(buf);
-            return status;
-        }
-
-        // Expand destination buffer if needed
-        if (buf_len + sub_len > buf_cap) {
-            size_t new_cap = (buf_len + sub_len) * 2;
-            uint8_t *new_buf = (uint8_t*)realloc(buf, new_cap);
-            if (!new_buf) {
-                free(buf);
-                free(sub_bytes);
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-            buf = new_buf;
-            buf_cap = new_cap;
-        }
-
-        // Append sub-array bytes into 2D output stream
-        memcpy(buf + buf_len, sub_bytes, sub_len);
-        buf_len += sub_len;
-        total_items += sub_items_count;
-
-        free(sub_bytes); // Free temporary row buffer
-    }
-
-    *out_items_count = total_items;
-    *out_buf = buf;
-    *out_len = buf_len;
-    return (DYN_ARR_OK);
-}
-
-static dyn_arr_status_t three_dimensional_array_to_bytes(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    size_t flat_offset,
-    custom_size_fn size_fn,
-    custom_marshal_fn marshal_fn,
-    size_t *out_items_count,
-    uint8_t **out_buf,
-    size_t *out_len)
-{
-    size_t x_count = arr->x;
-
-    if (x_count == 0) {
-        uint8_t *buf = (uint8_t*)malloc(ARRAY_COUNT_PREFIX_SIZE);
-        if (!buf) {
-            return (DYN_ARR_ERR_NO_MEMORY);
-        }
-
-        put_u16_be(buf, 0);
-
-        *out_items_count = 0;
-        *out_buf = buf;
-        *out_len = ARRAY_COUNT_PREFIX_SIZE;
-        return (DYN_ARR_OK);
-    }
-
-    if (x_count > MAX_ARRAY_ELEMENTS) {
-        return (DYN_ARR_ERR_OVERFLOW);
-    }
-
-    size_t total_items = 0;
-    size_t buf_cap = 512;
-    size_t buf_len = ARRAY_COUNT_PREFIX_SIZE;
-    uint8_t *buf = (uint8_t*)malloc(buf_cap);
-    if (!buf) {
-        return (DYN_ARR_ERR_NO_MEMORY);
-    }
-
-    // Write top-level 3D outer count prefix (x_count)
-    put_u16_be(buf, (uint16_t)x_count);
-
-    // Create a 2D sub-array descriptor (dimensions: y x z)
-    dynamic_array_t sub_arr = *arr;
-    sub_arr.num_dims = 2;
-    sub_arr.x = arr->y;
-    sub_arr.y = arr->z;
-
-    // Slice stride: total byte size of one 2D block (y * z * elem_size)
-    size_t block_stride_bytes = arr->y * arr->z * arr->elem_size;
-
-    // Loop through outer dimension and delegate each block to 2D helper
-    for (size_t i = 0; i < x_count; i++) {
-        size_t block_offset = flat_offset + (i * block_stride_bytes);
-        size_t sub_items_count = 0;
-        size_t sub_len = 0;
-        uint8_t *sub_bytes = NULL;
-
-        int status = two_dimensional_array_to_bytes(
-            &sub_arr,
-            ele_type,
-            block_offset,
-            size_fn,
-            marshal_fn,
-            &sub_items_count,
-            &sub_bytes,
-            &sub_len
-        );
-
-        if (status != DYN_ARR_OK) {
-            free(buf);
-            return status;
-        }
-
-        // Expand output buffer dynamically
-        if (buf_len + sub_len > buf_cap) {
-            size_t new_cap = (buf_len + sub_len) * 2;
-            uint8_t *new_buf = (uint8_t*)realloc(buf, new_cap);
-            if (!new_buf) {
-                free(buf);
-                free(sub_bytes);
-                return (DYN_ARR_ERR_NO_MEMORY);
-            }
-            buf = new_buf;
-            buf_cap = new_cap;
-        }
-
-        // Append 2D sub-array byte payload
-        memcpy(buf + buf_len, sub_bytes, sub_len);
-        buf_len += sub_len;
-        total_items += sub_items_count;
-
-        free(sub_bytes);
-    }
-
-    *out_items_count = total_items;
-    *out_buf = buf;
-    *out_len = buf_len;
-    return (DYN_ARR_OK);
+    return off;
 }
 
 /**
@@ -647,411 +715,260 @@ dyn_arr_status_t array_to_bytes(
     custom_marshal_fn marshal_fn
 )
 {
-    if (!arr || !arr->data || !out_buf || !out_size) {
-        return (DYN_ARR_ERR_INVALID_PARAM);
+    if (!arr || !out_buf || !out_size) {
+        return DYN_ARR_ERR_INVALID_PARAM;
     }
 
-    size_t overall_items_count = 0;
-    uint8_t *arr_bytes = NULL;
-    size_t arr_bytes_len = 0;
-    uint16_t wire_tag = 0;
-    int status = DYN_ARR_OK;
+    size_t x_count = 0, overall_items = 0;
+    size_t *y_counts = arr->data ? (size_t*)calloc(arr->x, sizeof(size_t)) : NULL;
+    size_t *z_counts = arr->data ? (size_t*)calloc(arr->x * arr->y, sizeof(size_t)) : NULL;
 
-    // Dispatch based on array dimensions
-    switch (arr->num_dims) {
-        case 1:
-            wire_tag = TAG_ARRAY;
-            status = one_dimensional_array_to_bytes(
-                arr, arr->ele_type, 0, size_fn, marshal_fn,
-                &overall_items_count, &arr_bytes, &arr_bytes_len
-            );
-            break;
-
-        case 2:
-            wire_tag = TAG_2D_ARRAY;
-            status = two_dimensional_array_to_bytes(
-                arr, arr->ele_type, 0, size_fn, marshal_fn,
-                &overall_items_count, &arr_bytes, &arr_bytes_len
-            );
-            break;
-
-        case 3:
-            wire_tag = TAG_3D_ARRAY;
-            status = three_dimensional_array_to_bytes(
-                arr, arr->ele_type, 0, size_fn, marshal_fn,
-                &overall_items_count, &arr_bytes, &arr_bytes_len
-            );
-            break;
-
-        default:
-            return (DYN_ARR_ERR_INVALID_PARAM);
+    if (arr->data) {
+        get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items);
     }
 
-    if (status != DYN_ARR_OK) {
-        return status;
-    }
-
-    if (overall_items_count > MAX_ARRAY_ELEMENTS) {
-        free(arr_bytes);
-        return (DYN_ARR_ERR_OVERFLOW);
-    }
-
-    // Build Wire Format Header
-    // Header Layout: [TAG (2B)] + [WIRE_ELEMENT_TYPE (2B)] + [OVERALL_COUNT (2B)]
-    size_t header_len = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
-    size_t total_len = header_len + arr_bytes_len;
-
-    uint8_t *final_buf = (uint8_t*)malloc(total_len);
-    if (!final_buf) {
-        free(arr_bytes);
-        return (DYN_ARR_ERR_NO_MEMORY);
-    }
-
-    // Write Top-Level Wire Header
-    put_u16_be(final_buf, wire_tag);
-    put_u16_be(final_buf + TYPE_MARKER_SIZE, arr->ele_type);
-    put_u16_be(final_buf + (TYPE_MARKER_SIZE * 2), (uint16_t)overall_items_count);
-
-    // Copy Serialized Dimension Payload
-    memcpy(final_buf + header_len, arr_bytes, arr_bytes_len);
-
-    free(arr_bytes);
-
-    *out_buf = final_buf;
-    *out_size = total_len;
-    return (DYN_ARR_OK);
-}
-
-static dyn_arr_status_t read_one_dimensional_array(
-    uint8_t **stream,
-    size_t *remaining,
-    element_type_t ele_type,
-    dynamic_array_t *arr,
-    size_t flat_offset,
-    custom_unmarshal_fn unmarshal_fn,
-    size_t *out_count)
-{
-    if (*remaining < ARRAY_COUNT_PREFIX_SIZE) {
-        return DYN_ARR_ERR_EOF;
-    }
-
-    uint16_t count = get_u16_be(*stream);
-    *stream += ARRAY_COUNT_PREFIX_SIZE;
-    *remaining -= ARRAY_COUNT_PREFIX_SIZE;
-
-    *out_count = count;
-    if ((size_t)count == 0) {
+    size_t total_size = calc_array_size(arr, arr->ele_type, size_fn);
+    if (total_size == 0) {
+        free(y_counts);
+        free(z_counts);
+        *out_buf = NULL;
+        *out_size = 0;
         return DYN_ARR_OK;
     }
 
-    uint8_t *dst_base = (uint8_t*)arr->data + flat_offset;
+    uint8_t *buf = (uint8_t*)malloc(total_size);
+    if (!buf) {
+        free(y_counts);
+        free(z_counts);
+        return DYN_ARR_ERR_NO_MEMORY;
+    }
 
-    switch (ele_type) {
-        // --- 1-Byte Primitives ---
-        case TAG_BOOL:
-        case TAG_UINT8:
-        case TAG_INT8: {
-            size_t req_bytes = count * 1;
-            if (*remaining < req_bytes) {
-                return DYN_ARR_ERR_EOF;
-            }
+    uint16_t wire_tag = TAG_ARRAY;
+    if (arr->num_dims == 2) wire_tag = TAG_2D_ARRAY;
+    else if (arr->num_dims == 3) wire_tag = TAG_3D_ARRAY;
 
-            memcpy(dst_base, *stream, req_bytes);
-            *stream += req_bytes;
-            *remaining -= req_bytes;
-            break;
+    put_u16_be(buf, wire_tag);
+    put_u16_be(buf + TYPE_MARKER_SIZE, arr->ele_type);
+    put_u16_be(buf + (TYPE_MARKER_SIZE * 2), (uint16_t)overall_items);
+
+    size_t off = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE;
+
+    if (arr->num_dims == 1) {
+        put_u16_be(buf + off, (uint16_t)x_count);
+        off += ARRAY_COUNT_PREFIX_SIZE;
+
+        for (size_t k = 0; k < x_count; k++) {
+            uint8_t *src = (uint8_t*)arr->data + (k * arr->elem_size);
+            off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
         }
+    } else if (arr->num_dims == 2) {
+        put_u16_be(buf + off, (uint16_t)x_count);
+        off += ARRAY_COUNT_PREFIX_SIZE;
 
-        // --- 2-Byte Primitives ---
-        case TAG_UINT16:
-        case TAG_INT16: {
-            size_t req_bytes = count * 2;
-            if (*remaining < req_bytes) {
-                return DYN_ARR_ERR_EOF;
-            }
+        for (size_t i = 0; i < x_count; i++) {
+            size_t y_cnt = y_counts[i];
+            put_u16_be(buf + off, (uint16_t)y_cnt);
+            off += ARRAY_COUNT_PREFIX_SIZE;
 
-            uint16_t *dst = (uint16_t*)dst_base;
-            for (size_t i = 0; i < count; i++) {
-                dst[i] = get_u16_be(*stream + (i * 2));
+            for (size_t j = 0; j < y_cnt; j++) {
+                size_t idx = get_flat_index(arr, i, j, 0);
+                uint8_t *src = (uint8_t*)arr->data + (idx * arr->elem_size);
+                off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
             }
-            *stream += req_bytes;
-            *remaining -= req_bytes;
-            break;
         }
+    } else if (arr->num_dims == 3) {
+        put_u16_be(buf + off, (uint16_t)x_count);
+        off += ARRAY_COUNT_PREFIX_SIZE;
 
-        // --- 4-Byte Primitives ---
-        case TAG_UINT32:
-        case TAG_INT32:
-        case TAG_FLOAT32: {
-            size_t req_bytes = count * 4;
-            if (*remaining < req_bytes) {
-                return DYN_ARR_ERR_EOF;
-            }
+        for (size_t i = 0; i < x_count; i++) {
+            size_t y_cnt = y_counts[i];
+            put_u16_be(buf + off, (uint16_t)y_cnt);
+            off += ARRAY_COUNT_PREFIX_SIZE;
 
-            uint32_t *dst = (uint32_t*)dst_base;
-            for (size_t i = 0; i < count; i++) {
-                dst[i] = get_u32_be(*stream + (i * 4));
-            }
-            *stream += req_bytes;
-            *remaining -= req_bytes;
-            break;
-        }
+            for (size_t j = 0; j < y_cnt; j++) {
+                size_t z_cnt = z_counts[i * arr->y + j];
+                put_u16_be(buf + off, (uint16_t)z_cnt);
+                off += ARRAY_COUNT_PREFIX_SIZE;
 
-        // --- 8-Byte Primitives ---
-        case TAG_UINT64:
-        case TAG_INT64:
-        case TAG_FLOAT64: {
-            size_t req_bytes = count * 8;
-            if (*remaining < req_bytes) {
-                return DYN_ARR_ERR_EOF;
-            }
-
-            uint64_t *dst = (uint64_t*)dst_base;
-            for (size_t i = 0; i < count; i++) {
-                dst[i] = get_u64_be(*stream + (i * 8));
-            }
-            *stream += req_bytes;
-            *remaining -= req_bytes;
-            break;
-        }
-
-        // --- Variable-Length Sequences (Strings & Byte Arrays) ---
-        case TAG_STRING:{
-            string_t *dst = (string_t*)dst_base;
-
-            for (size_t i = 0; i < count; i++) {
-                if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
-
-                uint32_t len = get_u32_be(*stream);
-                *stream += STRING_OR_BYTE_LEN_PREFIX_SIZE;
-                *remaining -= STRING_OR_BYTE_LEN_PREFIX_SIZE;
-
-                if (len > MAX_ALLOWED_PACKET) return DYN_ARR_ERR_OVERFLOW;
-
-                dst[i].len = len;
-                if (len > 0) {
-                    if (*remaining < len) return DYN_ARR_ERR_EOF;
-
-                    // Allocate +1 byte for '\0' so it behaves like a standard C string
-                    dst[i].data = (char*)malloc(len + 1);
-                    if (!dst[i].data) return DYN_ARR_ERR_NO_MEMORY;
-
-                    memcpy(dst[i].data, *stream, len);
-                    dst[i].data[len] = '\0'; // Safe null-terminator for string_t
-
-                    *stream += len;
-                    *remaining -= len;
-                } else {
-                    dst[i].data = NULL;
+                for (size_t k = 0; k < z_cnt; k++) {
+                    size_t idx = get_flat_index(arr, i, j, k);
+                    uint8_t *src = (uint8_t*)arr->data + (idx * arr->elem_size);
+                    off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
                 }
+            }
+        }
+    }
+
+    free(y_counts);
+    free(z_counts);
+
+    *out_buf = buf;
+    *out_size = total_size;
+    return DYN_ARR_OK;
+}
+
+#define CHECK_REMAINING(remaining, expected) do { \
+    if ((remaining) < expected) return DYN_ARR_ERR_EOF; \
+} while(0)
+
+#define READ_COUNT_PREFIX(stream, remaining, count_out) do { \
+    CHECK_REMAINING(remaining, ARRAY_COUNT_PREFIX_SIZE); \
+    (count_out) = get_u16_be(stream); \
+    (stream) += 2; \
+    (remaining) -= 2; \
+} while(0)
+
+static dyn_arr_status_t read_element_from_stream(
+    uint8_t **stream,
+    size_t *remaining,
+    element_type_t ele_type,
+    void *dst,
+    custom_unmarshal_fn unmarshal_fn)
+{
+    switch (ele_type) {
+        case TAG_BOOL: case TAG_UINT8: case TAG_INT8: {
+            CHECK_REMAINING(*remaining, 1);
+            *(uint8_t*)dst = **stream;
+            *stream += 1; *remaining -= 1;
+            break;
+        }
+        case TAG_UINT16: case TAG_INT16: {
+            CHECK_REMAINING(*remaining, 2);
+            *(uint16_t*)dst = get_u16_be(*stream);
+            *stream += 2; *remaining -= 2;
+            break;
+        }
+        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32: {
+            CHECK_REMAINING(*remaining, 4);
+            *(uint32_t*)dst = get_u32_be(*stream);
+            *stream += 4; *remaining -= 4;
+            break;
+        }
+        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64: {
+            CHECK_REMAINING(*remaining, 8);
+            *(uint64_t*)dst = get_u64_be(*stream);
+            *stream += 8; *remaining -= 8;
+            break;
+        }
+        case TAG_STRING: {
+            CHECK_REMAINING(*remaining, STRING_OR_BYTE_LEN_PREFIX_SIZE);
+            uint32_t len = get_u32_be(*stream);
+            *stream += 4; *remaining -= 4;
+            string_t *s = (string_t*)dst;
+            s->data = NULL;
+            s->len = len;
+
+            if (len > 0) {
+                CHECK_REMAINING(*remaining, len);
+                s->data = (char*)malloc(len + 1);
+                if (!s->data) return DYN_ARR_ERR_NO_MEMORY;
+
+                memcpy(s->data, *stream, len);
+                s->data[len] = '\0';
+                *stream += len; *remaining -= len;
             }
             break;
         }
         case TAG_BYTES: {
-            byte_array_t *dst = (byte_array_t*)dst_base;
+            CHECK_REMAINING(*remaining, STRING_OR_BYTE_LEN_PREFIX_SIZE);
+            uint32_t len = get_u32_be(*stream);
+            *stream += 4; *remaining -= 4;
+            byte_array_t *b = (byte_array_t*)dst;
+            b->data = NULL;
+            b->len = len;
 
-            for (size_t i = 0; i < count; i++) {
-                if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+            if (len > 0) {
+                CHECK_REMAINING(*remaining, len);
+                b->data = (uint8_t*)malloc(len);
+                if (!b->data) return DYN_ARR_ERR_NO_MEMORY;
 
-                uint32_t len = get_u32_be(*stream);
-                *stream += STRING_OR_BYTE_LEN_PREFIX_SIZE;
-                *remaining -= STRING_OR_BYTE_LEN_PREFIX_SIZE;
-
-                if (len > MAX_ALLOWED_PACKET) return DYN_ARR_ERR_OVERFLOW;
-
-                dst[i].len = len;
-                if (len > 0) {
-                    if (*remaining < len) return DYN_ARR_ERR_EOF;
-
-                    // Exact allocation: NO extra byte, NO null terminator
-                    dst[i].data = (uint8_t*)malloc(len);
-                    if (!dst[i].data) return DYN_ARR_ERR_NO_MEMORY;
-
-                    memcpy(dst[i].data, *stream, len);
-
-                    *stream += len;
-                    *remaining -= len;
-                } else {
-                    dst[i].data = NULL;
-                }
+                memcpy(b->data, *stream, len);
+                *stream += len; *remaining -= len;
             }
             break;
         }
 
-        // --- Custom Structs ---
         case TAG_ONLY_SCALAR_TYPES_MSG:
         case TAG_ONLY_VARIABLE_TYPES_MSG:
         case TAG_ALL_TYPES_FIELDS_MSG:
         case TAG_RECURSIVE_NESTED_MSG:
         case TAG_ALL_TYPES_OF_ARRAYS_MSG:
         {
-            if (!unmarshal_fn) {
-                return DYN_ARR_ERR_INVALID_PARAM;
-            }
+            CHECK_REMAINING(*remaining, OBJECT_SET_UNSET_PREFIX_SIZE);
+            bool is_set = (**stream == 1);
+            *stream += 1; *remaining -= 1;
 
-            for (size_t i = 0; i < count; i++) {
-                void *item_dst = dst_base + (i * arr->elem_size);
-
-                if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) {
-                    return DYN_ARR_ERR_EOF;
-                }
-
-                bool is_set = **stream == 1; // First byte of payload indicates set/unset
-                if (!is_set) {
-                    // Mark the object as unset and skip the payload
-                    base_object_t *obj = (base_object_t *)item_dst;
-                    obj->_is_set = false;
-
-                    *stream    += OBJECT_SET_UNSET_PREFIX_SIZE;
-                    *remaining -= OBJECT_SET_UNSET_PREFIX_SIZE;
-                    continue;
-                }
-
-                *stream    += OBJECT_SET_UNSET_PREFIX_SIZE;
-                *remaining -= OBJECT_SET_UNSET_PREFIX_SIZE;
-
-                if (*remaining < WIRE_FRAME_HEADER_SIZE) {
-                    return DYN_ARR_ERR_EOF;
-                }
+            if (is_set) {
+                CHECK_REMAINING(*remaining, WIRE_FRAME_HEADER_SIZE);
+                if (!unmarshal_fn) return DYN_ARR_ERR_INVALID_PARAM;
 
                 uint16_t fixed_len = get_message_fixed_payload_length(*stream);
                 uint32_t full_payload_len = get_message_overall_payload_length(*stream);
+                *stream += WIRE_FRAME_HEADER_SIZE; *remaining -= WIRE_FRAME_HEADER_SIZE;
+                CHECK_REMAINING(*remaining, full_payload_len);
 
-                *stream    += WIRE_FRAME_HEADER_SIZE;
-                *remaining -= WIRE_FRAME_HEADER_SIZE;
-
-                if (*remaining < full_payload_len) {
-                    return DYN_ARR_ERR_EOF;
-                }
-
-                int status = unmarshal_fn(*stream, fixed_len, full_payload_len, (void *)item_dst);
-                if (status != 0) {
-                    return DYN_ARR_ERR_FAIL;
-                }
-
-                *stream    += full_payload_len;
-                *remaining -= full_payload_len;
+                int st = unmarshal_fn(*stream, fixed_len, full_payload_len, dst);
+                if (st != 0) return DYN_ARR_ERR_FAIL;
+                *stream += full_payload_len; *remaining -= full_payload_len;
             }
-
             break;
         }
-
         default:
             return DYN_ARR_ERR_INVALID_PARAM;
     }
-
     return DYN_ARR_OK;
 }
 
-static dyn_arr_status_t read_two_dimensional_array(
+static dyn_arr_status_t skip_element_in_stream(
     uint8_t **stream,
     size_t *remaining,
-    element_type_t ele_type,
-    dynamic_array_t *arr,
-    size_t flat_offset,
-    custom_unmarshal_fn unmarshal_fn,
-    size_t *out_x_count,
-    size_t *out_y_count)
+    element_type_t ele_type)
 {
-    // Read 2D outer dimension count prefix
-    if (*remaining < ARRAY_COUNT_PREFIX_SIZE) {
-        return DYN_ARR_ERR_EOF;
-    }
-
-    uint16_t x_count = get_u16_be(*stream);
-    *stream += ARRAY_COUNT_PREFIX_SIZE;
-    *remaining -= ARRAY_COUNT_PREFIX_SIZE;
-
-    *out_x_count = x_count;
-    *out_y_count = 0;
-
-    if (x_count == 0) {
-        return DYN_ARR_OK;
-    }
-
-    size_t first_row_y = 0;
-
-    for (size_t i = 0; i < x_count; i++) {
-        size_t y_count = 0;
-        
-        // Calculate offset in target flattened buffer
-        // Note: For non-uniform 2D reading, flat_offset assumes equal row sizes equal to first row
-        size_t row_offset = flat_offset + (i * first_row_y * arr->elem_size);
-
-        int status = read_one_dimensional_array(
-            stream, remaining, ele_type, arr,
-            row_offset, unmarshal_fn, &y_count
-        );
-
-        if (status != DYN_ARR_OK) {
-            return status;
+    switch (ele_type) {
+        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
+            if (*remaining < 1) return DYN_ARR_ERR_EOF;
+            *stream += 1; *remaining -= 1; break;
+        case TAG_UINT16: case TAG_INT16:
+            if (*remaining < 2) return DYN_ARR_ERR_EOF;
+            *stream += 2; *remaining -= 2; break;
+        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
+            if (*remaining < 4) return DYN_ARR_ERR_EOF;
+            *stream += 4; *remaining -= 4; break;
+        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
+            if (*remaining < 8) return DYN_ARR_ERR_EOF;
+            *stream += 8; *remaining -= 8; break;
+        case TAG_STRING: case TAG_BYTES: {
+            if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+            uint32_t len = get_u32_be(*stream);
+            *stream += 4; *remaining -= 4;
+            if (*remaining < len) return DYN_ARR_ERR_EOF;
+            *stream += len; *remaining -= len; break;
         }
 
-        if (i == 0) {
-            first_row_y = y_count;
-            *out_y_count = y_count;
+        case TAG_ONLY_SCALAR_TYPES_MSG:
+        case TAG_ONLY_VARIABLE_TYPES_MSG:
+        case TAG_ALL_TYPES_FIELDS_MSG:
+        case TAG_RECURSIVE_NESTED_MSG:
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+        {
+            if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+            bool is_set = (**stream == 1);
+            *stream += 1; *remaining -= 1;
+            if (is_set) {
+                if (*remaining < WIRE_FRAME_HEADER_SIZE) return DYN_ARR_ERR_EOF;
+                uint32_t full_payload_len = get_message_overall_payload_length(*stream);
+                *stream += WIRE_FRAME_HEADER_SIZE; *remaining -= WIRE_FRAME_HEADER_SIZE;
+                if (*remaining < full_payload_len) return DYN_ARR_ERR_EOF;
+                *stream += full_payload_len; *remaining -= full_payload_len;
+            }
+            break;
         }
+        default: return DYN_ARR_ERR_INVALID_PARAM;
     }
-
     return DYN_ARR_OK;
 }
 
-static dyn_arr_status_t read_three_dimensional_array(
-    uint8_t **stream,
-    size_t *remaining,
-    element_type_t ele_type,
-    dynamic_array_t *arr,
-    size_t flat_offset,
-    custom_unmarshal_fn unmarshal_fn,
-    size_t *out_x_count,
-    size_t *out_y_count,
-    size_t *out_z_count)
-{
-    // Read 3D outer dimension count prefix
-    if (*remaining < ARRAY_COUNT_PREFIX_SIZE) {
-        return DYN_ARR_ERR_EOF;
-    }
 
-    uint16_t x_count = get_u16_be(*stream);
-    *stream += ARRAY_COUNT_PREFIX_SIZE;
-    *remaining -= ARRAY_COUNT_PREFIX_SIZE;
-
-    *out_x_count = x_count;
-    *out_y_count = 0;
-    *out_z_count = 0;
-
-    if (x_count == 0) {
-        return DYN_ARR_OK;
-    }
-
-    size_t first_y = 0;
-    size_t first_z = 0;
-
-    for (size_t i = 0; i < x_count; i++) {
-        size_t y_count = 0;
-        size_t z_count = 0;
-
-        size_t block_offset = flat_offset + (i * first_y * first_z * arr->elem_size);
-
-        int status = read_two_dimensional_array(
-            stream, remaining, ele_type, arr,
-            block_offset, unmarshal_fn, &y_count, &z_count
-        );
-
-        if (status != DYN_ARR_OK) {
-            return status;
-        }
-
-        if (i == 0) {
-            first_y = y_count;
-            first_z = z_count;
-            *out_y_count = y_count;
-            *out_z_count = z_count;
-        }
-    }
-
-    return DYN_ARR_OK;
-}
 
 dyn_arr_status_t bytes_to_array(
     uint8_t *in_buf,
@@ -1073,203 +990,169 @@ dyn_arr_status_t bytes_to_array(
     uint8_t *stream = in_buf;
     size_t remaining = in_size;
 
-    uint16_t wire_tag = get_u16_be(stream);
-    uint16_t ele_type = get_u16_be(stream + TYPE_MARKER_SIZE);
-    uint16_t total_items = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
+    uint16_t array_tag      = get_u16_be(stream);
+    uint16_t ele_type       = get_u16_be(stream + TYPE_MARKER_SIZE);
+    uint16_t total_items    = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
 
     stream += header_len;
     remaining -= header_len;
 
+    if (total_items == 0 || remaining == 0) {
+        memset(out_arr, 0, sizeof(dynamic_array_t));
+        out_arr->ele_type = ele_type;
+        return DYN_ARR_OK;
+    }
+
+    size_t elem_size = 0;
     switch (ele_type) {
-    case TAG_BOOL:
-    case TAG_UINT8:
-    case TAG_INT8:
-        out_arr->elem_size = 1;
-        break;
-    case TAG_UINT16:
-    case TAG_INT16:
-        out_arr->elem_size = 2;
-        break;
-    case TAG_UINT32:
-    case TAG_INT32:
-    case TAG_FLOAT32:
-        out_arr->elem_size = 4;
-        break;
-    case TAG_UINT64:
-    case TAG_INT64:
-    case TAG_FLOAT64:
-        out_arr->elem_size = 8;
-        break;
-    case TAG_STRING:
-        out_arr->elem_size = sizeof(string_t);
-        break;
-    case TAG_BYTES:
-        out_arr->elem_size = sizeof(byte_array_t);
-        break;
-    case TAG_ONLY_SCALAR_TYPES_MSG:
-        out_arr->elem_size = sizeof(only_scalar_types_msg_t);
-        break;
-    case TAG_ONLY_VARIABLE_TYPES_MSG:
-        out_arr->elem_size = sizeof(only_variable_types_msg_t);
-        break;
-    case TAG_ALL_TYPES_FIELDS_MSG:
-        out_arr->elem_size = sizeof(all_types_fields_msg_t);
-        break;
-    case TAG_RECURSIVE_NESTED_MSG:
-        out_arr->elem_size = sizeof(recursive_nested_msg_t);
-        break;
-    case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-        out_arr->elem_size = sizeof(all_types_of_arrays_msg_t);
-        break;
-    default:
-        return DYN_ARR_ERR_INVALID_PARAM;
+        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
+            elem_size = 1; break;
+        case TAG_UINT16: case TAG_INT16:
+            elem_size = 2; break;
+        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
+            elem_size = 4; break;
+        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
+            elem_size = 8; break;
+        case TAG_STRING:
+            elem_size = sizeof(string_t); break;
+        case TAG_BYTES:
+            elem_size = sizeof(byte_array_t); break;
+
+        case TAG_ONLY_SCALAR_TYPES_MSG:
+        case TAG_ONLY_VARIABLE_TYPES_MSG:
+        case TAG_ALL_TYPES_FIELDS_MSG:
+        case TAG_RECURSIVE_NESTED_MSG:
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+            elem_size = sizeof(all_types_of_arrays_msg_t); break;
+        default: return DYN_ARR_ERR_INVALID_PARAM;
     }
 
-    out_arr->ele_type = ele_type;
-    if (total_items > 0) {
-        out_arr->data = calloc(total_items, out_arr->elem_size);
-        if (!out_arr->data) {
-            return DYN_ARR_ERR_NO_MEMORY;
-        }
-        out_arr->capacity = total_items;
-    }
+    if (remaining < ARRAY_COUNT_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
 
-    size_t x = 0, y = 0, z = 0;
-    int status = DYN_ARR_OK;
+    uint8_t *scan_stream = stream;
+    size_t scan_remaining = remaining;
 
-    switch (wire_tag) {
-        case TAG_ARRAY: {
-            out_arr->num_dims = 1;
-            status = read_one_dimensional_array(
-                &stream, &remaining, ele_type, out_arr, 0, unmarshal_fn, &x
-            );
-            y = 1; z = 1;
+    size_t dim_x = 0, dim_y = 0, dim_z = 0;
+    uint8_t num_dims = 1;
+
+    switch (array_tag) {
+        case TAG_ARRAY:
+        {
+            uint16_t count;
+            READ_COUNT_PREFIX(scan_stream, scan_remaining, count);
+            dim_x = count; dim_y = 1; dim_z = 1;
             break;
         }
+        case TAG_2D_ARRAY:
+        {
+            num_dims = 2;
+            uint16_t x_count;
+            READ_COUNT_PREFIX(scan_stream, scan_remaining, x_count);
+            dim_x = x_count; dim_y = 0; dim_z = 1;
 
-        case TAG_2D_ARRAY: {
-            out_arr->num_dims = 2;
-            status = read_two_dimensional_array(
-                &stream, &remaining, ele_type, out_arr, 0, unmarshal_fn, &x, &y
-            );
-            z = 1;
+            for (size_t i = 0; i < x_count; i++) {
+                uint16_t y_cnt;
+                READ_COUNT_PREFIX(scan_stream, scan_remaining, y_cnt);
+                if (y_cnt > dim_y) dim_y = y_cnt;
+
+                for (size_t j = 0; j < y_cnt; j++) {
+                    dyn_arr_status_t st = skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
+                    if (st != DYN_ARR_OK) return st;
+                }
+            }
+            if (dim_y == 0) dim_y = 1;
             break;
         }
+        case TAG_3D_ARRAY:
+        {
+            num_dims = 3;
+            uint16_t x_count;
+            READ_COUNT_PREFIX(scan_stream, scan_remaining, x_count);
+            dim_x = x_count; dim_y = 0; dim_z = 0;
 
-        case TAG_3D_ARRAY: {
-            out_arr->num_dims = 3;
-            status = read_three_dimensional_array(
-                &stream, &remaining, ele_type, out_arr, 0, unmarshal_fn, &x, &y, &z
-            );
+            for (size_t i = 0; i < x_count; i++) {
+                uint16_t y_cnt;
+                READ_COUNT_PREFIX(scan_stream, scan_remaining, y_cnt);
+                if (y_cnt > dim_y) dim_y = y_cnt;
+
+                for (size_t j = 0; j < y_cnt; j++) {
+                    uint16_t z_cnt;
+                    READ_COUNT_PREFIX(scan_stream, scan_remaining, z_cnt);
+                    if (z_cnt > dim_z) dim_z = z_cnt;
+
+                    for (size_t k = 0; k < z_cnt; k++) {
+                        dyn_arr_status_t st = skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
+                        if (st != DYN_ARR_OK) return st;
+                    }
+                }
+            }
+            if (dim_y == 0) dim_y = 1;
+            if (dim_z == 0) dim_z = 1;
             break;
         }
-
         default:
             return DYN_ARR_ERR_INVALID_PARAM;
     }
 
-    if (status != DYN_ARR_OK) {
-        return status;
-    }
+    dyn_arr_status_t init_st = dynamic_array_init(out_arr, ele_type, elem_size, num_dims, dim_x, dim_y, dim_z);
+    if (init_st != DYN_ARR_OK) return init_st;
 
-    out_arr->x = x;
-    out_arr->y = y;
-    out_arr->z = z;
+    switch (num_dims) {
+        case 1: {
+            uint16_t count;
+            READ_COUNT_PREFIX(stream, remaining, count);
+            for (size_t k = 0; k < count; k++) {
+                void *dst = (uint8_t*)out_arr->data + (k * elem_size);
+                dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                if (st != DYN_ARR_OK) return st;
+                out_arr->is_set[k] = 1;
+            }
+            break;
+        }
+        case 2: {
+            uint16_t x_count;
+            READ_COUNT_PREFIX(stream, remaining, x_count);
+            for (size_t i = 0; i < x_count; i++) {
+                uint16_t y_cnt;
+                READ_COUNT_PREFIX(stream, remaining, y_cnt);
+
+                for (size_t j = 0; j < y_cnt; j++) {
+                    size_t flat_idx = get_flat_index(out_arr, i, j, 0);
+                    void *dst = (uint8_t*)out_arr->data + (flat_idx * elem_size);
+                    dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                    if (st != DYN_ARR_OK) return st;
+                    out_arr->is_set[flat_idx] = 1;
+                }
+            }
+            break;
+        }
+        case 3: {
+            uint16_t x_count;
+            READ_COUNT_PREFIX(stream, remaining, x_count);
+            for (size_t i = 0; i < x_count; i++) {
+                uint16_t y_cnt;
+                READ_COUNT_PREFIX(stream, remaining, y_cnt);
+
+                for (size_t j = 0; j < y_cnt; j++) {
+                    uint16_t z_cnt;
+                    READ_COUNT_PREFIX(stream, remaining, z_cnt);
+
+                    for (size_t k = 0; k < z_cnt; k++) {
+                        size_t flat_idx = get_flat_index(out_arr, i, j, k);
+                        void *dst = (uint8_t*)out_arr->data + (flat_idx * elem_size);
+                        dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                        if (st != DYN_ARR_OK) return st;
+                        out_arr->is_set[flat_idx] = 1;
+                    }
+                }
+            }
+            break;
+        }
+        default:
+            return DYN_ARR_ERR_INVALID_PARAM;
+    }
 
     return DYN_ARR_OK;
-}
-
-/**
- * Calculates the total binary wire size of a dynamic_array_t.
- * Corresponds to Go's calcArraySize(elements ...T)
- */
-size_t calc_array_size(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    custom_size_fn size_fn)
-{
-    if (!arr || !arr->data || arr->x == 0) {
-        return (0); // Empty array, not writing any bytes on wire
-    }
-
-    size_t elem_bytes = 0;
-
-    // Check if primitive fixed size
-    switch (ele_type) {
-        case TAG_BOOL:   case TAG_UINT8:  case TAG_INT8:   elem_bytes = 1; break;
-        case TAG_UINT16: case TAG_INT16:                   elem_bytes = 2; break;
-        case TAG_UINT32: case TAG_INT32:  case TAG_FLOAT32:elem_bytes = 4; break;
-        case TAG_UINT64: case TAG_INT64:  case TAG_FLOAT64:elem_bytes = 8; break;
-        default: elem_bytes = 0; break;
-    }
-
-    // --- PRIMITIVE MULTI-DIMENSIONAL SIZES ---
-    if (elem_bytes > 0) {
-        size_t x = arr->x;
-        size_t y = (arr->num_dims >= 2) ? arr->y : 1;
-        size_t z = (arr->num_dims == 3) ? arr->z : 1;
-
-        if (arr->num_dims == 1) {
-            return (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2) + (x * elem_bytes);
-        } 
-        if (arr->num_dims == 2) {
-            size_t y_block = ARRAY_COUNT_PREFIX_SIZE + (y * elem_bytes);
-            return (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2) + (x * y_block);
-        } 
-        if (arr->num_dims == 3) {
-            size_t z_block = ARRAY_COUNT_PREFIX_SIZE + (z * elem_bytes);
-            size_t y_block = ARRAY_COUNT_PREFIX_SIZE + (y * z_block);
-            return (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2) + (x * y_block);
-        }
-    }
-
-    // --- NON-PRIMITIVE & VARIABLE-LENGTH SIZES (Strings, Bytes, Structs) ---
-    size_t total_size = (TYPE_MARKER_SIZE * 2) + (ARRAY_COUNT_PREFIX_SIZE * 2);
-    size_t total_elements = arr->x;
-    if (arr->num_dims >= 2) total_elements *= arr->y;
-    if (arr->num_dims == 3) total_elements *= arr->z;
-
-    // Add inner row-count prefixes for 2D/3D arrays.
-    // For 2D: each of the x rows has a 2-byte inner count prefix.
-    // For 3D: each of the x planes has a 2-byte mid count prefix,
-    //         and each of the x*y rows has a 2-byte inner count prefix.
-    if (arr->num_dims == 2) {
-        total_size += arr->x * ARRAY_COUNT_PREFIX_SIZE;
-    } else if (arr->num_dims == 3) {
-        total_size += arr->x * ARRAY_COUNT_PREFIX_SIZE;
-        total_size += arr->x * arr->y * ARRAY_COUNT_PREFIX_SIZE;
-    }
-
-    uint8_t *src_bytes = (uint8_t*)arr->data;
-
-    for (size_t i = 0; i < total_elements; i++) {
-        switch (ele_type) {
-            case TAG_STRING:
-            case TAG_BYTES: {
-                byte_array_t *v = (byte_array_t *)(src_bytes + (i * arr->elem_size));
-                total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                break;
-            }
-            case TAG_ONLY_SCALAR_TYPES_MSG:
-            case TAG_ONLY_VARIABLE_TYPES_MSG:
-            case TAG_ALL_TYPES_FIELDS_MSG:
-            case TAG_RECURSIVE_NESTED_MSG:
-            case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-            {
-                total_size += OBJECT_SET_UNSET_PREFIX_SIZE;
-                void *item = src_bytes + (i * arr->elem_size);
-                if (size_fn) {
-                    total_size += size_fn(item);
-                }
-                break;
-            }
-            default:
-                // For primitive types, the size is already accounted for in the earlier calculation.
-                break;
-        }
-    }
-
-    return total_size;
 }
 
 
@@ -1545,62 +1428,52 @@ void only_scalar_types_msg_t_free(only_scalar_types_msg_t *msg) {
 /**
  * Sets the value of the name field in the only_variable_types_msg_t struct.
  */
-void only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return;
+dyn_arr_status_t only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg, const char *value, const size_t len) {
+    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
 
-    msg->name.len = (uint32_t)len;
-    if (msg->name.data != NULL) {
-        free(msg->name.data);
-    }
-
-    msg->name.data = (char *) malloc(len + 1);
-    if (!msg->name.data) return;
-
-    memcpy(msg->name.data, value, len);
-    msg->name.data[len] = '\0';
+    string_t_free(&msg->name);
+    msg->name.data = NULL;
+    string_t_set_value(&msg->name, value, len);
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the data field in the only_variable_types_msg_t struct.
  */
-void only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg, const uint8_t *value, const size_t len) {
-    if (!msg || !value || len == 0) return;
+dyn_arr_status_t only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg, const uint8_t *value, const size_t len) {
+    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
 
-    msg->data.len = (uint32_t)len;
-    if (msg->data.data != NULL) {
-        free(msg->data.data);
-    }
-
-    msg->data.data = (uint8_t *) malloc(len);
-    if (!msg->data.data) return;
-
-    memcpy(msg->data.data, value, len);
+    byte_array_t_free(&msg->data);
+    msg->data.data = NULL;
+    byte_array_t_set_value(&msg->data, value, len);
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the nested field in the only_variable_types_msg_t struct.
  */
-void only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg, const only_scalar_types_msg_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg, const only_scalar_types_msg_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->nested) {
         free(msg->nested);
         msg->nested = NULL;
     }
 
     msg->nested = malloc(sizeof(only_scalar_types_msg_t));
-    if (!msg->nested) return;
+    if (!msg->nested) return DYN_ARR_ERR_NO_MEMORY;
 
     *msg->nested = *value;
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the byte_array field in the only_variable_types_msg_t struct.
  */
-void only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->byte_array.data) {
         size_t _existing = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -1609,58 +1482,31 @@ void only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, co
         }
     }
     dynamic_array_destroy(&msg->byte_array);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->byte_array, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->byte_array, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->byte_array);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the matrix field in the only_variable_types_msg_t struct.
  */
-void only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->matrix);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->matrix, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->matrix, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->matrix);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->matrix.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the tags field in the only_variable_types_msg_t struct.
  */
-void only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->tags.data) {
         size_t _existing = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -1669,29 +1515,11 @@ void only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dy
         }
     }
     dynamic_array_destroy(&msg->tags);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->tags, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->tags, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->tags);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->tags.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len + 1);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); ((char *)_dst->data)[_src->len] = '\0'; }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 size_t only_variable_types_msg_t_dynamic_payload_size(only_variable_types_msg_t *msg) {
@@ -1790,9 +1618,11 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 12, byte_array_len);
-        memcpy(buf + dyn_off, byte_array_buf, byte_array_len);
-        dyn_off += byte_array_len;
-        free(byte_array_buf);
+        if (byte_array_len > 0) {
+            memcpy(buf + dyn_off, byte_array_buf, byte_array_len);
+            dyn_off += byte_array_len;
+            free(byte_array_buf);
+        }
     }
 
     // only_variable_types_msg_t -> matrix (offset: 16, size: 4)
@@ -1807,9 +1637,11 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 16, matrix_len);
-        memcpy(buf + dyn_off, matrix_buf, matrix_len);
-        dyn_off += matrix_len;
-        free(matrix_buf);
+        if (matrix_len > 0) {
+            memcpy(buf + dyn_off, matrix_buf, matrix_len);
+            dyn_off += matrix_len;
+            free(matrix_buf);
+        }
     }
 
     // only_variable_types_msg_t -> tags (offset: 20, size: 4)
@@ -1824,9 +1656,11 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 20, tags_len);
-        memcpy(buf + dyn_off, tags_buf, tags_len);
-        dyn_off += tags_len;
-        free(tags_buf);
+        if (tags_len > 0) {
+            memcpy(buf + dyn_off, tags_buf, tags_len);
+            dyn_off += tags_len;
+            free(tags_buf);
+        }
     }
 
     (void)dyn_off;
@@ -1981,7 +1815,9 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
         size_t _total = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            byte_array_t_free(_elem);
+            if (msg->byte_array.is_set[_i] && _elem->data) {
+                byte_array_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->byte_array);
@@ -1990,7 +1826,9 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
         size_t _total = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            string_t_free(_elem);
+            if (msg->tags.is_set[_i] && _elem->data) {
+                string_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->tags);
@@ -2064,62 +1902,52 @@ void all_types_fields_msg_t_set_val_float(all_types_fields_msg_t* msg, const flo
 /**
  * Sets the value of the name field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return;
+dyn_arr_status_t all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value, const size_t len) {
+    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
 
-    msg->name.len = (uint32_t)len;
-    if (msg->name.data != NULL) {
-        free(msg->name.data);
-    }
-
-    msg->name.data = (char *) malloc(len + 1);
-    if (!msg->name.data) return;
-
-    memcpy(msg->name.data, value, len);
-    msg->name.data[len] = '\0';
+    string_t_free(&msg->name);
+    msg->name.data = NULL;
+    string_t_set_value(&msg->name, value, len);
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the data field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t *value, const size_t len) {
-    if (!msg || !value || len == 0) return;
+dyn_arr_status_t all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t *value, const size_t len) {
+    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
 
-    msg->data.len = (uint32_t)len;
-    if (msg->data.data != NULL) {
-        free(msg->data.data);
-    }
-
-    msg->data.data = (uint8_t *) malloc(len);
-    if (!msg->data.data) return;
-
-    memcpy(msg->data.data, value, len);
+    byte_array_t_free(&msg->data);
+    msg->data.data = NULL;
+    byte_array_t_set_value(&msg->data, value, len);
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the nested field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg, const only_scalar_types_msg_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg, const only_scalar_types_msg_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->nested) {
         free(msg->nested);
         msg->nested = NULL;
     }
 
     msg->nested = malloc(sizeof(only_scalar_types_msg_t));
-    if (!msg->nested) return;
+    if (!msg->nested) return DYN_ARR_ERR_NO_MEMORY;
 
     *msg->nested = *value;
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the byte_array field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->byte_array.data) {
         size_t _existing = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -2128,58 +1956,31 @@ void all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dy
         }
     }
     dynamic_array_destroy(&msg->byte_array);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->byte_array, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->byte_array, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->byte_array);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the matrix field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->matrix);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->matrix, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->matrix, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->matrix);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->matrix.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the tags field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->tags.data) {
         size_t _existing = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -2188,29 +1989,11 @@ void all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_
         }
     }
     dynamic_array_destroy(&msg->tags);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->tags, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->tags, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->tags);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->tags.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len + 1);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); ((char *)_dst->data)[_src->len] = '\0'; }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
@@ -2385,9 +2168,11 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 48, byte_array_len);
-        memcpy(buf + dyn_off, byte_array_buf, byte_array_len);
-        dyn_off += byte_array_len;
-        free(byte_array_buf);
+        if (byte_array_len > 0) {
+            memcpy(buf + dyn_off, byte_array_buf, byte_array_len);
+            dyn_off += byte_array_len;
+            free(byte_array_buf);
+        }
     }
 
     // all_types_fields_msg_t -> matrix (offset: 52, size: 4)
@@ -2402,9 +2187,11 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 52, matrix_len);
-        memcpy(buf + dyn_off, matrix_buf, matrix_len);
-        dyn_off += matrix_len;
-        free(matrix_buf);
+        if (matrix_len > 0) {
+            memcpy(buf + dyn_off, matrix_buf, matrix_len);
+            dyn_off += matrix_len;
+            free(matrix_buf);
+        }
     }
 
     // all_types_fields_msg_t -> tags (offset: 56, size: 4)
@@ -2419,9 +2206,11 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 56, tags_len);
-        memcpy(buf + dyn_off, tags_buf, tags_len);
-        dyn_off += tags_len;
-        free(tags_buf);
+        if (tags_len > 0) {
+            memcpy(buf + dyn_off, tags_buf, tags_len);
+            dyn_off += tags_len;
+            free(tags_buf);
+        }
     }
 
     // all_types_fields_msg_t -> val_uint16 (offset: 60, size: 2)
@@ -2608,7 +2397,9 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
         size_t _total = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            byte_array_t_free(_elem);
+            if (msg->byte_array.is_set[_i] && _elem->data) {
+                byte_array_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->byte_array);
@@ -2617,7 +2408,9 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
         size_t _total = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            string_t_free(_elem);
+            if (msg->tags.is_set[_i] && _elem->data) {
+                string_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->tags);
@@ -2631,37 +2424,32 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
 /**
  * Sets the value of the name field in the recursive_nested_msg_t struct.
  */
-void recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return;
+dyn_arr_status_t recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *value, const size_t len) {
+    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
 
-    msg->name.len = (uint32_t)len;
-    if (msg->name.data != NULL) {
-        free(msg->name.data);
-    }
-
-    msg->name.data = (char *) malloc(len + 1);
-    if (!msg->name.data) return;
-
-    memcpy(msg->name.data, value, len);
-    msg->name.data[len] = '\0';
+    string_t_free(&msg->name);
+    msg->name.data = NULL;
+    string_t_set_value(&msg->name, value, len);
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the nested field in the recursive_nested_msg_t struct.
  */
-void recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg, const recursive_nested_msg_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg, const recursive_nested_msg_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->nested) {
         free(msg->nested);
         msg->nested = NULL;
     }
 
     msg->nested = malloc(sizeof(recursive_nested_msg_t));
-    if (!msg->nested) return;
+    if (!msg->nested) return DYN_ARR_ERR_NO_MEMORY;
 
     *msg->nested = *value;
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 size_t recursive_nested_msg_t_dynamic_payload_size(recursive_nested_msg_t *msg) {
@@ -2836,30 +2624,21 @@ void recursive_nested_msg_t_free(recursive_nested_msg_t *msg) {
 /**
  * Sets the value of the arr1_d_bool field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_bool);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_bool, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_bool, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_bool);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_bool.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_bytes field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr1_d_bytes.data) {
         size_t _existing = msg->arr1_d_bytes.x * msg->arr1_d_bytes.y * msg->arr1_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -2868,168 +2647,96 @@ void all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, 
         }
     }
     dynamic_array_destroy(&msg->arr1_d_bytes);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_bytes, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_bytes, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_bytes);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_double field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_double);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_double, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_double, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_double);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_double.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_float field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_float);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_float, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_float, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_float);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_float.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_int16 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_int16);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int16, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_int16, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_int16);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_int16.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_int32 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_int32);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int32, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_int32, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_int32);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_int32.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_int64 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_int64);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int64, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_int64, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_int64);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_int64.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_int8 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_int8);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int8, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_int8, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_int8);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_int8.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_nested field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr1_d_nested.data) {
         size_t _existing = msg->arr1_d_nested.x * msg->arr1_d_nested.y * msg->arr1_d_nested.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3038,27 +2745,18 @@ void all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr1_d_nested);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_nested, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_nested, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_nested);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_nested.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_object field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr1_d_object.data) {
         size_t _existing = msg->arr1_d_object.x * msg->arr1_d_object.y * msg->arr1_d_object.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3067,27 +2765,18 @@ void all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr1_d_object);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_object, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_object, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_object);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_object.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_string field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr1_d_string.data) {
         size_t _existing = msg->arr1_d_string.x * msg->arr1_d_string.y * msg->arr1_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3096,146 +2785,83 @@ void all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr1_d_string);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_string, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_string, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_string);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->arr1_d_string.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len + 1);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); ((char *)_dst->data)[_src->len] = '\0'; }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_uint16 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_uint16);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint16, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_uint16, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_uint16);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_uint16.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_uint32 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_uint32);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint32, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_uint32, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_uint32);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_uint32.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_uint64 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_uint64);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint64, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_uint64, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_uint64);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_uint64.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr1_d_uint8 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr1_d_uint8);
+    dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint8, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr1_d_uint8, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr1_d_uint8);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr1_d_uint8.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_bool field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_bool);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_bool, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_bool, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_bool);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_bool.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_bytes field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr2_d_bytes.data) {
         size_t _existing = msg->arr2_d_bytes.x * msg->arr2_d_bytes.y * msg->arr2_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3244,168 +2870,96 @@ void all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, 
         }
     }
     dynamic_array_destroy(&msg->arr2_d_bytes);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_bytes, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_bytes, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_bytes);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_double field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_double);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_double, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_double, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_double);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_double.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_float field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_float);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_float, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_float, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_float);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_float.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_int16 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_int16);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int16, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_int16, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_int16);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_int16.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_int32 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_int32);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int32, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_int32, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_int32);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_int32.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_int64 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_int64);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int64, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_int64, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_int64);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_int64.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_int8 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_int8);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int8, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_int8, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_int8);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_int8.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_nested field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr2_d_nested.data) {
         size_t _existing = msg->arr2_d_nested.x * msg->arr2_d_nested.y * msg->arr2_d_nested.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3414,27 +2968,18 @@ void all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr2_d_nested);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_nested, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_nested, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_nested);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_nested.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_object field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr2_d_object.data) {
         size_t _existing = msg->arr2_d_object.x * msg->arr2_d_object.y * msg->arr2_d_object.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3443,27 +2988,18 @@ void all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr2_d_object);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_object, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_object, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_object);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_object.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_string field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr2_d_string.data) {
         size_t _existing = msg->arr2_d_string.x * msg->arr2_d_string.y * msg->arr2_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3472,146 +3008,83 @@ void all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr2_d_string);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_string, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_string, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_string);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->arr2_d_string.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len + 1);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); ((char *)_dst->data)[_src->len] = '\0'; }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_uint16 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_uint16);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint16, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_uint16, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_uint16);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_uint16.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_uint32 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_uint32);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint32, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_uint32, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_uint32);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_uint32.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_uint64 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_uint64);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint64, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_uint64, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_uint64);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_uint64.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr2_d_uint8 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr2_d_uint8);
+    dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint8, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr2_d_uint8, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr2_d_uint8);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr2_d_uint8.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_bool field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_bool);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_bool, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_bool, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_bool);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_bool.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_bytes field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr3_d_bytes.data) {
         size_t _existing = msg->arr3_d_bytes.x * msg->arr3_d_bytes.y * msg->arr3_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3620,168 +3093,96 @@ void all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, 
         }
     }
     dynamic_array_destroy(&msg->arr3_d_bytes);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_bytes, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_bytes, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_bytes);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_double field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_double);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_double, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_double, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_double);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_double.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_float field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_float);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_float, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_float, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_float);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_float.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_int16 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_int16);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int16, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_int16, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_int16);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_int16.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_int32 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_int32);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int32, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_int32, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_int32);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_int32.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_int64 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_int64);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int64, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_int64, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_int64);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_int64.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_int8 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_int8);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int8, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_int8, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_int8);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_int8.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_nested field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr3_d_nested.data) {
         size_t _existing = msg->arr3_d_nested.x * msg->arr3_d_nested.y * msg->arr3_d_nested.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3790,27 +3191,18 @@ void all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr3_d_nested);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_nested, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_nested, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_nested);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_nested.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_object field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr3_d_object.data) {
         size_t _existing = msg->arr3_d_object.x * msg->arr3_d_object.y * msg->arr3_d_object.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3819,27 +3211,18 @@ void all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr3_d_object);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_object, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_object, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_object);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_object.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_string field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     if (msg->arr3_d_string.data) {
         size_t _existing = msg->arr3_d_string.x * msg->arr3_d_string.y * msg->arr3_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -3848,117 +3231,63 @@ void all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg,
         }
     }
     dynamic_array_destroy(&msg->arr3_d_string);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_string, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_string, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_string);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        for (size_t _i = 0; _i < _total; _i++) {
-            const byte_array_t *_src = (const byte_array_t *)((const uint8_t *)value->data + _i * value->elem_size);
-            byte_array_t *_dst = (byte_array_t *)((uint8_t *)msg->arr3_d_string.data + _i * value->elem_size);
-            _dst->len = _src->len;
-            if (_src->len > 0 && _src->data) {
-                _dst->data = malloc(_src->len + 1);
-                if (_dst->data) { memcpy(_dst->data, _src->data, _src->len); ((char *)_dst->data)[_src->len] = '\0'; }
-            } else {
-                _dst->data = NULL;
-            }
-        }
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_uint16 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_uint16);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint16, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_uint16, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_uint16);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_uint16.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_uint32 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_uint32);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint32, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_uint32, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_uint32);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_uint32.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_uint64 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_uint64);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint64, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_uint64, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_uint64);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_uint64.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 /**
  * Sets the value of the arr3_d_uint8 field in the all_types_of_arrays_msg_t struct.
  */
-void all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
+    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
     dynamic_array_destroy(&msg->arr3_d_uint8);
+    dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint8, value);
+    if (status != DYN_ARR_OK) return status;
 
-    if (value->data != NULL && value->capacity > 0) {
-        dyn_arr_status_t status = dynamic_array_init(&msg->arr3_d_uint8, value->ele_type, value->elem_size,
-            value->num_dims, value->x, value->y, value->z);
-        if (status != DYN_ARR_OK) {
-            dynamic_array_destroy(&msg->arr3_d_uint8);
-            return;
-        }
-
-        size_t _total = value->x * value->y * value->z;
-        size_t total_size = _total * value->elem_size;
-        memcpy(msg->arr3_d_uint8.data, value->data, total_size);
-    }
     msg->_is_set = true;
+    return DYN_ARR_OK;
 }
 
 size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t *msg) {
@@ -4065,9 +3394,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 0, arr1_d_bool_len);
-        memcpy(buf + dyn_off, arr1_d_bool_buf, arr1_d_bool_len);
-        dyn_off += arr1_d_bool_len;
-        free(arr1_d_bool_buf);
+        if (arr1_d_bool_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_bool_buf, arr1_d_bool_len);
+            dyn_off += arr1_d_bool_len;
+            free(arr1_d_bool_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_bytes (offset: 4, size: 4)
@@ -4082,9 +3413,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 4, arr1_d_bytes_len);
-        memcpy(buf + dyn_off, arr1_d_bytes_buf, arr1_d_bytes_len);
-        dyn_off += arr1_d_bytes_len;
-        free(arr1_d_bytes_buf);
+        if (arr1_d_bytes_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_bytes_buf, arr1_d_bytes_len);
+            dyn_off += arr1_d_bytes_len;
+            free(arr1_d_bytes_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_double (offset: 8, size: 4)
@@ -4099,9 +3432,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 8, arr1_d_double_len);
-        memcpy(buf + dyn_off, arr1_d_double_buf, arr1_d_double_len);
-        dyn_off += arr1_d_double_len;
-        free(arr1_d_double_buf);
+        if (arr1_d_double_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_double_buf, arr1_d_double_len);
+            dyn_off += arr1_d_double_len;
+            free(arr1_d_double_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_float (offset: 12, size: 4)
@@ -4116,9 +3451,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 12, arr1_d_float_len);
-        memcpy(buf + dyn_off, arr1_d_float_buf, arr1_d_float_len);
-        dyn_off += arr1_d_float_len;
-        free(arr1_d_float_buf);
+        if (arr1_d_float_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_float_buf, arr1_d_float_len);
+            dyn_off += arr1_d_float_len;
+            free(arr1_d_float_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_int16 (offset: 16, size: 4)
@@ -4133,9 +3470,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 16, arr1_d_int16_len);
-        memcpy(buf + dyn_off, arr1_d_int16_buf, arr1_d_int16_len);
-        dyn_off += arr1_d_int16_len;
-        free(arr1_d_int16_buf);
+        if (arr1_d_int16_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_int16_buf, arr1_d_int16_len);
+            dyn_off += arr1_d_int16_len;
+            free(arr1_d_int16_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_int32 (offset: 20, size: 4)
@@ -4150,9 +3489,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 20, arr1_d_int32_len);
-        memcpy(buf + dyn_off, arr1_d_int32_buf, arr1_d_int32_len);
-        dyn_off += arr1_d_int32_len;
-        free(arr1_d_int32_buf);
+        if (arr1_d_int32_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_int32_buf, arr1_d_int32_len);
+            dyn_off += arr1_d_int32_len;
+            free(arr1_d_int32_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_int64 (offset: 24, size: 4)
@@ -4167,9 +3508,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 24, arr1_d_int64_len);
-        memcpy(buf + dyn_off, arr1_d_int64_buf, arr1_d_int64_len);
-        dyn_off += arr1_d_int64_len;
-        free(arr1_d_int64_buf);
+        if (arr1_d_int64_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_int64_buf, arr1_d_int64_len);
+            dyn_off += arr1_d_int64_len;
+            free(arr1_d_int64_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_int8 (offset: 28, size: 4)
@@ -4184,9 +3527,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 28, arr1_d_int8_len);
-        memcpy(buf + dyn_off, arr1_d_int8_buf, arr1_d_int8_len);
-        dyn_off += arr1_d_int8_len;
-        free(arr1_d_int8_buf);
+        if (arr1_d_int8_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_int8_buf, arr1_d_int8_len);
+            dyn_off += arr1_d_int8_len;
+            free(arr1_d_int8_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_nested (offset: 32, size: 4)
@@ -4201,9 +3546,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 32, arr1_d_nested_len);
-        memcpy(buf + dyn_off, arr1_d_nested_buf, arr1_d_nested_len);
-        dyn_off += arr1_d_nested_len;
-        free(arr1_d_nested_buf);
+        if (arr1_d_nested_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_nested_buf, arr1_d_nested_len);
+            dyn_off += arr1_d_nested_len;
+            free(arr1_d_nested_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_object (offset: 36, size: 4)
@@ -4218,9 +3565,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 36, arr1_d_object_len);
-        memcpy(buf + dyn_off, arr1_d_object_buf, arr1_d_object_len);
-        dyn_off += arr1_d_object_len;
-        free(arr1_d_object_buf);
+        if (arr1_d_object_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_object_buf, arr1_d_object_len);
+            dyn_off += arr1_d_object_len;
+            free(arr1_d_object_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_string (offset: 40, size: 4)
@@ -4235,9 +3584,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 40, arr1_d_string_len);
-        memcpy(buf + dyn_off, arr1_d_string_buf, arr1_d_string_len);
-        dyn_off += arr1_d_string_len;
-        free(arr1_d_string_buf);
+        if (arr1_d_string_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_string_buf, arr1_d_string_len);
+            dyn_off += arr1_d_string_len;
+            free(arr1_d_string_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_uint16 (offset: 44, size: 4)
@@ -4252,9 +3603,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 44, arr1_d_uint16_len);
-        memcpy(buf + dyn_off, arr1_d_uint16_buf, arr1_d_uint16_len);
-        dyn_off += arr1_d_uint16_len;
-        free(arr1_d_uint16_buf);
+        if (arr1_d_uint16_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_uint16_buf, arr1_d_uint16_len);
+            dyn_off += arr1_d_uint16_len;
+            free(arr1_d_uint16_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_uint32 (offset: 48, size: 4)
@@ -4269,9 +3622,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 48, arr1_d_uint32_len);
-        memcpy(buf + dyn_off, arr1_d_uint32_buf, arr1_d_uint32_len);
-        dyn_off += arr1_d_uint32_len;
-        free(arr1_d_uint32_buf);
+        if (arr1_d_uint32_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_uint32_buf, arr1_d_uint32_len);
+            dyn_off += arr1_d_uint32_len;
+            free(arr1_d_uint32_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_uint64 (offset: 52, size: 4)
@@ -4286,9 +3641,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 52, arr1_d_uint64_len);
-        memcpy(buf + dyn_off, arr1_d_uint64_buf, arr1_d_uint64_len);
-        dyn_off += arr1_d_uint64_len;
-        free(arr1_d_uint64_buf);
+        if (arr1_d_uint64_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_uint64_buf, arr1_d_uint64_len);
+            dyn_off += arr1_d_uint64_len;
+            free(arr1_d_uint64_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr1_d_uint8 (offset: 56, size: 4)
@@ -4303,9 +3660,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 56, arr1_d_uint8_len);
-        memcpy(buf + dyn_off, arr1_d_uint8_buf, arr1_d_uint8_len);
-        dyn_off += arr1_d_uint8_len;
-        free(arr1_d_uint8_buf);
+        if (arr1_d_uint8_len > 0) {
+            memcpy(buf + dyn_off, arr1_d_uint8_buf, arr1_d_uint8_len);
+            dyn_off += arr1_d_uint8_len;
+            free(arr1_d_uint8_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_bool (offset: 60, size: 4)
@@ -4320,9 +3679,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 60, arr2_d_bool_len);
-        memcpy(buf + dyn_off, arr2_d_bool_buf, arr2_d_bool_len);
-        dyn_off += arr2_d_bool_len;
-        free(arr2_d_bool_buf);
+        if (arr2_d_bool_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_bool_buf, arr2_d_bool_len);
+            dyn_off += arr2_d_bool_len;
+            free(arr2_d_bool_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_bytes (offset: 64, size: 4)
@@ -4337,9 +3698,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 64, arr2_d_bytes_len);
-        memcpy(buf + dyn_off, arr2_d_bytes_buf, arr2_d_bytes_len);
-        dyn_off += arr2_d_bytes_len;
-        free(arr2_d_bytes_buf);
+        if (arr2_d_bytes_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_bytes_buf, arr2_d_bytes_len);
+            dyn_off += arr2_d_bytes_len;
+            free(arr2_d_bytes_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_double (offset: 68, size: 4)
@@ -4354,9 +3717,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 68, arr2_d_double_len);
-        memcpy(buf + dyn_off, arr2_d_double_buf, arr2_d_double_len);
-        dyn_off += arr2_d_double_len;
-        free(arr2_d_double_buf);
+        if (arr2_d_double_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_double_buf, arr2_d_double_len);
+            dyn_off += arr2_d_double_len;
+            free(arr2_d_double_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_float (offset: 72, size: 4)
@@ -4371,9 +3736,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 72, arr2_d_float_len);
-        memcpy(buf + dyn_off, arr2_d_float_buf, arr2_d_float_len);
-        dyn_off += arr2_d_float_len;
-        free(arr2_d_float_buf);
+        if (arr2_d_float_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_float_buf, arr2_d_float_len);
+            dyn_off += arr2_d_float_len;
+            free(arr2_d_float_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_int16 (offset: 76, size: 4)
@@ -4388,9 +3755,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 76, arr2_d_int16_len);
-        memcpy(buf + dyn_off, arr2_d_int16_buf, arr2_d_int16_len);
-        dyn_off += arr2_d_int16_len;
-        free(arr2_d_int16_buf);
+        if (arr2_d_int16_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_int16_buf, arr2_d_int16_len);
+            dyn_off += arr2_d_int16_len;
+            free(arr2_d_int16_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_int32 (offset: 80, size: 4)
@@ -4405,9 +3774,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 80, arr2_d_int32_len);
-        memcpy(buf + dyn_off, arr2_d_int32_buf, arr2_d_int32_len);
-        dyn_off += arr2_d_int32_len;
-        free(arr2_d_int32_buf);
+        if (arr2_d_int32_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_int32_buf, arr2_d_int32_len);
+            dyn_off += arr2_d_int32_len;
+            free(arr2_d_int32_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_int64 (offset: 84, size: 4)
@@ -4422,9 +3793,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 84, arr2_d_int64_len);
-        memcpy(buf + dyn_off, arr2_d_int64_buf, arr2_d_int64_len);
-        dyn_off += arr2_d_int64_len;
-        free(arr2_d_int64_buf);
+        if (arr2_d_int64_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_int64_buf, arr2_d_int64_len);
+            dyn_off += arr2_d_int64_len;
+            free(arr2_d_int64_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_int8 (offset: 88, size: 4)
@@ -4439,9 +3812,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 88, arr2_d_int8_len);
-        memcpy(buf + dyn_off, arr2_d_int8_buf, arr2_d_int8_len);
-        dyn_off += arr2_d_int8_len;
-        free(arr2_d_int8_buf);
+        if (arr2_d_int8_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_int8_buf, arr2_d_int8_len);
+            dyn_off += arr2_d_int8_len;
+            free(arr2_d_int8_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_nested (offset: 92, size: 4)
@@ -4456,9 +3831,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 92, arr2_d_nested_len);
-        memcpy(buf + dyn_off, arr2_d_nested_buf, arr2_d_nested_len);
-        dyn_off += arr2_d_nested_len;
-        free(arr2_d_nested_buf);
+        if (arr2_d_nested_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_nested_buf, arr2_d_nested_len);
+            dyn_off += arr2_d_nested_len;
+            free(arr2_d_nested_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_object (offset: 96, size: 4)
@@ -4473,9 +3850,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 96, arr2_d_object_len);
-        memcpy(buf + dyn_off, arr2_d_object_buf, arr2_d_object_len);
-        dyn_off += arr2_d_object_len;
-        free(arr2_d_object_buf);
+        if (arr2_d_object_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_object_buf, arr2_d_object_len);
+            dyn_off += arr2_d_object_len;
+            free(arr2_d_object_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_string (offset: 100, size: 4)
@@ -4490,9 +3869,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 100, arr2_d_string_len);
-        memcpy(buf + dyn_off, arr2_d_string_buf, arr2_d_string_len);
-        dyn_off += arr2_d_string_len;
-        free(arr2_d_string_buf);
+        if (arr2_d_string_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_string_buf, arr2_d_string_len);
+            dyn_off += arr2_d_string_len;
+            free(arr2_d_string_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_uint16 (offset: 104, size: 4)
@@ -4507,9 +3888,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 104, arr2_d_uint16_len);
-        memcpy(buf + dyn_off, arr2_d_uint16_buf, arr2_d_uint16_len);
-        dyn_off += arr2_d_uint16_len;
-        free(arr2_d_uint16_buf);
+        if (arr2_d_uint16_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_uint16_buf, arr2_d_uint16_len);
+            dyn_off += arr2_d_uint16_len;
+            free(arr2_d_uint16_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_uint32 (offset: 108, size: 4)
@@ -4524,9 +3907,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 108, arr2_d_uint32_len);
-        memcpy(buf + dyn_off, arr2_d_uint32_buf, arr2_d_uint32_len);
-        dyn_off += arr2_d_uint32_len;
-        free(arr2_d_uint32_buf);
+        if (arr2_d_uint32_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_uint32_buf, arr2_d_uint32_len);
+            dyn_off += arr2_d_uint32_len;
+            free(arr2_d_uint32_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_uint64 (offset: 112, size: 4)
@@ -4541,9 +3926,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 112, arr2_d_uint64_len);
-        memcpy(buf + dyn_off, arr2_d_uint64_buf, arr2_d_uint64_len);
-        dyn_off += arr2_d_uint64_len;
-        free(arr2_d_uint64_buf);
+        if (arr2_d_uint64_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_uint64_buf, arr2_d_uint64_len);
+            dyn_off += arr2_d_uint64_len;
+            free(arr2_d_uint64_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr2_d_uint8 (offset: 116, size: 4)
@@ -4558,9 +3945,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 116, arr2_d_uint8_len);
-        memcpy(buf + dyn_off, arr2_d_uint8_buf, arr2_d_uint8_len);
-        dyn_off += arr2_d_uint8_len;
-        free(arr2_d_uint8_buf);
+        if (arr2_d_uint8_len > 0) {
+            memcpy(buf + dyn_off, arr2_d_uint8_buf, arr2_d_uint8_len);
+            dyn_off += arr2_d_uint8_len;
+            free(arr2_d_uint8_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_bool (offset: 120, size: 4)
@@ -4575,9 +3964,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 120, arr3_d_bool_len);
-        memcpy(buf + dyn_off, arr3_d_bool_buf, arr3_d_bool_len);
-        dyn_off += arr3_d_bool_len;
-        free(arr3_d_bool_buf);
+        if (arr3_d_bool_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_bool_buf, arr3_d_bool_len);
+            dyn_off += arr3_d_bool_len;
+            free(arr3_d_bool_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_bytes (offset: 124, size: 4)
@@ -4592,9 +3983,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 124, arr3_d_bytes_len);
-        memcpy(buf + dyn_off, arr3_d_bytes_buf, arr3_d_bytes_len);
-        dyn_off += arr3_d_bytes_len;
-        free(arr3_d_bytes_buf);
+        if (arr3_d_bytes_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_bytes_buf, arr3_d_bytes_len);
+            dyn_off += arr3_d_bytes_len;
+            free(arr3_d_bytes_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_double (offset: 128, size: 4)
@@ -4609,9 +4002,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 128, arr3_d_double_len);
-        memcpy(buf + dyn_off, arr3_d_double_buf, arr3_d_double_len);
-        dyn_off += arr3_d_double_len;
-        free(arr3_d_double_buf);
+        if (arr3_d_double_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_double_buf, arr3_d_double_len);
+            dyn_off += arr3_d_double_len;
+            free(arr3_d_double_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_float (offset: 132, size: 4)
@@ -4626,9 +4021,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 132, arr3_d_float_len);
-        memcpy(buf + dyn_off, arr3_d_float_buf, arr3_d_float_len);
-        dyn_off += arr3_d_float_len;
-        free(arr3_d_float_buf);
+        if (arr3_d_float_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_float_buf, arr3_d_float_len);
+            dyn_off += arr3_d_float_len;
+            free(arr3_d_float_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_int16 (offset: 136, size: 4)
@@ -4643,9 +4040,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 136, arr3_d_int16_len);
-        memcpy(buf + dyn_off, arr3_d_int16_buf, arr3_d_int16_len);
-        dyn_off += arr3_d_int16_len;
-        free(arr3_d_int16_buf);
+        if (arr3_d_int16_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_int16_buf, arr3_d_int16_len);
+            dyn_off += arr3_d_int16_len;
+            free(arr3_d_int16_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_int32 (offset: 140, size: 4)
@@ -4660,9 +4059,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 140, arr3_d_int32_len);
-        memcpy(buf + dyn_off, arr3_d_int32_buf, arr3_d_int32_len);
-        dyn_off += arr3_d_int32_len;
-        free(arr3_d_int32_buf);
+        if (arr3_d_int32_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_int32_buf, arr3_d_int32_len);
+            dyn_off += arr3_d_int32_len;
+            free(arr3_d_int32_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_int64 (offset: 144, size: 4)
@@ -4677,9 +4078,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 144, arr3_d_int64_len);
-        memcpy(buf + dyn_off, arr3_d_int64_buf, arr3_d_int64_len);
-        dyn_off += arr3_d_int64_len;
-        free(arr3_d_int64_buf);
+        if (arr3_d_int64_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_int64_buf, arr3_d_int64_len);
+            dyn_off += arr3_d_int64_len;
+            free(arr3_d_int64_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_int8 (offset: 148, size: 4)
@@ -4694,9 +4097,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 148, arr3_d_int8_len);
-        memcpy(buf + dyn_off, arr3_d_int8_buf, arr3_d_int8_len);
-        dyn_off += arr3_d_int8_len;
-        free(arr3_d_int8_buf);
+        if (arr3_d_int8_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_int8_buf, arr3_d_int8_len);
+            dyn_off += arr3_d_int8_len;
+            free(arr3_d_int8_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_nested (offset: 152, size: 4)
@@ -4711,9 +4116,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 152, arr3_d_nested_len);
-        memcpy(buf + dyn_off, arr3_d_nested_buf, arr3_d_nested_len);
-        dyn_off += arr3_d_nested_len;
-        free(arr3_d_nested_buf);
+        if (arr3_d_nested_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_nested_buf, arr3_d_nested_len);
+            dyn_off += arr3_d_nested_len;
+            free(arr3_d_nested_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_object (offset: 156, size: 4)
@@ -4728,9 +4135,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 156, arr3_d_object_len);
-        memcpy(buf + dyn_off, arr3_d_object_buf, arr3_d_object_len);
-        dyn_off += arr3_d_object_len;
-        free(arr3_d_object_buf);
+        if (arr3_d_object_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_object_buf, arr3_d_object_len);
+            dyn_off += arr3_d_object_len;
+            free(arr3_d_object_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_string (offset: 160, size: 4)
@@ -4745,9 +4154,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 160, arr3_d_string_len);
-        memcpy(buf + dyn_off, arr3_d_string_buf, arr3_d_string_len);
-        dyn_off += arr3_d_string_len;
-        free(arr3_d_string_buf);
+        if (arr3_d_string_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_string_buf, arr3_d_string_len);
+            dyn_off += arr3_d_string_len;
+            free(arr3_d_string_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_uint16 (offset: 164, size: 4)
@@ -4762,9 +4173,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 164, arr3_d_uint16_len);
-        memcpy(buf + dyn_off, arr3_d_uint16_buf, arr3_d_uint16_len);
-        dyn_off += arr3_d_uint16_len;
-        free(arr3_d_uint16_buf);
+        if (arr3_d_uint16_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_uint16_buf, arr3_d_uint16_len);
+            dyn_off += arr3_d_uint16_len;
+            free(arr3_d_uint16_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_uint32 (offset: 168, size: 4)
@@ -4779,9 +4192,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 168, arr3_d_uint32_len);
-        memcpy(buf + dyn_off, arr3_d_uint32_buf, arr3_d_uint32_len);
-        dyn_off += arr3_d_uint32_len;
-        free(arr3_d_uint32_buf);
+        if (arr3_d_uint32_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_uint32_buf, arr3_d_uint32_len);
+            dyn_off += arr3_d_uint32_len;
+            free(arr3_d_uint32_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_uint64 (offset: 172, size: 4)
@@ -4796,9 +4211,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 172, arr3_d_uint64_len);
-        memcpy(buf + dyn_off, arr3_d_uint64_buf, arr3_d_uint64_len);
-        dyn_off += arr3_d_uint64_len;
-        free(arr3_d_uint64_buf);
+        if (arr3_d_uint64_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_uint64_buf, arr3_d_uint64_len);
+            dyn_off += arr3_d_uint64_len;
+            free(arr3_d_uint64_buf);
+        }
     }
 
     // all_types_of_arrays_msg_t -> arr3_d_uint8 (offset: 176, size: 4)
@@ -4813,9 +4230,11 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
             return -1;
         }
         put_u32_be(hdr + 176, arr3_d_uint8_len);
-        memcpy(buf + dyn_off, arr3_d_uint8_buf, arr3_d_uint8_len);
-        dyn_off += arr3_d_uint8_len;
-        free(arr3_d_uint8_buf);
+        if (arr3_d_uint8_len > 0) {
+            memcpy(buf + dyn_off, arr3_d_uint8_buf, arr3_d_uint8_len);
+            dyn_off += arr3_d_uint8_len;
+            free(arr3_d_uint8_buf);
+        }
     }
 
     (void)dyn_off;
@@ -5450,7 +4869,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         size_t _total = msg->arr1_d_bytes.x * msg->arr1_d_bytes.y * msg->arr1_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data + _i * msg->arr1_d_bytes.elem_size);
-            byte_array_t_free(_elem);
+            if (msg->arr1_d_bytes.is_set[_i] && _elem->data) {
+                byte_array_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->arr1_d_bytes);
@@ -5480,7 +4901,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         size_t _total = msg->arr1_d_string.x * msg->arr1_d_string.y * msg->arr1_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
-            string_t_free(_elem);
+            if (msg->arr1_d_string.is_set[_i] && _elem->data) {
+                string_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->arr1_d_string);
@@ -5493,7 +4916,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         size_t _total = msg->arr2_d_bytes.x * msg->arr2_d_bytes.y * msg->arr2_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data + _i * msg->arr2_d_bytes.elem_size);
-            byte_array_t_free(_elem);
+            if (msg->arr2_d_bytes.is_set[_i] && _elem->data) {
+                byte_array_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->arr2_d_bytes);
@@ -5523,7 +4948,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         size_t _total = msg->arr2_d_string.x * msg->arr2_d_string.y * msg->arr2_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
-            string_t_free(_elem);
+            if (msg->arr2_d_string.is_set[_i] && _elem->data) {
+                string_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->arr2_d_string);
@@ -5536,7 +4963,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         size_t _total = msg->arr3_d_bytes.x * msg->arr3_d_bytes.y * msg->arr3_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
             byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data + _i * msg->arr3_d_bytes.elem_size);
-            byte_array_t_free(_elem);
+            if (msg->arr3_d_bytes.is_set[_i] && _elem->data) {
+                byte_array_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->arr3_d_bytes);
@@ -5566,7 +4995,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
         size_t _total = msg->arr3_d_string.x * msg->arr3_d_string.y * msg->arr3_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
-            string_t_free(_elem);
+            if (msg->arr3_d_string.is_set[_i] && _elem->data) {
+                string_t_free(_elem);
+            }
         }
     }
     dynamic_array_destroy(&msg->arr3_d_string);

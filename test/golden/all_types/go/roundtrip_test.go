@@ -620,294 +620,212 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 		Arr3DString: [][][]string{{{"a", "b"}, {"c", "d"}}, {{"e", "f"}, {"g", "h"}}},
 		Arr3DBytes:  [][][][]byte{{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}}, {{{0x06}, {0x07}}, {{0x07, 0x08}, {0x09}}}},
 		Arr3DNested: [][][]*OnlyVariableTypesMsg{{
-				{{Name: "nested1"}, {Name: "nested2"}}, 
-				{{Name: "nested3"}, {Name: "nested4"}},
-			},{
-				{{Name: "nested5"}, {Name: "nested6"}}, 
-				{{Name: "nested7"}, {Name: "nested8"}},
-			}},
+			{{Name: "nested1"}, {Name: "nested2"}},
+			{{Name: "nested3"}, {Name: "nested4"}},
+		}, {
+			{{Name: "nested5"}, {Name: "nested6"}},
+			{{Name: "nested7"}, {Name: "nested8"}},
+		}},
 		Arr3DObject: [][][]*OnlyScalarTypesMsg{{
 			{{ValUint64: 1}, {ValUint64: 2}},
 			{{ValUint64: 3}, {ValUint64: 4}},
-			}, {
-				{{ValUint64: 5}, {ValUint64: 6}},
-				{{ValUint64: 7}, {ValUint64: 8}},
-			},
-		},
+		}, {
+			{{ValUint64: 5}, {ValUint64: 6}},
+			{{ValUint64: 7}, {ValUint64: 8}},
+		}},
 	}
 
 	msgDynSize := func(msg *AllTypesOfArraysMsg) int {
 		expected := 0
 
 		// Calculate dynamic size for 1D arrays
-		// Arr1DBool:   []bool{true, false, true},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DBool)*1
-		// Arr1DUint8:  []uint8{0, 128, 255},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DUint8)*1
-		// Arr1DInt8:   []int8{-128, 0, 127},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DInt8)*1
-		// Arr1DUint16: []uint16{0, 1000, 65535},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DUint16)*2
-		// Arr1DInt16:  []int16{-32768, 0, 32767},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DInt16)*2
-		// Arr1DUint32: []uint32{0, 1, 4294967295},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DUint32)*4
-		// Arr1DInt32:  []int32{-2147483648, 0, 2147483647},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DInt32)*4
-		// Arr1DUint64: []uint64{0, 1, math.MaxUint64},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DUint64)*8
-		// Arr1DInt64:  []int64{math.MinInt64, 0, math.MaxInt64},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DInt64)*8
-		// Arr1DFloat:  []float32{-1.5, 0.0, 1.5},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DFloat)*4
-		// Arr1DDouble: []float64{-math.Pi, 0.0, math.Pi},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + len(msg.Arr1DDouble)*8
-
-		// Arr1DString: []string{"hello", "world", "日本語"},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, s := range msg.Arr1DString {
-			expected += StrOrByteLenPrefixSize + len(s)
+		if len(msg.Arr1DBool) > 0 {
+			a := array1D[bool]{Elements: msg.Arr1DBool, EleType: TagBool}
+			expected += a.CalcSize()
 		}
-		// Arr1DBytes:  [][]byte{{0x01, 0x02}, {0xFF}, {0xFF}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, b := range msg.Arr1DBytes {
-			expected += StrOrByteLenPrefixSize + len(b)
+		if len(msg.Arr1DUint8) > 0 {
+			a := array1D[uint8]{Elements: msg.Arr1DUint8, EleType: TagUint8}
+			expected += a.CalcSize()
 		}
-		// Arr1DNested: []*OnlyVariableTypesMsg{{Name: "something"}, {Name: "something"}, {Name: "something"}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, n := range msg.Arr1DNested {
-			expected += ObjectSetUnsetPrefixSize + n.Size()
+		if len(msg.Arr1DInt8) > 0 {
+			a := array1D[int8]{Elements: msg.Arr1DInt8, EleType: TagInt8}
+			expected += a.CalcSize()
 		}
-		// Arr1DObject: []*OnlyScalarTypesMsg{{ValUint64: 100}, {ValUint64: 100}, {ValUint64: 100}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, o := range msg.Arr1DObject {
-			expected += ObjectSetUnsetPrefixSize + o.Size()
+		if len(msg.Arr1DUint16) > 0 {
+			a := array1D[uint16]{Elements: msg.Arr1DUint16, EleType: TagUint16}
+			expected += a.CalcSize()
 		}
-
-		// Arr2DBool:   [][]bool{{true, false}, {false, true}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DBool {
-			expected += ArrayCountPrefixSize + len(arr2D)*1
+		if len(msg.Arr1DInt16) > 0 {
+			a := array1D[int16]{Elements: msg.Arr1DInt16, EleType: TagInt16}
+			expected += a.CalcSize()
 		}
-		// Arr2DUint8:  [][]uint8{{0, 128}, {255, 64}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DUint8 {
-			expected += ArrayCountPrefixSize + len(arr2D)*1
+		if len(msg.Arr1DUint32) > 0 {
+			a := array1D[uint32]{Elements: msg.Arr1DUint32, EleType: TagUint32}
+			expected += a.CalcSize()
 		}
-		// Arr2DInt8:   [][]int8{{-128, 0}, {127, -64}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DInt8 {
-			expected += ArrayCountPrefixSize + len(arr2D)*1
+		if len(msg.Arr1DInt32) > 0 {
+			a := array1D[int32]{Elements: msg.Arr1DInt32, EleType: TagInt32}
+			expected += a.CalcSize()
 		}
-		// Arr2DUint16: [][]uint16{{0, 1000}, {65535, 500}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DUint16 {
-			expected += ArrayCountPrefixSize + len(arr2D)*2
+		if len(msg.Arr1DUint64) > 0 {
+			a := array1D[uint64]{Elements: msg.Arr1DUint64, EleType: TagUint64}
+			expected += a.CalcSize()
 		}
-		// Arr2DInt16:  [][]int16{{-32768, 0}, {32767, -500}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DInt16 {
-			expected += ArrayCountPrefixSize + len(arr2D)*2
+		if len(msg.Arr1DInt64) > 0 {
+			a := array1D[int64]{Elements: msg.Arr1DInt64, EleType: TagInt64}
+			expected += a.CalcSize()
 		}
-		// Arr2DUint32: [][]uint32{{0, 1}, {4294967295, 100}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DUint32 {
-			expected += ArrayCountPrefixSize + len(arr2D)*4
+		if len(msg.Arr1DFloat) > 0 {
+			a := array1D[float32]{Elements: msg.Arr1DFloat, EleType: TagFloat32}
+			expected += a.CalcSize()
 		}
-		// Arr2DInt32:  [][]int32{{-2147483648, 0}, {2147483647, -100}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DInt32 {
-			expected += ArrayCountPrefixSize + len(arr2D)*4
+		if len(msg.Arr1DDouble) > 0 {
+			a := array1D[float64]{Elements: msg.Arr1DDouble, EleType: TagFloat64}
+			expected += a.CalcSize()
 		}
-		// Arr2DUint64: [][]uint64{{0, 1}, {math.MaxUint64, 1000}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DUint64 {
-			expected += ArrayCountPrefixSize + len(arr2D)*8
+		if len(msg.Arr1DString) > 0 {
+			a := array1D[string]{Elements: msg.Arr1DString, EleType: TagString}
+			expected += a.CalcSize()
 		}
-		// Arr2DInt64:  [][]int64{{math.MinInt64, 0}, {math.MaxInt64, -1000}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DInt64 {
-			expected += ArrayCountPrefixSize + len(arr2D)*8
+		if len(msg.Arr1DBytes) > 0 {
+			a := array1D[[]byte]{Elements: msg.Arr1DBytes, EleType: TagBytes}
+			expected += a.CalcSize()
 		}
-		// Arr2DFloat:  [][]float32{{-1.5, 0.0}, {1.5, -2.5}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DFloat {
-			expected += ArrayCountPrefixSize + len(arr2D)*4
+		if len(msg.Arr1DNested) > 0 {
+			a := array1D[*OnlyVariableTypesMsg]{Elements: msg.Arr1DNested, EleType: TagOnlyVariableTypesMsg}
+			expected += a.CalcSize()
 		}
-		// Arr2DDouble: [][]float64{{-math.Pi, 0.0}, {math.Pi, -math.E}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DDouble {
-			expected += ArrayCountPrefixSize + len(arr2D)*8
+		if len(msg.Arr1DObject) > 0 {
+			a := array1D[*OnlyScalarTypesMsg]{Elements: msg.Arr1DObject, EleType: TagOnlyScalarTypesMsg}
+			expected += a.CalcSize()
 		}
 
-		// Arr2DString: [][]string{{"a", "b"}, {"c", "d"}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DString {
-			expected += ArrayCountPrefixSize
-			for _, s := range arr2D {
-				expected += StrOrByteLenPrefixSize + len(s)
-			}
+		// Calculate dynamic size for 2D arrays
+		if len(msg.Arr2DBool) > 0 {
+			a := array2D[bool]{Elements: msg.Arr2DBool, EleType: TagBool}
+			expected += a.CalcSize()
 		}
-		// Arr2DBytes:  [][][]byte{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DBytes {
-			expected += ArrayCountPrefixSize
-			for _, b := range arr2D {
-				expected += StrOrByteLenPrefixSize + len(b)
-			}
+		if len(msg.Arr2DUint8) > 0 {
+			a := array2D[uint8]{Elements: msg.Arr2DUint8, EleType: TagUint8}
+			expected += a.CalcSize()
 		}
-		// Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}, {Name: "nested4"}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DNested {
-			expected += ArrayCountPrefixSize
-			for _, n := range arr2D {
-				expected += ObjectSetUnsetPrefixSize + n.Size()
-			}
+		if len(msg.Arr2DInt8) > 0 {
+			a := array2D[int8]{Elements: msg.Arr2DInt8, EleType: TagInt8}
+			expected += a.CalcSize()
 		}
-		// Arr2DObject: [][]*OnlyScalarTypesMsg{{{ValUint64: 1}, {ValUint64: 2}}, {{ValUint64: 3}, {ValUint64: 4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr2D := range msg.Arr2DObject {
-			expected += ArrayCountPrefixSize
-			for _, o := range arr2D {
-				expected += ObjectSetUnsetPrefixSize + o.Size()
-			}
+		if len(msg.Arr2DUint16) > 0 {
+			a := array2D[uint16]{Elements: msg.Arr2DUint16, EleType: TagUint16}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DInt16) > 0 {
+			a := array2D[int16]{Elements: msg.Arr2DInt16, EleType: TagInt16}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DUint32) > 0 {
+			a := array2D[uint32]{Elements: msg.Arr2DUint32, EleType: TagUint32}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DInt32) > 0 {
+			a := array2D[int32]{Elements: msg.Arr2DInt32, EleType: TagInt32}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DUint64) > 0 {
+			a := array2D[uint64]{Elements: msg.Arr2DUint64, EleType: TagUint64}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DInt64) > 0 {
+			a := array2D[int64]{Elements: msg.Arr2DInt64, EleType: TagInt64}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DFloat) > 0 {
+			a := array2D[float32]{Elements: msg.Arr2DFloat, EleType: TagFloat32}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DDouble) > 0 {
+			a := array2D[float64]{Elements: msg.Arr2DDouble, EleType: TagFloat64}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DString) > 0 {
+			a := array2D[string]{Elements: msg.Arr2DString, EleType: TagString}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DBytes) > 0 {
+			a := array2D[[]byte]{Elements: msg.Arr2DBytes, EleType: TagBytes}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DNested) > 0 {
+			a := array2D[*OnlyVariableTypesMsg]{Elements: msg.Arr2DNested, EleType: TagOnlyVariableTypesMsg}
+			expected += a.CalcSize()
+		}
+		if len(msg.Arr2DObject) > 0 {
+			a := array2D[*OnlyScalarTypesMsg]{Elements: msg.Arr2DObject, EleType: TagOnlyScalarTypesMsg}
+			expected += a.CalcSize()
 		}
 
-		// Arr3DBool:   [][][]bool{{{true, false}, {false, true}}, {{true, true}, {false, false}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DBool {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*1
-			}
+		// Calculate dynamic size for 3D arrays
+		if len(msg.Arr3DBool) > 0 {
+			a := array3D[bool]{Elements: msg.Arr3DBool, EleType: TagBool}
+			expected += a.CalcSize()
 		}
-		// Arr3DUint8:  [][][]uint8{{{0, 128}, {255, 64}}, {{1, 2}, {3, 4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DUint8 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*1
-			}
+		if len(msg.Arr3DUint8) > 0 {
+			a := array3D[uint8]{Elements: msg.Arr3DUint8, EleType: TagUint8}
+			expected += a.CalcSize()
 		}
-		// Arr3DInt8:   [][][]int8{{{-128, 0}, {127, -64}}, {{-1, -2}, {-3, -4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DInt8 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*1
-			}
+		if len(msg.Arr3DInt8) > 0 {
+			a := array3D[int8]{Elements: msg.Arr3DInt8, EleType: TagInt8}
+			expected += a.CalcSize()
 		}
-		// Arr3DUint16: [][][]uint16{{{0, 1000}, {65535, 500}}, {{1, 2}, {3, 4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DUint16 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*2
-			}
+		if len(msg.Arr3DUint16) > 0 {
+			a := array3D[uint16]{Elements: msg.Arr3DUint16, EleType: TagUint16}
+			expected += a.CalcSize()
 		}
-		// Arr3DInt16:  [][][]int16{{{-32768, 0}, {32767, -500}}, {{-1, -2}, {-3, -4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DInt16 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*2
-			}
+		if len(msg.Arr3DInt16) > 0 {
+			a := array3D[int16]{Elements: msg.Arr3DInt16, EleType: TagInt16}
+			expected += a.CalcSize()
 		}
-		// Arr3DUint32: [][][]uint32{{{0, 1}, {4294967295, 100}}, {{1, 2}, {3, 4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DUint32 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*4
-			}
+		if len(msg.Arr3DUint32) > 0 {
+			a := array3D[uint32]{Elements: msg.Arr3DUint32, EleType: TagUint32}
+			expected += a.CalcSize()
 		}
-		// Arr3DInt32:  [][][]int32{{{-2147483648, 0}, {2147483647, -100}}, {{-1, -2}, {-3, -4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DInt32 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*4
-			}
+		if len(msg.Arr3DInt32) > 0 {
+			a := array3D[int32]{Elements: msg.Arr3DInt32, EleType: TagInt32}
+			expected += a.CalcSize()
 		}
-		// Arr3DUint64: [][][]uint64{{{0, 1}, {math.MaxUint64, 1000}}, {{1, 2}, {3, 4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DUint64 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*8
-			}
+		if len(msg.Arr3DUint64) > 0 {
+			a := array3D[uint64]{Elements: msg.Arr3DUint64, EleType: TagUint64}
+			expected += a.CalcSize()
 		}
-		// Arr3DInt64:  [][][]int64{{{math.MinInt64, 0}, {math.MaxInt64, -1000}}, {{-1, -2}, {-3, -4}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DInt64 {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*8
-			}
+		if len(msg.Arr3DInt64) > 0 {
+			a := array3D[int64]{Elements: msg.Arr3DInt64, EleType: TagInt64}
+			expected += a.CalcSize()
 		}
-		// Arr3DFloat:  [][][]float32{{{-1.5, 0.0}, {1.5, -2.5}}, {{-3.5, 4.5}, {5.5, -6.5}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DFloat {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*4
-			}
+		if len(msg.Arr3DFloat) > 0 {
+			a := array3D[float32]{Elements: msg.Arr3DFloat, EleType: TagFloat32}
+			expected += a.CalcSize()
 		}
-		// Arr3DDouble: [][][]float64{{{-math.Pi, 0.0}, {math.Pi, -math.E}}, {{-1.0, 2.0}, {3.0, -4.0}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DDouble {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize + len(arr2D)*8
-			}
+		if len(msg.Arr3DDouble) > 0 {
+			a := array3D[float64]{Elements: msg.Arr3DDouble, EleType: TagFloat64}
+			expected += a.CalcSize()
 		}
-		// Arr3DString: [][][]string{{{"a", "b"}, {"c", "d"}}, {{"e", "f"}, {"g", "h"}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DString {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize
-				for _, s := range arr2D {
-					expected += StrOrByteLenPrefixSize + len(s)
-				}
-			}
+		if len(msg.Arr3DString) > 0 {
+			a := array3D[string]{Elements: msg.Arr3DString, EleType: TagString}
+			expected += a.CalcSize()
 		}
-		// Arr3DBytes:  [][][][]byte{{{{0x01}, {0x02}}, {{0x03}, {0x04, 0x05}}}, {{{0x06}, {0x07}}, {{0x07, 0x08}, {0x09}}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DBytes {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize
-				for _, b := range arr2D {
-					expected += StrOrByteLenPrefixSize + len(b)
-				}
-			}
+		if len(msg.Arr3DBytes) > 0 {
+			a := array3D[[]byte]{Elements: msg.Arr3DBytes, EleType: TagBytes}
+			expected += a.CalcSize()
 		}
-		// Arr3DNested: [][][]*OnlyVariableTypesMsg{{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}, {Name: "nested4"}}},{{{Name: "nested5"}, {Name: "nested6"}}, {{Name: "nested7"}, {Name: "nested8"}}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DNested {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize
-				for _, n := range arr2D {
-					expected += ObjectSetUnsetPrefixSize + n.Size()
-				}
-			}
+		if len(msg.Arr3DNested) > 0 {
+			a := array3D[*OnlyVariableTypesMsg]{Elements: msg.Arr3DNested, EleType: TagOnlyVariableTypesMsg}
+			expected += a.CalcSize()
 		}
-		// Arr3DObject: [][][]*OnlyScalarTypesMsg{{{{ValUint64: 1}, {ValUint64: 2}},{{ValUint64: 3}, {ValUint64: 4}}}, {{{ValUint64: 5}, {ValUint64: 6}}{{ValUint64: 7}, {ValUint64: 8}}}},
-		expected += (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
-		for _, arr3D := range msg.Arr3DObject {
-			expected += ArrayCountPrefixSize
-			for _, arr2D := range arr3D {
-				expected += ArrayCountPrefixSize
-				for _, o := range arr2D {
-					expected += ObjectSetUnsetPrefixSize + o.Size()
-				}
-			}
+		if len(msg.Arr3DObject) > 0 {
+			a := array3D[*OnlyScalarTypesMsg]{Elements: msg.Arr3DObject, EleType: TagOnlyScalarTypesMsg}
+			expected += a.CalcSize()
 		}
 
 		fmt.Printf("DynamicPayloadSize: %d\n", expected)
-		return expected	// 2059
+		return expected // 2059
 	}
 
 	t.Run("MessageTypeID()", func(t *testing.T) {
@@ -915,7 +833,7 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 	})
 
 	t.Run("DynamicPayloadSize()", func(t *testing.T) {
-		expected := msgDynSize(msg)
+		expected := msgDynSize(msg) // 2876
 		actual := msg.DynamicPayloadSize()
 		assert.Equal(t, expected, actual, "DynamicPayloadSize is not matching")
 	})
@@ -989,6 +907,106 @@ func TestAllTypesOfArraysMsgRoundTrip(t *testing.T) {
 		assert.Equal(t, msg.Arr3DBytes, dst.Arr3DBytes)
 		assert.Equal(t, msg.Arr3DNested, dst.Arr3DNested)
 		assert.Equal(t, msg.Arr3DObject, dst.Arr3DObject)
+	})
+
+	t.Run("Roundtrip for jagged arrays", func(t *testing.T) {
+		msg := &AllTypesOfArraysMsg{
+			// 1D arrays with 3 elements each
+			Arr1DInt32:  []int32{1, 2, 6},
+			Arr1DBytes:  [][]byte{{0x01, 0x02}, {0x03}, {0x04}},
+			Arr1DString: []string{"hello", "world", "go"},
+			Arr1DNested: []*OnlyVariableTypesMsg{{Name: "nested1"}, {Name: "nested2"}, {Name: "nested3"}},
+
+			// 2D arrays with jagged lengths i.e filling 3 items in 2x2 array
+			Arr2DInt32:  [][]int32{{1, 2}, {3}},
+			Arr2DBytes:  [][][]byte{{{0x01, 0x02}, {0x03}}, {{0x04}}},
+			Arr2DString: [][]string{{"a", "b"}, {"c"}},
+			Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}}},
+
+			// 3D arrays with jagged lengths i.e filling 4 items in 2x2x2 array
+			Arr3DInt32: [][][]int32{{{1, 2, 3, 4, 5}, {6}}, {{7}}},
+			Arr3DBytes:  [][][][]byte{{{{0x01, 0x02}, {0x03}}, {{0x04}}}, {{{0x05}}}},
+			Arr3DString: [][][]string{{{"a", "b"}, {"c"}}, {{"d"}}},
+			Arr3DNested: [][][]*OnlyVariableTypesMsg{{{{Name: "nested1"}, {Name: "nested2"}}, {{Name: "nested3"}}}, {{{Name: "nested4"}}}},
+		}
+
+		dynSize := msgDynSize(msg) // 716
+		assert.Equal(t, dynSize, msg.DynamicPayloadSize(), "DynamicPayloadSize is not matching")
+
+		wire, err := msg.Marshal()
+		require.NoError(t, err, "Marshal should not fail")
+
+		assert.Equal(t, FrameHeaderSize+AllTypesOfArraysMsgFixedSize+dynSize, len(wire), "wire length mismatch")
+
+		r := bytes.NewReader(wire)
+		_, fixedLen, overallLen, err := ReadMessageFrame(r)
+		require.NoError(t, err)
+		var dst AllTypesOfArraysMsg
+		require.NoError(t, dst.Unmarshal(r, fixedLen, overallLen))
+
+		assert.Equal(t, msg.Arr1DInt32, dst.Arr1DInt32)
+		assert.Equal(t, msg.Arr1DBytes, dst.Arr1DBytes)
+		assert.Equal(t, msg.Arr1DString, dst.Arr1DString)
+		assert.Equal(t, msg.Arr1DNested, dst.Arr1DNested)
+
+		assert.Equal(t, msg.Arr2DInt32, dst.Arr2DInt32)
+		assert.Equal(t, msg.Arr2DBytes, dst.Arr2DBytes)
+		assert.Equal(t, msg.Arr2DString, dst.Arr2DString)
+		assert.Equal(t, msg.Arr2DNested, dst.Arr2DNested)
+
+		assert.Equal(t, msg.Arr3DInt32, dst.Arr3DInt32)
+		assert.Equal(t, msg.Arr3DBytes, dst.Arr3DBytes)
+		assert.Equal(t, msg.Arr3DString, dst.Arr3DString)
+		assert.Equal(t, msg.Arr3DNested, dst.Arr3DNested)
+	})
+
+	t.Run("Roundtrip for arrays with missing elements between arrays", func(t *testing.T) {
+		msg := &AllTypesOfArraysMsg{
+			// 1D arrays with missing elements (nil or empty) between arrays
+			Arr1DInt32:  []int32{1, 0, 3}, // 0 represents a missing element
+			Arr1DBytes:  [][]byte{{0x01, 0x02}, nil, {0x03}},
+			Arr1DString: []string{"hello", "", "world"},
+			Arr1DNested: []*OnlyVariableTypesMsg{{Name: "nested1"}, nil, {Name: "nested2"}},
+
+			// 2D arrays with missing elements (nil or empty) between arrays
+			Arr2DInt32:  [][]int32{{1, 2}, nil, {3}},
+			Arr2DBytes:  [][][]byte{{{0x01, 0x02}, nil}, nil, {{0x03}}},
+			Arr2DString: [][]string{{"a", "b"}, nil, {"c"}},
+			Arr2DNested: [][]*OnlyVariableTypesMsg{{{Name: "nested1"}, nil}, nil, {{Name: "nested2"}}},
+
+			// 3D arrays with missing elements (nil or empty) between arrays
+			Arr3DInt32:  [][][]int32{{{1, 0}, nil}, nil, {{2}}},
+			Arr3DBytes:  [][][][]byte{{{{0x01, 0x02}, nil}, nil}, nil, {{{0x03}}}},
+			Arr3DString: [][][]string{{{"a", ""}, nil}, nil, {{"b"}}},
+			Arr3DNested: [][][]*OnlyVariableTypesMsg{{{{Name: "nested1"}, nil}, nil}, nil, {{{Name: "nested2"}}}},
+		}
+
+		wire, err := msg.Marshal()
+		require.NoError(t, err, "Marshal should not fail")
+
+		dynSize := msgDynSize(msg)
+		assert.Equal(t, FrameHeaderSize+AllTypesOfArraysMsgFixedSize+dynSize, len(wire), "wire length mismatch")
+
+		r := bytes.NewReader(wire)
+		_, fixedLen, overallLen, err := ReadMessageFrame(r)
+		require.NoError(t, err)
+		var dst AllTypesOfArraysMsg
+		require.NoError(t, dst.Unmarshal(r, fixedLen, overallLen))
+
+		assert.Equal(t, msg.Arr1DInt32, dst.Arr1DInt32)
+		assert.Equal(t, msg.Arr1DBytes, dst.Arr1DBytes)
+		assert.Equal(t, msg.Arr1DString, dst.Arr1DString)
+		assert.Equal(t, msg.Arr1DNested, dst.Arr1DNested)
+
+		assert.Equal(t, msg.Arr2DInt32, dst.Arr2DInt32)
+		assert.Equal(t, msg.Arr2DBytes, dst.Arr2DBytes)
+		assert.Equal(t, msg.Arr2DString, dst.Arr2DString)
+		assert.Equal(t, msg.Arr2DNested, dst.Arr2DNested)
+
+		assert.Equal(t, msg.Arr3DInt32, dst.Arr3DInt32)
+		assert.Equal(t, msg.Arr3DBytes, dst.Arr3DBytes)
+		assert.Equal(t, msg.Arr3DString, dst.Arr3DString)
+		assert.Equal(t, msg.Arr3DNested, dst.Arr3DNested)
 	})
 }
 

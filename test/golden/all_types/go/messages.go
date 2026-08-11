@@ -45,6 +45,9 @@ const (
 	// 2 bytes for the type tag of any array
 	TypeMarkerSize = 2
 
+	// 2B Array Tag + 2B Element Type + 2B Overall Count + 2B X-axis Count
+	ArrayPrefixSize = (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
+
 	// 4 bytes for the length prefix of any string or byte slice
 	StrOrByteLenPrefixSize = 4
 
@@ -101,7 +104,6 @@ type Sizable interface {
 
 type ArraySizer interface {
 	SetElements(elements any)
-	CalcDimensions() (dimen, x, y, z int)
 	CalcSize() int
 	GetEleType() uint16
 }
@@ -119,24 +121,10 @@ func (arr *array1D[T]) SetElements(elements any) {
 	arr.Elements = items
 }
 
-func (arr *array1D[T]) CalcDimensions() (dimen, x, y, z int) {
-	return 1, len(arr.Elements), 1, 1
-}
-
 func (arr *array1D[T]) CalcSize() int {
-	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
-	legthPrefixSize := 0
-	if arr.EleType == TagString || arr.EleType == TagBytes {
-		legthPrefixSize = StrOrByteLenPrefixSize
-	}
-	if isObjectType(arr.EleType) {
-		legthPrefixSize = ObjectSetUnsetPrefixSize
-	}
-
-	for _, item := range arr.Elements {
-		size += legthPrefixSize + calcTypeSize(item)
-	}
-	return size
+	return (TypeMarkerSize * 2) +
+		(ArrayCountPrefixSize * 2) +
+		calc1DArraySize(arr.EleType, arr.Elements)
 }
 
 func (arr *array1D[T]) SetEleType(eleType uint16) {
@@ -160,31 +148,11 @@ func (arr *array2D[T]) SetElements(elements any) {
 	arr.Elements = items
 }
 
-func (arr *array2D[T]) CalcDimensions() (dimen, x, y, z int) {
-	x = len(arr.Elements)
-	for _, row := range arr.Elements {
-		if len(row) > y {
-			y = len(row)
-		}
-	}
-	return 2, x, y, 1
-}
-
 func (arr *array2D[T]) CalcSize() int {
 	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
-	legthPrefixSize := 0
-	if arr.EleType == TagString || arr.EleType == TagBytes {
-		legthPrefixSize = StrOrByteLenPrefixSize
-	}
-	if isObjectType(arr.EleType) {
-		legthPrefixSize = 1
-	}
-
 	for _, row := range arr.Elements {
 		size += ArrayCountPrefixSize
-		for _, item := range row {
-			size += legthPrefixSize + calcTypeSize(item)
-		}
+		size += calc1DArraySize(arr.EleType, row)
 	}
 	return size
 }
@@ -206,38 +174,13 @@ func (arr *array3D[T]) SetElements(elements any) {
 	arr.Elements = items
 }
 
-func (arr *array3D[T]) CalcDimensions() (dimen, x, y, z int) {
-	x = len(arr.Elements)
-	for _, plane := range arr.Elements {
-		if len(plane) > y {
-			y = len(plane)
-		}
-		for _, row := range plane {
-			if len(row) > z {
-				z = len(row)
-			}
-		}
-	}
-	return 3, x, y, z
-}
-
 func (arr *array3D[T]) CalcSize() int {
 	size := (TypeMarkerSize * 2) + ArrayCountPrefixSize + ArrayCountPrefixSize
-	legthPrefixSize := 0
-	if arr.EleType == TagString || arr.EleType == TagBytes {
-		legthPrefixSize = StrOrByteLenPrefixSize
-	}
-	if isObjectType(arr.EleType) {
-		legthPrefixSize = 1
-	}
-
 	for _, plane := range arr.Elements {
 		size += ArrayCountPrefixSize
 		for _, row := range plane {
 			size += ArrayCountPrefixSize
-			for _, item := range row {
-				size += legthPrefixSize + calcTypeSize(item)
-			}
+			size += calc1DArraySize(arr.EleType, row)
 		}
 	}
 	return size
@@ -367,6 +310,9 @@ func (o *OnlyScalarTypesMsg) DynamicPayloadSize() int {
 }
 
 func (o *OnlyScalarTypesMsg) Size() int {
+	if o == nil {
+		return 0
+	}
 	return FrameHeaderSize + OnlyScalarTypesMsgFixedSize + o.DynamicPayloadSize()
 }
 
@@ -526,23 +472,26 @@ func (o *OnlyVariableTypesMsg) DynamicPayloadSize() int {
 	if len(o.ByteArray) > 0 {
 		sizer := getArraySizer[[]byte](1)
 		sizer.SetElements(o.ByteArray)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(o.Matrix) > 0 {
 		sizer := getArraySizer[int32](2)
 		sizer.SetElements(o.Matrix)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(o.Tags) > 0 {
 		sizer := getArraySizer[string](1)
 		sizer.SetElements(o.Tags)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 
 	return dynamicSize
 }
 
 func (o *OnlyVariableTypesMsg) Size() int {
+	if o == nil {
+		return 0
+	}
 	return FrameHeaderSize + OnlyVariableTypesMsgFixedSize + o.DynamicPayloadSize()
 }
 
@@ -730,7 +679,7 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint
 	}
 
 	if o_ByteArray_len > 0 {
-		if int(o_ByteArray_len) < getArrayPrefixSize() {
+		if int(o_ByteArray_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.ByteArray length %d too short", o_ByteArray_len)
 		}
 
@@ -749,7 +698,7 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint
 	}
 
 	if o_Matrix_len > 0 {
-		if int(o_Matrix_len) < getArrayPrefixSize() {
+		if int(o_Matrix_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Matrix length %d too short", o_Matrix_len)
 		}
 
@@ -768,7 +717,7 @@ func (o *OnlyVariableTypesMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint
 	}
 
 	if o_Tags_len > 0 {
-		if int(o_Tags_len) < getArrayPrefixSize() {
+		if int(o_Tags_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: OnlyVariableTypesMsg.Tags length %d too short", o_Tags_len)
 		}
 
@@ -925,23 +874,26 @@ func (a *AllTypesFieldsMsg) DynamicPayloadSize() int {
 	if len(a.ByteArray) > 0 {
 		sizer := getArraySizer[[]byte](1)
 		sizer.SetElements(a.ByteArray)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Matrix) > 0 {
 		sizer := getArraySizer[int32](2)
 		sizer.SetElements(a.Matrix)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Tags) > 0 {
 		sizer := getArraySizer[string](1)
 		sizer.SetElements(a.Tags)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 
 	return dynamicSize
 }
 
 func (a *AllTypesFieldsMsg) Size() int {
+	if a == nil {
+		return 0
+	}
 	return FrameHeaderSize + AllTypesFieldsMsgFixedSize + a.DynamicPayloadSize()
 }
 
@@ -1156,7 +1108,7 @@ func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
 	}
 
 	if a_ByteArray_len > 0 {
-		if int(a_ByteArray_len) < getArrayPrefixSize() {
+		if int(a_ByteArray_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesFieldsMsg.ByteArray length %d too short", a_ByteArray_len)
 		}
 
@@ -1175,7 +1127,7 @@ func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
 	}
 
 	if a_Matrix_len > 0 {
-		if int(a_Matrix_len) < getArrayPrefixSize() {
+		if int(a_Matrix_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Matrix length %d too short", a_Matrix_len)
 		}
 
@@ -1194,7 +1146,7 @@ func (a *AllTypesFieldsMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint16,
 	}
 
 	if a_Tags_len > 0 {
-		if int(a_Tags_len) < getArrayPrefixSize() {
+		if int(a_Tags_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesFieldsMsg.Tags length %d too short", a_Tags_len)
 		}
 
@@ -1270,6 +1222,9 @@ func (r *RecursiveNestedMsg) DynamicPayloadSize() int {
 }
 
 func (r *RecursiveNestedMsg) Size() int {
+	if r == nil {
+		return 0
+	}
 	return FrameHeaderSize + RecursiveNestedMsgFixedSize + r.DynamicPayloadSize()
 }
 
@@ -1564,233 +1519,236 @@ func (a *AllTypesOfArraysMsg) DynamicPayloadSize() int {
 	if len(a.Arr1DBool) > 0 {
 		sizer := getArraySizer[bool](1)
 		sizer.SetElements(a.Arr1DBool)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DBytes) > 0 {
 		sizer := getArraySizer[[]byte](1)
 		sizer.SetElements(a.Arr1DBytes)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DDouble) > 0 {
 		sizer := getArraySizer[float64](1)
 		sizer.SetElements(a.Arr1DDouble)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DFloat) > 0 {
 		sizer := getArraySizer[float32](1)
 		sizer.SetElements(a.Arr1DFloat)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DInt16) > 0 {
 		sizer := getArraySizer[int16](1)
 		sizer.SetElements(a.Arr1DInt16)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DInt32) > 0 {
 		sizer := getArraySizer[int32](1)
 		sizer.SetElements(a.Arr1DInt32)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DInt64) > 0 {
 		sizer := getArraySizer[int64](1)
 		sizer.SetElements(a.Arr1DInt64)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DInt8) > 0 {
 		sizer := getArraySizer[int8](1)
 		sizer.SetElements(a.Arr1DInt8)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DNested) > 0 {
 		sizer := getArraySizer[*OnlyVariableTypesMsg](1)
 		sizer.SetElements(a.Arr1DNested)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DObject) > 0 {
 		sizer := getArraySizer[*OnlyScalarTypesMsg](1)
 		sizer.SetElements(a.Arr1DObject)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DString) > 0 {
 		sizer := getArraySizer[string](1)
 		sizer.SetElements(a.Arr1DString)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DUint16) > 0 {
 		sizer := getArraySizer[uint16](1)
 		sizer.SetElements(a.Arr1DUint16)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DUint32) > 0 {
 		sizer := getArraySizer[uint32](1)
 		sizer.SetElements(a.Arr1DUint32)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DUint64) > 0 {
 		sizer := getArraySizer[uint64](1)
 		sizer.SetElements(a.Arr1DUint64)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr1DUint8) > 0 {
 		sizer := getArraySizer[uint8](1)
 		sizer.SetElements(a.Arr1DUint8)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DBool) > 0 {
 		sizer := getArraySizer[bool](2)
 		sizer.SetElements(a.Arr2DBool)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DBytes) > 0 {
 		sizer := getArraySizer[[]byte](2)
 		sizer.SetElements(a.Arr2DBytes)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DDouble) > 0 {
 		sizer := getArraySizer[float64](2)
 		sizer.SetElements(a.Arr2DDouble)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DFloat) > 0 {
 		sizer := getArraySizer[float32](2)
 		sizer.SetElements(a.Arr2DFloat)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DInt16) > 0 {
 		sizer := getArraySizer[int16](2)
 		sizer.SetElements(a.Arr2DInt16)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DInt32) > 0 {
 		sizer := getArraySizer[int32](2)
 		sizer.SetElements(a.Arr2DInt32)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DInt64) > 0 {
 		sizer := getArraySizer[int64](2)
 		sizer.SetElements(a.Arr2DInt64)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DInt8) > 0 {
 		sizer := getArraySizer[int8](2)
 		sizer.SetElements(a.Arr2DInt8)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DNested) > 0 {
 		sizer := getArraySizer[*OnlyVariableTypesMsg](2)
 		sizer.SetElements(a.Arr2DNested)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DObject) > 0 {
 		sizer := getArraySizer[*OnlyScalarTypesMsg](2)
 		sizer.SetElements(a.Arr2DObject)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DString) > 0 {
 		sizer := getArraySizer[string](2)
 		sizer.SetElements(a.Arr2DString)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DUint16) > 0 {
 		sizer := getArraySizer[uint16](2)
 		sizer.SetElements(a.Arr2DUint16)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DUint32) > 0 {
 		sizer := getArraySizer[uint32](2)
 		sizer.SetElements(a.Arr2DUint32)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DUint64) > 0 {
 		sizer := getArraySizer[uint64](2)
 		sizer.SetElements(a.Arr2DUint64)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr2DUint8) > 0 {
 		sizer := getArraySizer[uint8](2)
 		sizer.SetElements(a.Arr2DUint8)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DBool) > 0 {
 		sizer := getArraySizer[bool](3)
 		sizer.SetElements(a.Arr3DBool)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DBytes) > 0 {
 		sizer := getArraySizer[[]byte](3)
 		sizer.SetElements(a.Arr3DBytes)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DDouble) > 0 {
 		sizer := getArraySizer[float64](3)
 		sizer.SetElements(a.Arr3DDouble)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DFloat) > 0 {
 		sizer := getArraySizer[float32](3)
 		sizer.SetElements(a.Arr3DFloat)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DInt16) > 0 {
 		sizer := getArraySizer[int16](3)
 		sizer.SetElements(a.Arr3DInt16)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DInt32) > 0 {
 		sizer := getArraySizer[int32](3)
 		sizer.SetElements(a.Arr3DInt32)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DInt64) > 0 {
 		sizer := getArraySizer[int64](3)
 		sizer.SetElements(a.Arr3DInt64)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DInt8) > 0 {
 		sizer := getArraySizer[int8](3)
 		sizer.SetElements(a.Arr3DInt8)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DNested) > 0 {
 		sizer := getArraySizer[*OnlyVariableTypesMsg](3)
 		sizer.SetElements(a.Arr3DNested)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DObject) > 0 {
 		sizer := getArraySizer[*OnlyScalarTypesMsg](3)
 		sizer.SetElements(a.Arr3DObject)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DString) > 0 {
 		sizer := getArraySizer[string](3)
 		sizer.SetElements(a.Arr3DString)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DUint16) > 0 {
 		sizer := getArraySizer[uint16](3)
 		sizer.SetElements(a.Arr3DUint16)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DUint32) > 0 {
 		sizer := getArraySizer[uint32](3)
 		sizer.SetElements(a.Arr3DUint32)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DUint64) > 0 {
 		sizer := getArraySizer[uint64](3)
 		sizer.SetElements(a.Arr3DUint64)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 	if len(a.Arr3DUint8) > 0 {
 		sizer := getArraySizer[uint8](3)
 		sizer.SetElements(a.Arr3DUint8)
-		dynamicSize += calcArraySize(sizer)
+		dynamicSize += sizer.CalcSize()
 	}
 
 	return dynamicSize
 }
 
 func (a *AllTypesOfArraysMsg) Size() int {
+	if a == nil {
+		return 0
+	}
 	return FrameHeaderSize + AllTypesOfArraysMsgFixedSize + a.DynamicPayloadSize()
 }
 
@@ -2709,7 +2667,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	// after the fixed payload in the same order as their length prefixes above.
 
 	if a_Arr1DBool_len > 0 {
-		if int(a_Arr1DBool_len) < getArrayPrefixSize() {
+		if int(a_Arr1DBool_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBool length %d too short", a_Arr1DBool_len)
 		}
 
@@ -2728,7 +2686,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DBytes_len > 0 {
-		if int(a_Arr1DBytes_len) < getArrayPrefixSize() {
+		if int(a_Arr1DBytes_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DBytes length %d too short", a_Arr1DBytes_len)
 		}
 
@@ -2747,7 +2705,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DDouble_len > 0 {
-		if int(a_Arr1DDouble_len) < getArrayPrefixSize() {
+		if int(a_Arr1DDouble_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DDouble length %d too short", a_Arr1DDouble_len)
 		}
 
@@ -2766,7 +2724,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DFloat_len > 0 {
-		if int(a_Arr1DFloat_len) < getArrayPrefixSize() {
+		if int(a_Arr1DFloat_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DFloat length %d too short", a_Arr1DFloat_len)
 		}
 
@@ -2785,7 +2743,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DInt16_len > 0 {
-		if int(a_Arr1DInt16_len) < getArrayPrefixSize() {
+		if int(a_Arr1DInt16_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt16 length %d too short", a_Arr1DInt16_len)
 		}
 
@@ -2804,7 +2762,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DInt32_len > 0 {
-		if int(a_Arr1DInt32_len) < getArrayPrefixSize() {
+		if int(a_Arr1DInt32_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt32 length %d too short", a_Arr1DInt32_len)
 		}
 
@@ -2823,7 +2781,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DInt64_len > 0 {
-		if int(a_Arr1DInt64_len) < getArrayPrefixSize() {
+		if int(a_Arr1DInt64_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt64 length %d too short", a_Arr1DInt64_len)
 		}
 
@@ -2842,7 +2800,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DInt8_len > 0 {
-		if int(a_Arr1DInt8_len) < getArrayPrefixSize() {
+		if int(a_Arr1DInt8_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DInt8 length %d too short", a_Arr1DInt8_len)
 		}
 
@@ -2861,7 +2819,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DNested_len > 0 {
-		if int(a_Arr1DNested_len) < getArrayPrefixSize() {
+		if int(a_Arr1DNested_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DNested length %d too short", a_Arr1DNested_len)
 		}
 
@@ -2880,7 +2838,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DObject_len > 0 {
-		if int(a_Arr1DObject_len) < getArrayPrefixSize() {
+		if int(a_Arr1DObject_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DObject length %d too short", a_Arr1DObject_len)
 		}
 
@@ -2899,7 +2857,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DString_len > 0 {
-		if int(a_Arr1DString_len) < getArrayPrefixSize() {
+		if int(a_Arr1DString_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DString length %d too short", a_Arr1DString_len)
 		}
 
@@ -2918,7 +2876,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DUint16_len > 0 {
-		if int(a_Arr1DUint16_len) < getArrayPrefixSize() {
+		if int(a_Arr1DUint16_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint16 length %d too short", a_Arr1DUint16_len)
 		}
 
@@ -2937,7 +2895,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DUint32_len > 0 {
-		if int(a_Arr1DUint32_len) < getArrayPrefixSize() {
+		if int(a_Arr1DUint32_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint32 length %d too short", a_Arr1DUint32_len)
 		}
 
@@ -2956,7 +2914,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DUint64_len > 0 {
-		if int(a_Arr1DUint64_len) < getArrayPrefixSize() {
+		if int(a_Arr1DUint64_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint64 length %d too short", a_Arr1DUint64_len)
 		}
 
@@ -2975,7 +2933,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr1DUint8_len > 0 {
-		if int(a_Arr1DUint8_len) < getArrayPrefixSize() {
+		if int(a_Arr1DUint8_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr1DUint8 length %d too short", a_Arr1DUint8_len)
 		}
 
@@ -2994,7 +2952,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DBool_len > 0 {
-		if int(a_Arr2DBool_len) < getArrayPrefixSize() {
+		if int(a_Arr2DBool_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBool length %d too short", a_Arr2DBool_len)
 		}
 
@@ -3013,7 +2971,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DBytes_len > 0 {
-		if int(a_Arr2DBytes_len) < getArrayPrefixSize() {
+		if int(a_Arr2DBytes_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DBytes length %d too short", a_Arr2DBytes_len)
 		}
 
@@ -3032,7 +2990,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DDouble_len > 0 {
-		if int(a_Arr2DDouble_len) < getArrayPrefixSize() {
+		if int(a_Arr2DDouble_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DDouble length %d too short", a_Arr2DDouble_len)
 		}
 
@@ -3051,7 +3009,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DFloat_len > 0 {
-		if int(a_Arr2DFloat_len) < getArrayPrefixSize() {
+		if int(a_Arr2DFloat_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DFloat length %d too short", a_Arr2DFloat_len)
 		}
 
@@ -3070,7 +3028,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DInt16_len > 0 {
-		if int(a_Arr2DInt16_len) < getArrayPrefixSize() {
+		if int(a_Arr2DInt16_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt16 length %d too short", a_Arr2DInt16_len)
 		}
 
@@ -3089,7 +3047,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DInt32_len > 0 {
-		if int(a_Arr2DInt32_len) < getArrayPrefixSize() {
+		if int(a_Arr2DInt32_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt32 length %d too short", a_Arr2DInt32_len)
 		}
 
@@ -3108,7 +3066,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DInt64_len > 0 {
-		if int(a_Arr2DInt64_len) < getArrayPrefixSize() {
+		if int(a_Arr2DInt64_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt64 length %d too short", a_Arr2DInt64_len)
 		}
 
@@ -3127,7 +3085,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DInt8_len > 0 {
-		if int(a_Arr2DInt8_len) < getArrayPrefixSize() {
+		if int(a_Arr2DInt8_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DInt8 length %d too short", a_Arr2DInt8_len)
 		}
 
@@ -3146,7 +3104,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DNested_len > 0 {
-		if int(a_Arr2DNested_len) < getArrayPrefixSize() {
+		if int(a_Arr2DNested_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DNested length %d too short", a_Arr2DNested_len)
 		}
 
@@ -3165,7 +3123,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DObject_len > 0 {
-		if int(a_Arr2DObject_len) < getArrayPrefixSize() {
+		if int(a_Arr2DObject_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DObject length %d too short", a_Arr2DObject_len)
 		}
 
@@ -3184,7 +3142,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DString_len > 0 {
-		if int(a_Arr2DString_len) < getArrayPrefixSize() {
+		if int(a_Arr2DString_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DString length %d too short", a_Arr2DString_len)
 		}
 
@@ -3203,7 +3161,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DUint16_len > 0 {
-		if int(a_Arr2DUint16_len) < getArrayPrefixSize() {
+		if int(a_Arr2DUint16_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint16 length %d too short", a_Arr2DUint16_len)
 		}
 
@@ -3222,7 +3180,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DUint32_len > 0 {
-		if int(a_Arr2DUint32_len) < getArrayPrefixSize() {
+		if int(a_Arr2DUint32_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint32 length %d too short", a_Arr2DUint32_len)
 		}
 
@@ -3241,7 +3199,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DUint64_len > 0 {
-		if int(a_Arr2DUint64_len) < getArrayPrefixSize() {
+		if int(a_Arr2DUint64_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint64 length %d too short", a_Arr2DUint64_len)
 		}
 
@@ -3260,7 +3218,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr2DUint8_len > 0 {
-		if int(a_Arr2DUint8_len) < getArrayPrefixSize() {
+		if int(a_Arr2DUint8_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr2DUint8 length %d too short", a_Arr2DUint8_len)
 		}
 
@@ -3279,7 +3237,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DBool_len > 0 {
-		if int(a_Arr3DBool_len) < getArrayPrefixSize() {
+		if int(a_Arr3DBool_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBool length %d too short", a_Arr3DBool_len)
 		}
 
@@ -3298,7 +3256,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DBytes_len > 0 {
-		if int(a_Arr3DBytes_len) < getArrayPrefixSize() {
+		if int(a_Arr3DBytes_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DBytes length %d too short", a_Arr3DBytes_len)
 		}
 
@@ -3317,7 +3275,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DDouble_len > 0 {
-		if int(a_Arr3DDouble_len) < getArrayPrefixSize() {
+		if int(a_Arr3DDouble_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DDouble length %d too short", a_Arr3DDouble_len)
 		}
 
@@ -3336,7 +3294,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DFloat_len > 0 {
-		if int(a_Arr3DFloat_len) < getArrayPrefixSize() {
+		if int(a_Arr3DFloat_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DFloat length %d too short", a_Arr3DFloat_len)
 		}
 
@@ -3355,7 +3313,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DInt16_len > 0 {
-		if int(a_Arr3DInt16_len) < getArrayPrefixSize() {
+		if int(a_Arr3DInt16_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt16 length %d too short", a_Arr3DInt16_len)
 		}
 
@@ -3374,7 +3332,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DInt32_len > 0 {
-		if int(a_Arr3DInt32_len) < getArrayPrefixSize() {
+		if int(a_Arr3DInt32_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt32 length %d too short", a_Arr3DInt32_len)
 		}
 
@@ -3393,7 +3351,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DInt64_len > 0 {
-		if int(a_Arr3DInt64_len) < getArrayPrefixSize() {
+		if int(a_Arr3DInt64_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt64 length %d too short", a_Arr3DInt64_len)
 		}
 
@@ -3412,7 +3370,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DInt8_len > 0 {
-		if int(a_Arr3DInt8_len) < getArrayPrefixSize() {
+		if int(a_Arr3DInt8_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DInt8 length %d too short", a_Arr3DInt8_len)
 		}
 
@@ -3431,7 +3389,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DNested_len > 0 {
-		if int(a_Arr3DNested_len) < getArrayPrefixSize() {
+		if int(a_Arr3DNested_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DNested length %d too short", a_Arr3DNested_len)
 		}
 
@@ -3450,7 +3408,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DObject_len > 0 {
-		if int(a_Arr3DObject_len) < getArrayPrefixSize() {
+		if int(a_Arr3DObject_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DObject length %d too short", a_Arr3DObject_len)
 		}
 
@@ -3469,7 +3427,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DString_len > 0 {
-		if int(a_Arr3DString_len) < getArrayPrefixSize() {
+		if int(a_Arr3DString_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DString length %d too short", a_Arr3DString_len)
 		}
 
@@ -3488,7 +3446,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DUint16_len > 0 {
-		if int(a_Arr3DUint16_len) < getArrayPrefixSize() {
+		if int(a_Arr3DUint16_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint16 length %d too short", a_Arr3DUint16_len)
 		}
 
@@ -3507,7 +3465,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DUint32_len > 0 {
-		if int(a_Arr3DUint32_len) < getArrayPrefixSize() {
+		if int(a_Arr3DUint32_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint32 length %d too short", a_Arr3DUint32_len)
 		}
 
@@ -3526,7 +3484,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DUint64_len > 0 {
-		if int(a_Arr3DUint64_len) < getArrayPrefixSize() {
+		if int(a_Arr3DUint64_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint64 length %d too short", a_Arr3DUint64_len)
 		}
 
@@ -3545,7 +3503,7 @@ func (a *AllTypesOfArraysMsg) Unmarshal(reader io.Reader, fixedPayloadSize uint1
 	}
 
 	if a_Arr3DUint8_len > 0 {
-		if int(a_Arr3DUint8_len) < getArrayPrefixSize() {
+		if int(a_Arr3DUint8_len) < ArrayPrefixSize {
 			return fmt.Errorf("wireforge: AllTypesOfArraysMsg.Arr3DUint8 length %d too short", a_Arr3DUint8_len)
 		}
 
@@ -3585,11 +3543,8 @@ func ReadMessageFrame(r io.Reader) (uint16, uint16, uint32, error) {
 // Internal Helpers
 // ---------------------------------------------------------------------------
 
-func calcArraySize(arr ArraySizer) int {
+func calc1DArraySize[T any](eleType uint16, arr []T) int {
 	eleBytes := 0
-	dimenstions, x, y, z := arr.CalcDimensions()
-	eleType := arr.GetEleType()
-
 	switch eleType {
 	case TagBool, TagInt8, TagUint8:
 		eleBytes = 1
@@ -3603,22 +3558,64 @@ func calcArraySize(arr ArraySizer) int {
 		eleBytes = 0
 	}
 
-	if eleBytes > 0 {
-		if dimenstions == 1 {
-			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * eleBytes)
+	getSizableSize := func(innerArr []T) int {
+		size := 0
+		for _, item := range innerArr {
+			sizableItem, ok := any(item).(Sizable)
+			if !ok {
+				panic("item does not implement Sizable interface")
+			}
+			size += ObjectSetUnsetPrefixSize
+			if sizableItem == nil {
+				continue
+			}
+			size += sizableItem.Size()
 		}
-		if dimenstions == 2 {
-			yBlock := ArrayCountPrefixSize + (y * eleBytes)
-			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * yBlock)
-		}
-		if dimenstions == 3 {
-			zBlock := ArrayCountPrefixSize + (z * eleBytes)
-			yBlock := ArrayCountPrefixSize + (y * zBlock)
-			return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2) + (x * yBlock)
-		}
+		return size
 	}
 
-	return arr.CalcSize()
+	switch eleType {
+	case TagBool, TagInt8, TagUint8, TagInt16, TagUint16, TagInt32, TagUint32, TagFloat32, TagInt64, TagUint64, TagFloat64:
+		return len(arr) * eleBytes
+	case TagString:
+		size := 0
+		for _, item := range arr {
+			str, ok := any(item).(string)
+			if !ok {
+				panic("item is not a string")
+			}
+			size += StrOrByteLenPrefixSize + len(str)
+		}
+		return size
+	case TagBytes:
+		size := 0
+		for _, item := range arr {
+			bytes, ok := any(item).([]byte)
+			if !ok {
+				panic("item is not a []byte")
+			}
+			size += StrOrByteLenPrefixSize + len(bytes)
+		}
+		return size
+
+	case TagOnlyScalarTypesMsg:
+		return getSizableSize(arr)
+
+	case TagOnlyVariableTypesMsg:
+		return getSizableSize(arr)
+
+	case TagAllTypesFieldsMsg:
+		return getSizableSize(arr)
+
+	case TagRecursiveNestedMsg:
+		return getSizableSize(arr)
+
+	case TagAllTypesOfArraysMsg:
+		return getSizableSize(arr)
+
+	default:
+		return 0
+	}
 }
 
 func calcTypeSize(ele any) int {
@@ -4080,6 +4077,10 @@ func readThreeDimensionalSlice[T any](r io.Reader) ([][][]T, error) {
 		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
+	if count == 0 {
+		return nil, nil
+	}
+
 	// Read the 3D array elements
 	slice := make([][][]T, count)
 	for i := 0; i < int(count); i++ {
@@ -4103,6 +4104,10 @@ func readTwoDimensionalSlice[T any](r io.Reader) ([][]T, error) {
 		return nil, fmt.Errorf("array length %d exceeds MaxArrayElements", count)
 	}
 
+	if count == 0 {
+		return nil, nil
+	}
+
 	// Read the 2D array elements
 	slice := make([][]T, count)
 	for i := 0; i < int(count); i++ {
@@ -4123,7 +4128,7 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 	}
 
 	if count == 0 {
-		return []T{}, nil
+		return nil, nil
 	}
 
 	if count > MaxArrayElements {
@@ -4253,11 +4258,14 @@ func readOneDimensionalSlice[T any](r io.Reader) ([]T, error) {
 				return nil, fmt.Errorf("[]byte length %d exceeds MaxAllowedPacket at index %d", length, i)
 			}
 
-			buf := make([]byte, length)
-			if _, err := io.ReadFull(r, buf); err != nil {
-				return nil, fmt.Errorf("failed to read []byte data at index %d: %w", i, err)
+			sl[i] = nil
+			if length > 0 {
+				buf := make([]byte, length)
+				if _, err := io.ReadFull(r, buf); err != nil {
+					return nil, fmt.Errorf("failed to read []byte data at index %d: %w", i, err)
+				}
+				sl[i] = buf
 			}
-			sl[i] = buf
 		}
 
 	case []*OnlyScalarTypesMsg:
@@ -4461,29 +4469,6 @@ func getElementType(item any) (uint16, error) {
 	}
 }
 
-func isObjectType(eleType uint16) bool {
-	switch eleType {
-
-	case TagOnlyScalarTypesMsg:
-		return true
-
-	case TagOnlyVariableTypesMsg:
-		return true
-
-	case TagAllTypesFieldsMsg:
-		return true
-
-	case TagRecursiveNestedMsg:
-		return true
-
-	case TagAllTypesOfArraysMsg:
-		return true
-
-	default:
-		return false
-	}
-}
-
 func getArraySizer[T any](dimensions int) ArraySizer {
 	var zero T
 	elemType, err := getElementType(zero)
@@ -4500,11 +4485,6 @@ func getArraySizer[T any](dimensions int) ArraySizer {
 	default:
 		panic(fmt.Errorf("unsupported array dimensions: %d", dimensions))
 	}
-}
-
-func getArrayPrefixSize() int {
-	// Type marker + element type marker + overall count + per-dimension count
-	return (TypeMarkerSize * 2) + (ArrayCountPrefixSize * 2)
 }
 
 func readUint8(r io.Reader) (uint8, error) {

@@ -151,3 +151,10 @@ func arrayRootGoType(f *compiler.CompiledField, messages []*compiler.CompiledMes
 
     return ""
 }
+
+func arrayDimension(f *compiler.CompiledField) int {
+	if f == nil || f.Type != schema.FieldTypeArray {
+		return 0
+	}
+	return 1 + arrayDimension(f.ArrElem)
+}
