@@ -7,11 +7,11 @@
  * memory management functions declared in messages.h.
  */
 
+#include "messages.h"
+
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-
-#include "messages.h"
 
 /* ---------------------------------------------------------------------------
  * Big-Endian encoding/decoding helpers
@@ -42,79 +42,73 @@ static inline void put_u64_be(uint8_t *buf, uint64_t val) {
 }
 
 static inline uint16_t get_u16_be(const uint8_t *buf) {
-    return (uint16_t)((uint16_t)buf[0] << 8 | (uint16_t)buf[1]);
+    return ((uint16_t)((uint16_t)buf[0] << 8 | (uint16_t)buf[1]));
 }
 
 static inline uint32_t get_u32_be(const uint8_t *buf) {
-    return (uint32_t)buf[0] << 24 | (uint32_t)buf[1] << 16 |
-           (uint32_t)buf[2] << 8  | (uint32_t)buf[3];
+    return ((uint32_t)buf[0] << 24 | (uint32_t)buf[1] << 16 | (uint32_t)buf[2] << 8 |
+            (uint32_t)buf[3]);
 }
 
 static inline uint64_t get_u64_be(const uint8_t *buf) {
-    return (uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48 |
-           (uint64_t)buf[2] << 40 | (uint64_t)buf[3] << 32 |
-           (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16 |
-           (uint64_t)buf[6] << 8  | (uint64_t)buf[7];
+    return ((uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48 | (uint64_t)buf[2] << 40 |
+            (uint64_t)buf[3] << 32 | (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16 |
+            (uint64_t)buf[6] << 8 | (uint64_t)buf[7]);
 }
 
-uint16_t get_message_type(const uint8_t *buf) {
-    return get_u16_be(buf);
-}
+uint16_t get_message_type(const uint8_t *buf) { return (get_u16_be(buf)); }
 
 uint16_t get_message_fixed_payload_length(const uint8_t *buf) {
-    return get_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE);
+    return (get_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE));
 }
 
 uint32_t get_message_overall_payload_length(const uint8_t *buf) {
-    return get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
+    return (get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE));
 }
 
 dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size_t len) {
-    if (!str) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!str) return (DYN_ARR_ERR_INVALID_PARAM);
 
     str->data = NULL;
-    str->len = 0;
-    if (!value || len == 0) return DYN_ARR_OK;
+    str->len  = 0;
+    if (!value || len == 0) return (DYN_ARR_OK);
 
-    str->data = (char*)malloc(len + 1);
-    if (!str->data) {
-        return DYN_ARR_ERR_NO_MEMORY;
-    }
+    str->data = (char *)malloc(len + 1);
+    if (!str->data) { return (DYN_ARR_ERR_NO_MEMORY); }
     memcpy(str->data, value, len);
     str->data[len] = '\0';
-    str->len = len;
-    return DYN_ARR_OK;
+    str->len       = len;
+    return (DYN_ARR_OK);
 }
 
 void string_t_free(string_t *str) {
     if (str && str->data) {
         free(str->data);
         str->data = NULL;
-        str->len = 0;
+        str->len  = 0;
     }
 }
 
-dyn_arr_status_t byte_array_t_set_value(byte_array_t *byte_arr, const uint8_t *value, const size_t len) {
-    if (!byte_arr) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t byte_array_t_set_value(byte_array_t *byte_arr, const uint8_t *value,
+                                        const size_t len) {
+    if (!byte_arr) return (DYN_ARR_ERR_INVALID_PARAM);
 
     byte_arr->data = NULL;
-    byte_arr->len = 0;
-    if (!value || len == 0) return DYN_ARR_OK;
+    byte_arr->len  = 0;
+    if (!value || len == 0) return (DYN_ARR_OK);
 
-    byte_arr->data = (uint8_t*)malloc(len);
-    if (!byte_arr->data) {
-        return DYN_ARR_ERR_NO_MEMORY;
-    }
+    byte_arr->data = (uint8_t *)malloc(len);
+    if (!byte_arr->data) { return (DYN_ARR_ERR_NO_MEMORY); }
     memcpy(byte_arr->data, value, len);
     byte_arr->len = len;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 void byte_array_t_free(byte_array_t *byte_arr) {
     if (byte_arr && byte_arr->data) {
         free(byte_arr->data);
         byte_arr->data = NULL;
-        byte_arr->len = 0;
+        byte_arr->len  = 0;
     }
 }
 
@@ -122,20 +116,16 @@ void byte_array_t_free(byte_array_t *byte_arr) {
  * HELPER: Calculate flat index from 3D coordinates (Row-Major Order)
  * ========================================================================= */
 size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
-    return (i * arr->y * arr->z) + (j * arr->z) + k;
+    return ((i * arr->y * arr->z) + (j * arr->z) + k);
 }
 
 /* =========================================================================
  * CREATE: Allocate & Initialize Array
  * ========================================================================= */
-dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
-                                    element_type_t ele_type,
-                                    size_t elem_size, 
-                                    uint8_t num_dims, 
-                                    size_t x, size_t y, size_t z) 
-{
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr, element_type_t ele_type, size_t elem_size,
+                                    uint8_t num_dims, size_t x, size_t y, size_t z) {
     if (!arr || elem_size == 0 || num_dims < 1 || num_dims > 3) {
-        return DYN_ARR_ERR_INVALID_PARAM;
+        return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
     // Normalize inactive dimensions to 1
@@ -145,35 +135,29 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
 
     // Check integer overflow for element calculation
     size_t total_elements = dim_x * dim_y * dim_z;
-    if (dim_x != 0 && (total_elements / dim_x / dim_y != dim_z)) {
-        return DYN_ARR_ERR_OVERFLOW;
-    }
+    if (dim_x != 0 && (total_elements / dim_x / dim_y != dim_z)) { return (DYN_ARR_ERR_OVERFLOW); }
 
-    if (dim_x == 0 || dim_y == 0 || dim_z == 0) {
-        return DYN_ARR_ERR_INVALID_PARAM;
-    }
+    if (dim_x == 0 || dim_y == 0 || dim_z == 0) { return (DYN_ARR_ERR_INVALID_PARAM); }
 
     // Allocate and zeroed memory for the flattened array
     arr->data = calloc(total_elements, elem_size);
-    if (!arr->data) {
-        return DYN_ARR_ERR_NO_MEMORY;
-    }
+    if (!arr->data) { return (DYN_ARR_ERR_NO_MEMORY); }
     arr->is_set = calloc(total_elements, sizeof(uint8_t));
     if (!arr->is_set) {
         free(arr->data);
         arr->data = NULL;
-        return DYN_ARR_ERR_NO_MEMORY;
+        return (DYN_ARR_ERR_NO_MEMORY);
     }
 
-    arr->num_dims = num_dims;
-    arr->ele_type = ele_type;
+    arr->num_dims  = num_dims;
+    arr->ele_type  = ele_type;
     arr->elem_size = elem_size;
-    arr->capacity = total_elements;
-    arr->x = dim_x;
-    arr->y = dim_y;
-    arr->z = dim_z;
+    arr->capacity  = total_elements;
+    arr->x         = dim_x;
+    arr->y         = dim_y;
+    arr->z         = dim_z;
 
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /* =========================================================================
@@ -181,58 +165,52 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
  * ========================================================================= */
 
 // Get a pointer directly to the element at (i, j, k)
-void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
-    if (!arr || !arr->data) return NULL;
+void *dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
+    if (!arr || !arr->data) return (NULL);
 
     // Bounds checking
-    if (i >= arr->x || j >= arr->y || k >= arr->z) {
-        return NULL;
-    }
+    if (i >= arr->x || j >= arr->y || k >= arr->z) { return (NULL); }
 
     size_t flat_index = get_flat_index(arr, i, j, k);
-    return (uint8_t*)arr->data + (flat_index * arr->elem_size);
+    return ((uint8_t *)arr->data + (flat_index * arr->elem_size));
 }
 
 // Copy element data at (i, j, k) safely into out_val buffer
-dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val) {
-    if (!out_val) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   void *out_val) {
+    if (!out_val) return (DYN_ARR_ERR_INVALID_PARAM);
 
     void *elem_ptr = dynamic_array_get_ptr(arr, i, j, k);
-    if (!elem_ptr) {
-        return DYN_ARR_ERR_OUT_OF_BOUNDS;
-    }
+    if (!elem_ptr) { return (DYN_ARR_ERR_OUT_OF_BOUNDS); }
 
     memcpy(out_val, elem_ptr, arr->elem_size);
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /* =========================================================================
  * UPDATE / SET: Set element value at (i, j, k)
  * ========================================================================= */
-dyn_arr_status_t
-dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val)
-{
-    if (!arr || !arr->data || !arr->is_set || !in_val)  return DYN_ARR_ERR_INVALID_PARAM;
-    if (i >= arr->x || j >= arr->y || k >= arr->z)      return DYN_ARR_ERR_OUT_OF_BOUNDS;
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   const void *in_val) {
+    if (!arr || !arr->data || !arr->is_set || !in_val) return (DYN_ARR_ERR_INVALID_PARAM);
+    if (i >= arr->x || j >= arr->y || k >= arr->z) return (DYN_ARR_ERR_OUT_OF_BOUNDS);
 
     // Check for non-contiguous element in row (i, j)
     for (size_t m = 0; m < k; m++) {
         size_t prev_idx = get_flat_index(arr, i, j, m);
-        if (!arr->is_set || !arr->is_set[prev_idx]) {
-            return DYN_ARR_ERR_INVALID_PARAM;
-        }
+        if (!arr->is_set || !arr->is_set[prev_idx]) { return (DYN_ARR_ERR_INVALID_PARAM); }
     }
 
     size_t flat_idx = get_flat_index(arr, i, j, k);
-    void *elem_ptr = (uint8_t*)arr->data + (flat_idx * arr->elem_size);
+    void *elem_ptr  = (uint8_t *)arr->data + (flat_idx * arr->elem_size);
     memcpy(elem_ptr, in_val, arr->elem_size);
     arr->is_set[flat_idx] = 1;
 
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_array_t *src) {
-    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!dest || !src) return (DYN_ARR_ERR_INVALID_PARAM);
 
     size_t eff_x = src->x;
     if (src->data != NULL && src->capacity > 0) {
@@ -247,27 +225,28 @@ dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_arra
         if (has_any) eff_x = max_i;
     }
 
-    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 1, eff_x, 1, 1);
+    dyn_arr_status_t status =
+        dynamic_array_init(dest, src->ele_type, src->elem_size, 1, eff_x, 1, 1);
     if (status != DYN_ARR_OK) {
         dynamic_array_destroy(dest);
-        return status;
+        return (status);
     }
 
     if (src->data != NULL && src->capacity > 0) {
         for (size_t i = 0; i < eff_x; i++) {
             if (src->is_set && src->is_set[i]) {
-                memcpy((uint8_t*)dest->data + (i * src->elem_size),
-                       (const uint8_t*)src->data + (i * src->elem_size),
+                memcpy((uint8_t *)dest->data + (i * src->elem_size),
+                       (const uint8_t *)src->data + (i * src->elem_size),
                        src->elem_size);
                 dest->is_set[i] = 1;
             }
         }
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_array_t *src) {
-    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!dest || !src) return (DYN_ARR_ERR_INVALID_PARAM);
 
     size_t eff_x = src->x;
     size_t eff_y = src->y;
@@ -290,10 +269,11 @@ dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_arra
         }
     }
 
-    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 2, eff_x, eff_y, 1);
+    dyn_arr_status_t status =
+        dynamic_array_init(dest, src->ele_type, src->elem_size, 2, eff_x, eff_y, 1);
     if (status != DYN_ARR_OK) {
         dynamic_array_destroy(dest);
-        return status;
+        return (status);
     }
 
     if (src->data != NULL && src->capacity > 0) {
@@ -302,19 +282,19 @@ dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_arra
                 size_t src_idx = get_flat_index(src, i, j, 0);
                 size_t dst_idx = get_flat_index(dest, i, j, 0);
                 if (src->is_set && src->is_set[src_idx]) {
-                    memcpy((uint8_t*)dest->data + (dst_idx * src->elem_size),
-                           (const uint8_t*)src->data + (src_idx * src->elem_size),
+                    memcpy((uint8_t *)dest->data + (dst_idx * src->elem_size),
+                           (const uint8_t *)src->data + (src_idx * src->elem_size),
                            src->elem_size);
                     dest->is_set[dst_idx] = 1;
                 }
             }
         }
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_array_t *src) {
-    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!dest || !src) return (DYN_ARR_ERR_INVALID_PARAM);
 
     size_t eff_x = src->x;
     size_t eff_y = src->y;
@@ -342,10 +322,11 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
         }
     }
 
-    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 3, eff_x, eff_y, eff_z);
+    dyn_arr_status_t status =
+        dynamic_array_init(dest, src->ele_type, src->elem_size, 3, eff_x, eff_y, eff_z);
     if (status != DYN_ARR_OK) {
         dynamic_array_destroy(dest);
-        return status;
+        return (status);
     }
 
     if (src->data != NULL && src->capacity > 0) {
@@ -355,8 +336,8 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
                     size_t src_idx = get_flat_index(src, i, j, k);
                     size_t dst_idx = get_flat_index(dest, i, j, k);
                     if (src->is_set && src->is_set[src_idx]) {
-                        memcpy((uint8_t*)dest->data + (dst_idx * src->elem_size),
-                               (const uint8_t*)src->data + (src_idx * src->elem_size),
+                        memcpy((uint8_t *)dest->data + (dst_idx * src->elem_size),
+                               (const uint8_t *)src->data + (src_idx * src->elem_size),
                                src->elem_size);
                         dest->is_set[dst_idx] = 1;
                     }
@@ -364,7 +345,7 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
             }
         }
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /* =========================================================================
@@ -380,12 +361,12 @@ void dynamic_array_destroy(dynamic_array_t *arr) {
             free(arr->is_set);
             arr->is_set = NULL;
         }
-        arr->x = 0;
-        arr->y = 0;
-        arr->z = 0;
-        arr->capacity = 0;
+        arr->x         = 0;
+        arr->y         = 0;
+        arr->z         = 0;
+        arr->capacity  = 0;
         arr->elem_size = 0;
-        arr->num_dims = 0;
+        arr->num_dims  = 0;
     }
 }
 
@@ -393,12 +374,21 @@ void dynamic_array_destroy(dynamic_array_t *arr) {
  * Serialization helpers with is_set support
  * ========================================================================= */
 
-static void get_array_counts(const dynamic_array_t *arr,
-                             size_t *out_x_count,
-                             size_t *out_y_counts,
-                             size_t *out_z_counts,
-                             size_t *out_total_items)
-{
+static bool isVariableType(element_type_t ele_type) {
+    switch (ele_type) {
+        case TAG_STRING:
+        case TAG_BYTES:
+        case TAG_ONLY_SCALAR_TYPES_MSG:
+        case TAG_ONLY_VARIABLE_TYPES_MSG:
+        case TAG_ALL_TYPES_FIELDS_MSG:
+        case TAG_RECURSIVE_NESTED_MSG:
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG: return (true);
+        default: return (false);
+    }
+}
+
+static void get_array_counts(const dynamic_array_t *arr, size_t *out_x_count, size_t *out_y_counts,
+                             size_t *out_z_counts, size_t *out_total_items) {
     if (!arr || !arr->is_set) {
         if (out_x_count) *out_x_count = 0;
         if (out_total_items) *out_total_items = 0;
@@ -408,8 +398,12 @@ static void get_array_counts(const dynamic_array_t *arr,
     if (arr->num_dims == 1) {
         size_t c = 0;
         for (size_t k = 0; k < arr->x; k++) {
-            if (arr->is_set[k]) c++;
-            else break;
+            // TODO: Do we need to consider isVariableType?
+            if (arr->is_set[k]) {
+                c++;
+            } else {
+                break;  // Assuming consecutive set elements
+            }
         }
         if (out_x_count) *out_x_count = c;
         if (out_total_items) *out_total_items = c;
@@ -417,7 +411,7 @@ static void get_array_counts(const dynamic_array_t *arr,
     }
 
     if (arr->num_dims == 2) {
-        size_t x_count = 0;
+        size_t x_count       = 0;
         size_t overall_items = 0;
 
         for (size_t i = 0; i < arr->x; i++) {
@@ -426,23 +420,19 @@ static void get_array_counts(const dynamic_array_t *arr,
 
             for (size_t j = 0; j < arr->y; j++) {
                 size_t idx = get_flat_index(arr, i, j, 0);
+                // TODO: Do we need to consider isVariableType?
                 if (arr->is_set[idx]) {
                     row_has_set = true;
                     row_count++;
                 } else {
-                    // Assuming consecutive set elements from the start of the row
-                    break; 
+                    break;  // Assuming consecutive set elements
                 }
             }
 
             // If this row has any set elements, update our active x_count boundary
-            if (row_has_set) {
-                x_count = i + 1;
-            }
+            if (row_has_set) { x_count = i + 1; }
 
-            if (out_y_counts) {
-                out_y_counts[i] = row_count;
-            }
+            if (out_y_counts) { out_y_counts[i] = row_count; }
             overall_items += row_count;
         }
 
@@ -452,7 +442,7 @@ static void get_array_counts(const dynamic_array_t *arr,
     }
 
     if (arr->num_dims == 3) {
-        size_t x_count = 0;
+        size_t x_count       = 0;
         size_t overall_items = 0;
 
         // First pass: Find x_count (last plane index containing at least one set element)
@@ -468,9 +458,7 @@ static void get_array_counts(const dynamic_array_t *arr,
                 }
                 if (plane_has_set) break;
             }
-            if (plane_has_set) {
-                x_count = i + 1;
-            }
+            if (plane_has_set) { x_count = i + 1; }
         }
 
         // Second pass: Process only up to x_count to compute y counts, z counts, and total items
@@ -482,26 +470,21 @@ static void get_array_counts(const dynamic_array_t *arr,
 
                 for (size_t k = 0; k < arr->z; k++) {
                     size_t idx = get_flat_index(arr, i, j, k);
+                    // TODO: Do we need to consider isVariableType?
                     if (arr->is_set[idx]) {
                         z_cnt++;
                     } else {
-                        break; // Assumes consecutive items from start for z_cnt
+                        break;  // Assuming consecutive set elements
                     }
                 }
 
-                if (z_cnt > 0) {
-                    y_cnt = j + 1;
-                }
+                if (z_cnt > 0) { y_cnt = j + 1; }
 
-                if (out_z_counts) {
-                    out_z_counts[i * arr->y + j] = z_cnt;
-                }
+                if (out_z_counts) { out_z_counts[i * arr->y + j] = z_cnt; }
                 overall_items += z_cnt;
             }
 
-            if (out_y_counts) {
-                out_y_counts[i] = y_cnt;
-            }
+            if (out_y_counts) { out_y_counts[i] = y_cnt; }
         }
 
         if (out_x_count) *out_x_count = x_count;
@@ -510,35 +493,54 @@ static void get_array_counts(const dynamic_array_t *arr,
     }
 }
 
-size_t calc_array_size(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    custom_size_fn size_fn)
-{
-    if (!arr || !arr->data || !arr->is_set || arr->x == 0) {
-        return 0;
+static size_t _get_variable_element_size(uint8_t *item, element_type_t ele_type, bool is_set,
+                                         custom_size_fn size_fn) {
+    switch (ele_type) {
+        case TAG_STRING:
+        case TAG_BYTES: {
+            byte_array_t *v = (byte_array_t *)item;
+            return (STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0));
+        }
+        case TAG_ONLY_SCALAR_TYPES_MSG:
+        case TAG_ONLY_VARIABLE_TYPES_MSG:
+        case TAG_ALL_TYPES_FIELDS_MSG:
+        case TAG_RECURSIVE_NESTED_MSG:
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
+            return (OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn && is_set ? size_fn(item) : 0));
+        default: return (0);  // For fixed-size types, size is known and handled separately
     }
+}
+
+size_t calc_array_size(dynamic_array_t *arr, element_type_t ele_type, custom_size_fn size_fn) {
+    if (!arr || !arr->data || !arr->is_set || arr->x == 0) { return (0); }
 
     size_t x_count = 0, overall_items = 0;
-    size_t *y_counts = (size_t*)calloc(arr->x, sizeof(size_t));
-    size_t *z_counts = (size_t*)calloc(arr->x * arr->y, sizeof(size_t));
+    size_t *y_counts = (size_t *)calloc(arr->x, sizeof(size_t));
+    size_t *z_counts = (size_t *)calloc(arr->x * arr->y, sizeof(size_t));
 
     get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items);
 
     if (overall_items == 0) {
         free(y_counts);
         free(z_counts);
-        return 0;
+        return (0);
     }
 
-    size_t total_size = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
+    size_t total_size = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE;  // 6 bytes
 
     size_t elem_bytes = 0;
     switch (ele_type) {
-        case TAG_BOOL:   case TAG_UINT8:  case TAG_INT8:   elem_bytes = 1; break;
-        case TAG_UINT16: case TAG_INT16:                   elem_bytes = 2; break;
-        case TAG_UINT32: case TAG_INT32:  case TAG_FLOAT32:elem_bytes = 4; break;
-        case TAG_UINT64: case TAG_INT64:  case TAG_FLOAT64:elem_bytes = 8; break;
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: elem_bytes = 1; break;
+        case TAG_UINT16:
+        case TAG_INT16: elem_bytes = 2; break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: elem_bytes = 4; break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: elem_bytes = 8; break;
         default: elem_bytes = 0; break;
     }
 
@@ -547,27 +549,10 @@ size_t calc_array_size(
         if (elem_bytes > 0) {
             total_size += x_count * elem_bytes;
         } else {
-            uint8_t *src = (uint8_t*)arr->data;
+            uint8_t *src = (uint8_t *)arr->data;
             for (size_t k = 0; k < x_count; k++) {
-                uint8_t *item = (uint8_t*)src + k * arr->elem_size;
-                switch (ele_type) {
-                    case TAG_STRING: case TAG_BYTES: {
-                        byte_array_t *v = (byte_array_t*)item;
-                        total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                        break;
-                    }
-                    case TAG_ONLY_SCALAR_TYPES_MSG:
-                    case TAG_ONLY_VARIABLE_TYPES_MSG:
-                    case TAG_ALL_TYPES_FIELDS_MSG:
-                    case TAG_RECURSIVE_NESTED_MSG:
-                    case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-                    {
-                        total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
-                        break;
-                    }
-                    default:
-                        break; // For fixed-size types, already accounted for in elem_bytes
-                }
+                uint8_t *item = (uint8_t *)src + k * arr->elem_size;
+                total_size += _get_variable_element_size(item, ele_type, arr->is_set[k], size_fn);
             }
         }
     } else if (arr->num_dims == 2) {
@@ -580,26 +565,10 @@ size_t calc_array_size(
                 total_size += y_cnt * elem_bytes;
             } else {
                 for (size_t j = 0; j < y_cnt; j++) {
-                    size_t idx = get_flat_index(arr, i, j, 0);
-                    uint8_t *item = (uint8_t*)arr->data + (idx * arr->elem_size);
-                    switch (ele_type) {
-                        case TAG_STRING: case TAG_BYTES: {
-                            byte_array_t *v = (byte_array_t*)item;
-                            total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                            break;
-                        }
-                        case TAG_ONLY_SCALAR_TYPES_MSG:
-                        case TAG_ONLY_VARIABLE_TYPES_MSG:
-                        case TAG_ALL_TYPES_FIELDS_MSG:
-                        case TAG_RECURSIVE_NESTED_MSG:
-                        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-                        {
-                            total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
-                            break;
-                        }
-                        default:
-                            break; // For fixed-size types, already accounted for in elem_bytes
-                    }
+                    size_t idx    = get_flat_index(arr, i, j, 0);
+                    uint8_t *item = (uint8_t *)arr->data + (idx * arr->elem_size);
+                    total_size +=
+                        _get_variable_element_size(item, ele_type, arr->is_set[idx], size_fn);
                 }
             }
         }
@@ -617,27 +586,10 @@ size_t calc_array_size(
                     total_size += z_cnt * elem_bytes;
                 } else {
                     for (size_t k = 0; k < z_cnt; k++) {
-                        size_t idx = get_flat_index(arr, i, j, k);
-                        uint8_t *item = (uint8_t*)arr->data + (idx * arr->elem_size);
-
-                        switch (ele_type) {
-                            case TAG_STRING: case TAG_BYTES: {
-                                byte_array_t *v = (byte_array_t*)item;
-                                total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                                break;
-                            }
-                            case TAG_ONLY_SCALAR_TYPES_MSG:
-                            case TAG_ONLY_VARIABLE_TYPES_MSG:
-                            case TAG_ALL_TYPES_FIELDS_MSG:
-                            case TAG_RECURSIVE_NESTED_MSG:
-                            case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-                            {
-                                total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
-                                break;
-                            }
-                            default:
-                                break; // For fixed-size types, already accounted for in elem_bytes
-                        }
+                        size_t idx    = get_flat_index(arr, i, j, k);
+                        uint8_t *item = (uint8_t *)arr->data + (idx * arr->elem_size);
+                        total_size +=
+                            _get_variable_element_size(item, ele_type, arr->is_set[idx], size_fn);
                     }
                 }
             }
@@ -646,29 +598,43 @@ size_t calc_array_size(
 
     free(y_counts);
     free(z_counts);
-    return total_size;
+    return (total_size);
 }
 
 // Static utility function to marshal a single element
-static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, custom_marshal_fn marshal_fn) {
+static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type,
+                                custom_marshal_fn marshal_fn) {
     size_t off = 0;
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
-            dest[off++] = *src; break;
-        case TAG_UINT16: case TAG_INT16:
-            put_u16_be(dest + off, *(uint16_t*)src); off += 2; break;
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
-            put_u32_be(dest + off, *(uint32_t*)src); off += 4; break;
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
-            put_u64_be(dest + off, *(uint64_t*)src); off += 8; break;
-        case TAG_STRING: case TAG_BYTES: {
-            byte_array_t *v = (byte_array_t*)src;
-            uint32_t len = v->data ? v->len : 0;
-            put_u32_be(dest + off, len); 
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: dest[off++] = *src; break;
+        case TAG_UINT16:
+        case TAG_INT16:
+            put_u16_be(dest + off, *(uint16_t *)src);
+            off += 2;
+            break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32:
+            put_u32_be(dest + off, *(uint32_t *)src);
             off += 4;
-            if (len > 0) { 
-                memcpy(dest + off, v->data, len); 
-                off += len; 
+            break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64:
+            put_u64_be(dest + off, *(uint64_t *)src);
+            off += 8;
+            break;
+        case TAG_STRING:
+        case TAG_BYTES: {
+            byte_array_t *v = (byte_array_t *)src;
+            uint32_t len    = v->data ? v->len : 0;
+            put_u32_be(dest + off, len);
+            off += 4;
+            if (len > 0) {
+                memcpy(dest + off, v->data, len);
+                off += len;
             }
             break;
         }
@@ -677,25 +643,23 @@ static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, 
         case TAG_ONLY_VARIABLE_TYPES_MSG:
         case TAG_ALL_TYPES_FIELDS_MSG:
         case TAG_RECURSIVE_NESTED_MSG:
-        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-        {
-            base_object_t *obj = (base_object_t*)src;
-            dest[off++] = obj->_is_set ? 1 : 0;
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG: {
+            base_object_t *obj = (base_object_t *)src;
+            dest[off++]        = obj->_is_set ? 1 : 0;
             if (obj->_is_set && marshal_fn) {
                 uint8_t *mbuf = NULL;
-                int w = marshal_fn(src, &mbuf);
-                if (w > 0) { 
-                    memcpy(dest + off, mbuf, w); 
-                    off += w; 
-                    free(mbuf); 
+                int w         = marshal_fn(src, &mbuf);
+                if (w > 0) {
+                    memcpy(dest + off, mbuf, w);
+                    off += w;
+                    free(mbuf);
                 }
             }
             break;
         }
-        default: 
-            break;
+        default: break;
     }
-    return off;
+    return (off);
 }
 
 /**
@@ -707,45 +671,38 @@ static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, 
  *  |                  |                  | item count       |  prefixes & payload items)         |
  *  +------------------+------------------+------------------+------------------------------------+
  */
-dyn_arr_status_t array_to_bytes(
-    dynamic_array_t *arr,
-    uint8_t **out_buf,
-    size_t *out_size,
-    custom_size_fn size_fn,
-    custom_marshal_fn marshal_fn
-)
-{
-    if (!arr || !out_buf || !out_size) {
-        return DYN_ARR_ERR_INVALID_PARAM;
-    }
+dyn_arr_status_t array_to_bytes(dynamic_array_t *arr, uint8_t **out_buf, size_t *out_size,
+                                custom_size_fn size_fn, custom_marshal_fn marshal_fn) {
+    if (!arr || !out_buf || !out_size) { return (DYN_ARR_ERR_INVALID_PARAM); }
 
     size_t x_count = 0, overall_items = 0;
-    size_t *y_counts = arr->data ? (size_t*)calloc(arr->x, sizeof(size_t)) : NULL;
-    size_t *z_counts = arr->data ? (size_t*)calloc(arr->x * arr->y, sizeof(size_t)) : NULL;
+    size_t *y_counts = arr->data ? (size_t *)calloc(arr->x, sizeof(size_t)) : NULL;
+    size_t *z_counts = arr->data ? (size_t *)calloc(arr->x * arr->y, sizeof(size_t)) : NULL;
 
-    if (arr->data) {
-        get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items);
-    }
+    if (arr->data) { get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items); }
 
     size_t total_size = calc_array_size(arr, arr->ele_type, size_fn);
     if (total_size == 0) {
         free(y_counts);
         free(z_counts);
-        *out_buf = NULL;
+        *out_buf  = NULL;
         *out_size = 0;
-        return DYN_ARR_OK;
+        return (DYN_ARR_OK);
     }
 
-    uint8_t *buf = (uint8_t*)malloc(total_size);
+    uint8_t *buf = (uint8_t *)malloc(total_size);
     if (!buf) {
         free(y_counts);
         free(z_counts);
-        return DYN_ARR_ERR_NO_MEMORY;
+        return (DYN_ARR_ERR_NO_MEMORY);
     }
 
     uint16_t wire_tag = TAG_ARRAY;
-    if (arr->num_dims == 2) wire_tag = TAG_2D_ARRAY;
-    else if (arr->num_dims == 3) wire_tag = TAG_3D_ARRAY;
+    if (arr->num_dims == 2) {
+        wire_tag = TAG_2D_ARRAY;
+    } else if (arr->num_dims == 3) {
+        wire_tag = TAG_3D_ARRAY;
+    }
 
     put_u16_be(buf, wire_tag);
     put_u16_be(buf + TYPE_MARKER_SIZE, arr->ele_type);
@@ -758,7 +715,7 @@ dyn_arr_status_t array_to_bytes(
         off += ARRAY_COUNT_PREFIX_SIZE;
 
         for (size_t k = 0; k < x_count; k++) {
-            uint8_t *src = (uint8_t*)arr->data + (k * arr->elem_size);
+            uint8_t *src = (uint8_t *)arr->data + (k * arr->elem_size);
             off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
         }
     } else if (arr->num_dims == 2) {
@@ -771,8 +728,8 @@ dyn_arr_status_t array_to_bytes(
             off += ARRAY_COUNT_PREFIX_SIZE;
 
             for (size_t j = 0; j < y_cnt; j++) {
-                size_t idx = get_flat_index(arr, i, j, 0);
-                uint8_t *src = (uint8_t*)arr->data + (idx * arr->elem_size);
+                size_t idx   = get_flat_index(arr, i, j, 0);
+                uint8_t *src = (uint8_t *)arr->data + (idx * arr->elem_size);
                 off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
             }
         }
@@ -791,8 +748,8 @@ dyn_arr_status_t array_to_bytes(
                 off += ARRAY_COUNT_PREFIX_SIZE;
 
                 for (size_t k = 0; k < z_cnt; k++) {
-                    size_t idx = get_flat_index(arr, i, j, k);
-                    uint8_t *src = (uint8_t*)arr->data + (idx * arr->elem_size);
+                    size_t idx   = get_flat_index(arr, i, j, k);
+                    uint8_t *src = (uint8_t *)arr->data + (idx * arr->elem_size);
                     off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
                 }
             }
@@ -802,88 +759,101 @@ dyn_arr_status_t array_to_bytes(
     free(y_counts);
     free(z_counts);
 
-    *out_buf = buf;
+    *out_buf  = buf;
     *out_size = total_size;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
-#define CHECK_REMAINING(remaining, expected) do { \
-    if ((remaining) < expected) return DYN_ARR_ERR_EOF; \
-} while(0)
+#define CHECK_REMAINING(remaining, expected)                  \
+    do {                                                      \
+        if ((remaining) < expected) return (DYN_ARR_ERR_EOF); \
+    } while (0)
 
-#define READ_COUNT_PREFIX(stream, remaining, count_out) do { \
-    CHECK_REMAINING(remaining, ARRAY_COUNT_PREFIX_SIZE); \
-    (count_out) = get_u16_be(stream); \
-    (stream) += 2; \
-    (remaining) -= 2; \
-} while(0)
+#define READ_COUNT_PREFIX(stream, remaining, count_out)      \
+    do {                                                     \
+        CHECK_REMAINING(remaining, ARRAY_COUNT_PREFIX_SIZE); \
+        (count_out) = get_u16_be(stream);                    \
+        (stream) += 2;                                       \
+        (remaining) -= 2;                                    \
+    } while (0)
 
-static dyn_arr_status_t read_element_from_stream(
-    uint8_t **stream,
-    size_t *remaining,
-    element_type_t ele_type,
-    void *dst,
-    custom_unmarshal_fn unmarshal_fn)
-{
+static dyn_arr_status_t read_element_from_stream(uint8_t **stream, size_t *remaining,
+                                                 element_type_t ele_type, void *dst,
+                                                 custom_unmarshal_fn unmarshal_fn) {
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8: {
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: {
             CHECK_REMAINING(*remaining, 1);
-            *(uint8_t*)dst = **stream;
-            *stream += 1; *remaining -= 1;
+            *(uint8_t *)dst = **stream;
+            *stream += 1;
+            *remaining -= 1;
             break;
         }
-        case TAG_UINT16: case TAG_INT16: {
+        case TAG_UINT16:
+        case TAG_INT16: {
             CHECK_REMAINING(*remaining, 2);
-            *(uint16_t*)dst = get_u16_be(*stream);
-            *stream += 2; *remaining -= 2;
+            *(uint16_t *)dst = get_u16_be(*stream);
+            *stream += 2;
+            *remaining -= 2;
             break;
         }
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32: {
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: {
             CHECK_REMAINING(*remaining, 4);
-            *(uint32_t*)dst = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
+            *(uint32_t *)dst = get_u32_be(*stream);
+            *stream += 4;
+            *remaining -= 4;
             break;
         }
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64: {
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: {
             CHECK_REMAINING(*remaining, 8);
-            *(uint64_t*)dst = get_u64_be(*stream);
-            *stream += 8; *remaining -= 8;
+            *(uint64_t *)dst = get_u64_be(*stream);
+            *stream += 8;
+            *remaining -= 8;
             break;
         }
         case TAG_STRING: {
             CHECK_REMAINING(*remaining, STRING_OR_BYTE_LEN_PREFIX_SIZE);
             uint32_t len = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
-            string_t *s = (string_t*)dst;
-            s->data = NULL;
-            s->len = len;
+            *stream += 4;
+            *remaining -= 4;
+            string_t *s = (string_t *)dst;
+            s->data     = NULL;
+            s->len      = len;
 
             if (len > 0) {
                 CHECK_REMAINING(*remaining, len);
-                s->data = (char*)malloc(len + 1);
-                if (!s->data) return DYN_ARR_ERR_NO_MEMORY;
+                s->data = (char *)malloc(len + 1);
+                if (!s->data) return (DYN_ARR_ERR_NO_MEMORY);
 
                 memcpy(s->data, *stream, len);
                 s->data[len] = '\0';
-                *stream += len; *remaining -= len;
+                *stream += len;
+                *remaining -= len;
             }
             break;
         }
         case TAG_BYTES: {
             CHECK_REMAINING(*remaining, STRING_OR_BYTE_LEN_PREFIX_SIZE);
             uint32_t len = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
-            byte_array_t *b = (byte_array_t*)dst;
-            b->data = NULL;
-            b->len = len;
+            *stream += 4;
+            *remaining -= 4;
+            byte_array_t *b = (byte_array_t *)dst;
+            b->data         = NULL;
+            b->len          = len;
 
             if (len > 0) {
                 CHECK_REMAINING(*remaining, len);
-                b->data = (uint8_t*)malloc(len);
-                if (!b->data) return DYN_ARR_ERR_NO_MEMORY;
+                b->data = (uint8_t *)malloc(len);
+                if (!b->data) return (DYN_ARR_ERR_NO_MEMORY);
 
                 memcpy(b->data, *stream, len);
-                *stream += len; *remaining -= len;
+                *stream += len;
+                *remaining -= len;
             }
             break;
         }
@@ -892,107 +862,115 @@ static dyn_arr_status_t read_element_from_stream(
         case TAG_ONLY_VARIABLE_TYPES_MSG:
         case TAG_ALL_TYPES_FIELDS_MSG:
         case TAG_RECURSIVE_NESTED_MSG:
-        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-        {
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG: {
             CHECK_REMAINING(*remaining, OBJECT_SET_UNSET_PREFIX_SIZE);
             bool is_set = (**stream == 1);
-            *stream += 1; *remaining -= 1;
+            *stream += 1;
+            *remaining -= 1;
 
             if (is_set) {
                 CHECK_REMAINING(*remaining, WIRE_FRAME_HEADER_SIZE);
-                if (!unmarshal_fn) return DYN_ARR_ERR_INVALID_PARAM;
+                if (!unmarshal_fn) return (DYN_ARR_ERR_INVALID_PARAM);
 
-                uint16_t fixed_len = get_message_fixed_payload_length(*stream);
+                uint16_t fixed_len        = get_message_fixed_payload_length(*stream);
                 uint32_t full_payload_len = get_message_overall_payload_length(*stream);
-                *stream += WIRE_FRAME_HEADER_SIZE; *remaining -= WIRE_FRAME_HEADER_SIZE;
+                *stream += WIRE_FRAME_HEADER_SIZE;
+                *remaining -= WIRE_FRAME_HEADER_SIZE;
                 CHECK_REMAINING(*remaining, full_payload_len);
 
                 int st = unmarshal_fn(*stream, fixed_len, full_payload_len, dst);
-                if (st != 0) return DYN_ARR_ERR_FAIL;
-                *stream += full_payload_len; *remaining -= full_payload_len;
+                if (st != 0) return (DYN_ARR_ERR_FAIL);
+                *stream += full_payload_len;
+                *remaining -= full_payload_len;
             }
             break;
         }
-        default:
-            return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
-static dyn_arr_status_t skip_element_in_stream(
-    uint8_t **stream,
-    size_t *remaining,
-    element_type_t ele_type)
-{
+static dyn_arr_status_t skip_element_in_stream(uint8_t **stream, size_t *remaining,
+                                               element_type_t ele_type) {
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
-            if (*remaining < 1) return DYN_ARR_ERR_EOF;
-            *stream += 1; *remaining -= 1; break;
-        case TAG_UINT16: case TAG_INT16:
-            if (*remaining < 2) return DYN_ARR_ERR_EOF;
-            *stream += 2; *remaining -= 2; break;
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
-            if (*remaining < 4) return DYN_ARR_ERR_EOF;
-            *stream += 4; *remaining -= 4; break;
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
-            if (*remaining < 8) return DYN_ARR_ERR_EOF;
-            *stream += 8; *remaining -= 8; break;
-        case TAG_STRING: case TAG_BYTES: {
-            if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8:
+            if (*remaining < 1) return (DYN_ARR_ERR_EOF);
+            *stream += 1;
+            *remaining -= 1;
+            break;
+        case TAG_UINT16:
+        case TAG_INT16:
+            if (*remaining < 2) return (DYN_ARR_ERR_EOF);
+            *stream += 2;
+            *remaining -= 2;
+            break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32:
+            if (*remaining < 4) return (DYN_ARR_ERR_EOF);
+            *stream += 4;
+            *remaining -= 4;
+            break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64:
+            if (*remaining < 8) return (DYN_ARR_ERR_EOF);
+            *stream += 8;
+            *remaining -= 8;
+            break;
+        case TAG_STRING:
+        case TAG_BYTES: {
+            if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return (DYN_ARR_ERR_EOF);
             uint32_t len = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
-            if (*remaining < len) return DYN_ARR_ERR_EOF;
-            *stream += len; *remaining -= len; break;
+            *stream += 4;
+            *remaining -= 4;
+            if (*remaining < len) return (DYN_ARR_ERR_EOF);
+            *stream += len;
+            *remaining -= len;
+            break;
         }
 
         case TAG_ONLY_SCALAR_TYPES_MSG:
         case TAG_ONLY_VARIABLE_TYPES_MSG:
         case TAG_ALL_TYPES_FIELDS_MSG:
         case TAG_RECURSIVE_NESTED_MSG:
-        case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-        {
-            if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+        case TAG_ALL_TYPES_OF_ARRAYS_MSG: {
+            if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) return (DYN_ARR_ERR_EOF);
             bool is_set = (**stream == 1);
-            *stream += 1; *remaining -= 1;
+            *stream += 1;
+            *remaining -= 1;
             if (is_set) {
-                if (*remaining < WIRE_FRAME_HEADER_SIZE) return DYN_ARR_ERR_EOF;
+                if (*remaining < WIRE_FRAME_HEADER_SIZE) return (DYN_ARR_ERR_EOF);
                 uint32_t full_payload_len = get_message_overall_payload_length(*stream);
-                *stream += WIRE_FRAME_HEADER_SIZE; *remaining -= WIRE_FRAME_HEADER_SIZE;
-                if (*remaining < full_payload_len) return DYN_ARR_ERR_EOF;
-                *stream += full_payload_len; *remaining -= full_payload_len;
+                *stream += WIRE_FRAME_HEADER_SIZE;
+                *remaining -= WIRE_FRAME_HEADER_SIZE;
+                if (*remaining < full_payload_len) return (DYN_ARR_ERR_EOF);
+                *stream += full_payload_len;
+                *remaining -= full_payload_len;
             }
             break;
         }
-        default: return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
-
-
-dyn_arr_status_t bytes_to_array(
-    uint8_t *in_buf,
-    size_t in_size,
-    dynamic_array_t *out_arr,
-    custom_unmarshal_fn unmarshal_fn
-)
-{
-    if (!in_buf || !out_arr) {
-        return DYN_ARR_ERR_INVALID_PARAM;
-    }
+dyn_arr_status_t bytes_to_array(uint8_t *in_buf, size_t in_size, dynamic_array_t *out_arr,
+                                custom_unmarshal_fn unmarshal_fn) {
+    if (!in_buf || !out_arr) { return (DYN_ARR_ERR_INVALID_PARAM); }
 
     // Header size = [WIRE_TAG (2B)] + [WIRE_ELE_TYPE (2B)] + [TOTAL_ITEMS (2B)]
     size_t header_len = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE;
-    if (in_size < header_len) {
-        return DYN_ARR_ERR_EOF;
-    }
+    if (in_size < header_len) { return (DYN_ARR_ERR_EOF); }
 
-    uint8_t *stream = in_buf;
+    uint8_t *stream  = in_buf;
     size_t remaining = in_size;
 
-    uint16_t array_tag      = get_u16_be(stream);
-    uint16_t ele_type       = get_u16_be(stream + TYPE_MARKER_SIZE);
-    uint16_t total_items    = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
+    uint16_t array_tag   = get_u16_be(stream);
+    uint16_t ele_type    = get_u16_be(stream + TYPE_MARKER_SIZE);
+    uint16_t total_items = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
 
     stream += header_len;
     remaining -= header_len;
@@ -1000,55 +978,67 @@ dyn_arr_status_t bytes_to_array(
     if (total_items == 0 || remaining == 0) {
         memset(out_arr, 0, sizeof(dynamic_array_t));
         out_arr->ele_type = ele_type;
-        return DYN_ARR_OK;
+        return (DYN_ARR_OK);
     }
 
     size_t elem_size = 0;
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
-            elem_size = 1; break;
-        case TAG_UINT16: case TAG_INT16:
-            elem_size = 2; break;
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
-            elem_size = 4; break;
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
-            elem_size = 8; break;
-        case TAG_STRING:
-            elem_size = sizeof(string_t); break;
-        case TAG_BYTES:
-            elem_size = sizeof(byte_array_t); break;
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: elem_size = 1; break;
+        case TAG_UINT16:
+        case TAG_INT16: elem_size = 2; break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: elem_size = 4; break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: elem_size = 8; break;
+        case TAG_STRING: elem_size = sizeof(string_t); break;
+        case TAG_BYTES: elem_size = sizeof(byte_array_t); break;
 
         case TAG_ONLY_SCALAR_TYPES_MSG:
+            elem_size = sizeof(only_scalar_types_msg only_scalar_types_msg_t);
+            break;
         case TAG_ONLY_VARIABLE_TYPES_MSG:
+            elem_size = sizeof(only_variable_types_msg only_variable_types_msg_t);
+            break;
         case TAG_ALL_TYPES_FIELDS_MSG:
+            elem_size = sizeof(all_types_fields_msg all_types_fields_msg_t);
+            break;
         case TAG_RECURSIVE_NESTED_MSG:
+            elem_size = sizeof(recursive_nested_msg recursive_nested_msg_t);
+            break;
         case TAG_ALL_TYPES_OF_ARRAYS_MSG:
-            elem_size = sizeof(all_types_of_arrays_msg_t); break;
-        default: return DYN_ARR_ERR_INVALID_PARAM;
+            elem_size = sizeof(all_types_of_arrays_msg all_types_of_arrays_msg_t);
+            break;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
-    if (remaining < ARRAY_COUNT_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+    if (remaining < ARRAY_COUNT_PREFIX_SIZE) return (DYN_ARR_ERR_EOF);
 
-    uint8_t *scan_stream = stream;
+    uint8_t *scan_stream  = stream;
     size_t scan_remaining = remaining;
 
     size_t dim_x = 0, dim_y = 0, dim_z = 0;
     uint8_t num_dims = 1;
 
     switch (array_tag) {
-        case TAG_ARRAY:
-        {
+        case TAG_ARRAY: {
             uint16_t count;
             READ_COUNT_PREFIX(scan_stream, scan_remaining, count);
-            dim_x = count; dim_y = 1; dim_z = 1;
+            dim_x = count;
+            dim_y = 1;
+            dim_z = 1;
             break;
         }
-        case TAG_2D_ARRAY:
-        {
+        case TAG_2D_ARRAY: {
             num_dims = 2;
             uint16_t x_count;
             READ_COUNT_PREFIX(scan_stream, scan_remaining, x_count);
-            dim_x = x_count; dim_y = 0; dim_z = 1;
+            dim_x = x_count;
+            dim_y = 0;
+            dim_z = 1;
 
             for (size_t i = 0; i < x_count; i++) {
                 uint16_t y_cnt;
@@ -1056,19 +1046,21 @@ dyn_arr_status_t bytes_to_array(
                 if (y_cnt > dim_y) dim_y = y_cnt;
 
                 for (size_t j = 0; j < y_cnt; j++) {
-                    dyn_arr_status_t st = skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
-                    if (st != DYN_ARR_OK) return st;
+                    dyn_arr_status_t st =
+                        skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
+                    if (st != DYN_ARR_OK) return (st);
                 }
             }
             if (dim_y == 0) dim_y = 1;
             break;
         }
-        case TAG_3D_ARRAY:
-        {
+        case TAG_3D_ARRAY: {
             num_dims = 3;
             uint16_t x_count;
             READ_COUNT_PREFIX(scan_stream, scan_remaining, x_count);
-            dim_x = x_count; dim_y = 0; dim_z = 0;
+            dim_x = x_count;
+            dim_y = 0;
+            dim_z = 0;
 
             for (size_t i = 0; i < x_count; i++) {
                 uint16_t y_cnt;
@@ -1081,8 +1073,9 @@ dyn_arr_status_t bytes_to_array(
                     if (z_cnt > dim_z) dim_z = z_cnt;
 
                     for (size_t k = 0; k < z_cnt; k++) {
-                        dyn_arr_status_t st = skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
-                        if (st != DYN_ARR_OK) return st;
+                        dyn_arr_status_t st =
+                            skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
+                        if (st != DYN_ARR_OK) return (st);
                     }
                 }
             }
@@ -1090,21 +1083,22 @@ dyn_arr_status_t bytes_to_array(
             if (dim_z == 0) dim_z = 1;
             break;
         }
-        default:
-            return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
-    dyn_arr_status_t init_st = dynamic_array_init(out_arr, ele_type, elem_size, num_dims, dim_x, dim_y, dim_z);
-    if (init_st != DYN_ARR_OK) return init_st;
+    dyn_arr_status_t init_st =
+        dynamic_array_init(out_arr, ele_type, elem_size, num_dims, dim_x, dim_y, dim_z);
+    if (init_st != DYN_ARR_OK) return (init_st);
 
     switch (num_dims) {
         case 1: {
             uint16_t count;
             READ_COUNT_PREFIX(stream, remaining, count);
             for (size_t k = 0; k < count; k++) {
-                void *dst = (uint8_t*)out_arr->data + (k * elem_size);
-                dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
-                if (st != DYN_ARR_OK) return st;
+                void *dst = (uint8_t *)out_arr->data + (k * elem_size);
+                dyn_arr_status_t st =
+                    read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                if (st != DYN_ARR_OK) return (st);
                 out_arr->is_set[k] = 1;
             }
             break;
@@ -1118,9 +1112,10 @@ dyn_arr_status_t bytes_to_array(
 
                 for (size_t j = 0; j < y_cnt; j++) {
                     size_t flat_idx = get_flat_index(out_arr, i, j, 0);
-                    void *dst = (uint8_t*)out_arr->data + (flat_idx * elem_size);
-                    dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
-                    if (st != DYN_ARR_OK) return st;
+                    void *dst       = (uint8_t *)out_arr->data + (flat_idx * elem_size);
+                    dyn_arr_status_t st =
+                        read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                    if (st != DYN_ARR_OK) return (st);
                     out_arr->is_set[flat_idx] = 1;
                 }
             }
@@ -1138,24 +1133,22 @@ dyn_arr_status_t bytes_to_array(
                     READ_COUNT_PREFIX(stream, remaining, z_cnt);
 
                     for (size_t k = 0; k < z_cnt; k++) {
-                        size_t flat_idx = get_flat_index(out_arr, i, j, k);
-                        void *dst = (uint8_t*)out_arr->data + (flat_idx * elem_size);
-                        dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
-                        if (st != DYN_ARR_OK) return st;
+                        size_t flat_idx     = get_flat_index(out_arr, i, j, k);
+                        void *dst           = (uint8_t *)out_arr->data + (flat_idx * elem_size);
+                        dyn_arr_status_t st = read_element_from_stream(
+                            &stream, &remaining, ele_type, dst, unmarshal_fn);
+                        if (st != DYN_ARR_OK) return (st);
                         out_arr->is_set[flat_idx] = 1;
                     }
                 }
             }
             break;
         }
-        default:
-            return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
-
-
 
 /* ===========================================================================
  * OnlyScalarTypesMsg (Type ID: 1, Fixed Payload: 48 bytes)
@@ -1164,124 +1157,124 @@ dyn_arr_status_t bytes_to_array(
 /**
  * Sets the value of the val_uint64 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_uint64(only_scalar_types_msg_t* msg, const uint64_t value) {
+void only_scalar_types_msg_t_set_val_uint64(only_scalar_types_msg_t *msg, const uint64_t value) {
     if (msg) {
         msg->val_uint64 = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_int64 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_int64(only_scalar_types_msg_t* msg, const int64_t value) {
+void only_scalar_types_msg_t_set_val_int64(only_scalar_types_msg_t *msg, const int64_t value) {
     if (msg) {
         msg->val_int64 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_double field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_double(only_scalar_types_msg_t* msg, const double value) {
+void only_scalar_types_msg_t_set_val_double(only_scalar_types_msg_t *msg, const double value) {
     if (msg) {
         msg->val_double = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_uint32 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_uint32(only_scalar_types_msg_t* msg, const uint32_t value) {
+void only_scalar_types_msg_t_set_val_uint32(only_scalar_types_msg_t *msg, const uint32_t value) {
     if (msg) {
         msg->val_uint32 = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_int32 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_int32(only_scalar_types_msg_t* msg, const int32_t value) {
+void only_scalar_types_msg_t_set_val_int32(only_scalar_types_msg_t *msg, const int32_t value) {
     if (msg) {
         msg->val_int32 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_float field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_float(only_scalar_types_msg_t* msg, const float value) {
+void only_scalar_types_msg_t_set_val_float(only_scalar_types_msg_t *msg, const float value) {
     if (msg) {
         msg->val_float = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_uint16 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_uint16(only_scalar_types_msg_t* msg, const uint16_t value) {
+void only_scalar_types_msg_t_set_val_uint16(only_scalar_types_msg_t *msg, const uint16_t value) {
     if (msg) {
         msg->val_uint16 = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_int16 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_int16(only_scalar_types_msg_t* msg, const int16_t value) {
+void only_scalar_types_msg_t_set_val_int16(only_scalar_types_msg_t *msg, const int16_t value) {
     if (msg) {
         msg->val_int16 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_uint8 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_uint8(only_scalar_types_msg_t* msg, const uint8_t value) {
+void only_scalar_types_msg_t_set_val_uint8(only_scalar_types_msg_t *msg, const uint8_t value) {
     if (msg) {
         msg->val_uint8 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_int8 field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_int8(only_scalar_types_msg_t* msg, const int8_t value) {
+void only_scalar_types_msg_t_set_val_int8(only_scalar_types_msg_t *msg, const int8_t value) {
     if (msg) {
         msg->val_int8 = value;
-        msg->_is_set = true;
+        msg->_is_set  = true;
     }
 }
 
 /**
  * Sets the value of the val_bool field in the only_scalar_types_msg_t struct.
  */
-void only_scalar_types_msg_t_set_val_bool(only_scalar_types_msg_t* msg, const uint8_t value) {
+void only_scalar_types_msg_t_set_val_bool(only_scalar_types_msg_t *msg, const uint8_t value) {
     if (msg) {
         msg->val_bool = value;
-        msg->_is_set = true;
+        msg->_is_set  = true;
     }
 }
 
 size_t only_scalar_types_msg_t_dynamic_payload_size(only_scalar_types_msg_t *msg) {
     size_t dyn_size = 0;
     (void)msg;
-    return dyn_size;
+    return (dyn_size);
 }
 
 size_t only_scalar_types_msg_t_size(void *in_item) {
     only_scalar_types_msg_t *msg = in_item;
-    return WIRE_FRAME_HEADER_SIZE + ONLY_SCALAR_TYPES_MSG_FIXED_SIZE + only_scalar_types_msg_t_dynamic_payload_size(msg);
+    return (WIRE_FRAME_HEADER_SIZE + ONLY_SCALAR_TYPES_MSG_FIXED_SIZE +
+            only_scalar_types_msg_t_dynamic_payload_size(msg));
 }
-
 
 /**
  * only_scalar_types_msg_t_marshal - Serialize OnlyScalarTypesMsg to wire format.
@@ -1293,20 +1286,17 @@ size_t only_scalar_types_msg_t_size(void *in_item) {
  *   [8:56]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [56:end]   Dynamic payload (variable-length field data)
  */
-int only_scalar_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
-    if (!in_item || !out_buf) return -1;
+int only_scalar_types_msg_t_marshal(void *in_item, uint8_t **out_buf) {
+    if (!in_item || !out_buf) return (-1);
 
     only_scalar_types_msg_t *msg = in_item;
-    size_t payload_size = ONLY_SCALAR_TYPES_MSG_FIXED_SIZE + only_scalar_types_msg_t_dynamic_payload_size(msg);
+    size_t payload_size =
+        ONLY_SCALAR_TYPES_MSG_FIXED_SIZE + only_scalar_types_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
-    if (total_size > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (total_size > MAX_ALLOWED_PACKET) { return (-1); }
 
-    uint8_t *buf = (uint8_t *) malloc(total_size);
-    if (!buf) {
-        return -1;
-    }
+    uint8_t *buf = (uint8_t *)malloc(total_size);
+    if (!buf) { return (-1); }
 
     memset(buf, 0, total_size);
 
@@ -1315,7 +1305,7 @@ int only_scalar_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, ONLY_SCALAR_TYPES_MSG_FIXED_SIZE);
     put_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, payload_size);
 
-    uint8_t *hdr = buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t *hdr   = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + ONLY_SCALAR_TYPES_MSG_FIXED_SIZE;
 
     // only_scalar_types_msg_t -> val_uint64 (offset: 0, size: 8)
@@ -1361,7 +1351,7 @@ int only_scalar_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
 
     (void)dyn_off;
     *out_buf = buf;
-    return (int)total_size;
+    return ((int)total_size);
 }
 
 /**
@@ -1372,54 +1362,49 @@ int only_scalar_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
  * On any error, partial allocations are cleaned up before returning.
  */
 int only_scalar_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, void *out_item) {
-    if (!in_buf || !out_item ||
-        fixed_payload_len < ONLY_SCALAR_TYPES_MSG_FIXED_SIZE ||
-        overall_payload_len < fixed_payload_len ||
-        overall_payload_len > MAX_ALLOWED_PACKET) {
-        return -1;
+                                      uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item || fixed_payload_len < ONLY_SCALAR_TYPES_MSG_FIXED_SIZE ||
+        overall_payload_len < fixed_payload_len || overall_payload_len > MAX_ALLOWED_PACKET) {
+        return (-1);
     }
 
     only_scalar_types_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(only_scalar_types_msg_t));
 
     const uint8_t *hdr = in_buf;
-    size_t dyn_off = fixed_payload_len;
+    size_t dyn_off     = fixed_payload_len;
 
-    /* Decode fixed-size primitives from structural block offsets */ 
-    out_msg->val_uint64 = get_u64_be(hdr + 0); 
-    out_msg->val_int64 = (int64_t)get_u64_be(hdr + 8); 
+    /* Decode fixed-size primitives from structural block offsets */
+    out_msg->val_uint64 = get_u64_be(hdr + 0);
+    out_msg->val_int64  = (int64_t)get_u64_be(hdr + 8);
     {
         uint64_t tmp = get_u64_be(hdr + 16);
         memcpy(&out_msg->val_double, &tmp, sizeof(tmp));
-    } 
-    out_msg->val_uint32 = get_u32_be(hdr + 24); 
-    out_msg->val_int32 = (int32_t)get_u32_be(hdr + 28); 
+    }
+    out_msg->val_uint32 = get_u32_be(hdr + 24);
+    out_msg->val_int32  = (int32_t)get_u32_be(hdr + 28);
     {
         uint32_t tmp = get_u32_be(hdr + 32);
         memcpy(&out_msg->val_float, &tmp, sizeof(tmp));
-    } 
-    out_msg->val_uint16 = get_u16_be(hdr + 36); 
-    out_msg->val_int16 = (int16_t)get_u16_be(hdr + 38); 
-    out_msg->val_uint8 = hdr[40]; 
-    out_msg->val_int8 = (int8_t)hdr[41]; 
-    out_msg->val_bool = hdr[42];
+    }
+    out_msg->val_uint16 = get_u16_be(hdr + 36);
+    out_msg->val_int16  = (int16_t)get_u16_be(hdr + 38);
+    out_msg->val_uint8  = hdr[40];
+    out_msg->val_int8   = (int8_t)hdr[41];
+    out_msg->val_bool   = hdr[42];
 
     /* Decode variable-length dynamic fields safely */
 
     (void)dyn_off;
-    return 0;
+    return (0);
 }
 
 /**
  * only_scalar_types_msg_t_free - Release heap memory owned by a only_scalar_types_msg_t struct.
  */
 void only_scalar_types_msg_t_free(only_scalar_types_msg_t *msg) {
-    if (!msg) {
-        return;
-    }
+    if (!msg) { return; }
 }
-
 
 /* ===========================================================================
  * OnlyVariableTypesMsg (Type ID: 2, Fixed Payload: 24 bytes)
@@ -1428,85 +1413,92 @@ void only_scalar_types_msg_t_free(only_scalar_types_msg_t *msg) {
 /**
  * Sets the value of the name field in the only_variable_types_msg_t struct.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg,
+                                                    const char *value, const size_t len) {
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     string_t_free(&msg->name);
     msg->name.data = NULL;
     string_t_set_value(&msg->name, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the data field in the only_variable_types_msg_t struct.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg, const uint8_t *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg,
+                                                    const uint8_t *value, const size_t len) {
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     byte_array_t_free(&msg->data);
     msg->data.data = NULL;
     byte_array_t_set_value(&msg->data, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the nested field in the only_variable_types_msg_t struct.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg, const only_scalar_types_msg_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg,
+                                                      const only_scalar_types_msg_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->nested) {
         free(msg->nested);
         msg->nested = NULL;
     }
 
     msg->nested = malloc(sizeof(only_scalar_types_msg_t));
-    if (!msg->nested) return DYN_ARR_ERR_NO_MEMORY;
+    if (!msg->nested) return (DYN_ARR_ERR_NO_MEMORY);
 
     *msg->nested = *value;
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the byte_array field in the only_variable_types_msg_t struct.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg,
+                                                          const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->byte_array.data) {
         size_t _existing = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
+            byte_array_t *_e =
+                (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
             byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->byte_array);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->byte_array, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the matrix field in the only_variable_types_msg_t struct.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg,
+                                                      const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->matrix);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->matrix, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the tags field in the only_variable_types_msg_t struct.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg,
+                                                    const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->tags.data) {
         size_t _existing = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -1516,31 +1508,29 @@ dyn_arr_status_t only_variable_types_msg_t_set_tags(only_variable_types_msg_t *m
     }
     dynamic_array_destroy(&msg->tags);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->tags, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 size_t only_variable_types_msg_t_dynamic_payload_size(only_variable_types_msg_t *msg) {
     size_t dyn_size = 0;
     dyn_size += msg->name.len;
     dyn_size += msg->data.len;
-    if (msg->nested) {
-        dyn_size += only_scalar_types_msg_t_size(msg->nested);
-    }
+    if (msg->nested) { dyn_size += only_scalar_types_msg_t_size(msg->nested); }
     dyn_size += calc_array_size(&msg->byte_array, TAG_BYTES, NULL);
     dyn_size += calc_array_size(&msg->matrix, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->tags, TAG_STRING, NULL);
     (void)msg;
-    return dyn_size;
+    return (dyn_size);
 }
 
 size_t only_variable_types_msg_t_size(void *in_item) {
     only_variable_types_msg_t *msg = in_item;
-    return WIRE_FRAME_HEADER_SIZE + ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE + only_variable_types_msg_t_dynamic_payload_size(msg);
+    return (WIRE_FRAME_HEADER_SIZE + ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE +
+            only_variable_types_msg_t_dynamic_payload_size(msg));
 }
-
 
 /**
  * only_variable_types_msg_t_marshal - Serialize OnlyVariableTypesMsg to wire format.
@@ -1552,20 +1542,17 @@ size_t only_variable_types_msg_t_size(void *in_item) {
  *   [8:32]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [32:end]   Dynamic payload (variable-length field data)
  */
-int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
-    if (!in_item || !out_buf) return -1;
+int only_variable_types_msg_t_marshal(void *in_item, uint8_t **out_buf) {
+    if (!in_item || !out_buf) return (-1);
 
     only_variable_types_msg_t *msg = in_item;
-    size_t payload_size = ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE + only_variable_types_msg_t_dynamic_payload_size(msg);
+    size_t payload_size =
+        ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE + only_variable_types_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
-    if (total_size > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (total_size > MAX_ALLOWED_PACKET) { return (-1); }
 
-    uint8_t *buf = (uint8_t *) malloc(total_size);
-    if (!buf) {
-        return -1;
-    }
+    uint8_t *buf = (uint8_t *)malloc(total_size);
+    if (!buf) { return (-1); }
 
     memset(buf, 0, total_size);
 
@@ -1574,7 +1561,7 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE);
     put_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, payload_size);
 
-    uint8_t *hdr = buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t *hdr   = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE;
 
     // only_variable_types_msg_t -> name (offset: 0, size: 4)
@@ -1594,11 +1581,12 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // only_variable_types_msg_t -> nested (offset: 8, size: 4)
     put_u32_be(hdr + 8, 0);
     if (msg->nested != NULL) {
-        uint8_t* only_scalar_types_msg_t_buf = NULL;
-        int only_scalar_types_msg_t_len = only_scalar_types_msg_t_marshal(msg->nested, &only_scalar_types_msg_t_buf);
+        uint8_t *only_scalar_types_msg_t_buf = NULL;
+        int only_scalar_types_msg_t_len =
+            only_scalar_types_msg_t_marshal(msg->nested, &only_scalar_types_msg_t_buf);
         if (only_scalar_types_msg_t_len < 0) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 8, only_scalar_types_msg_t_len);
         memcpy(buf + dyn_off, only_scalar_types_msg_t_buf, only_scalar_types_msg_t_len);
@@ -1609,13 +1597,13 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // only_variable_types_msg_t -> byte_array (offset: 12, size: 4)
     put_u32_be(hdr + 12, 0);
     if (msg->byte_array.data != NULL && msg->byte_array.x > 0) {
-        size_t byte_array_len = 0;
-        uint8_t* byte_array_buf = NULL;
-        dyn_arr_status_t byte_array_status = array_to_bytes(&msg->byte_array, &byte_array_buf,
-                &byte_array_len, NULL, NULL);
+        size_t byte_array_len   = 0;
+        uint8_t *byte_array_buf = NULL;
+        dyn_arr_status_t byte_array_status =
+            array_to_bytes(&msg->byte_array, &byte_array_buf, &byte_array_len, NULL, NULL);
         if (byte_array_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 12, byte_array_len);
         if (byte_array_len > 0) {
@@ -1628,13 +1616,13 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // only_variable_types_msg_t -> matrix (offset: 16, size: 4)
     put_u32_be(hdr + 16, 0);
     if (msg->matrix.data != NULL && msg->matrix.x > 0) {
-        size_t matrix_len = 0;
-        uint8_t* matrix_buf = NULL;
-        dyn_arr_status_t matrix_status = array_to_bytes(&msg->matrix, &matrix_buf,
-                &matrix_len, NULL, NULL);
+        size_t matrix_len   = 0;
+        uint8_t *matrix_buf = NULL;
+        dyn_arr_status_t matrix_status =
+            array_to_bytes(&msg->matrix, &matrix_buf, &matrix_len, NULL, NULL);
         if (matrix_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 16, matrix_len);
         if (matrix_len > 0) {
@@ -1647,13 +1635,12 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // only_variable_types_msg_t -> tags (offset: 20, size: 4)
     put_u32_be(hdr + 20, 0);
     if (msg->tags.data != NULL && msg->tags.x > 0) {
-        size_t tags_len = 0;
-        uint8_t* tags_buf = NULL;
-        dyn_arr_status_t tags_status = array_to_bytes(&msg->tags, &tags_buf,
-                &tags_len, NULL, NULL);
+        size_t tags_len              = 0;
+        uint8_t *tags_buf            = NULL;
+        dyn_arr_status_t tags_status = array_to_bytes(&msg->tags, &tags_buf, &tags_len, NULL, NULL);
         if (tags_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 20, tags_len);
         if (tags_len > 0) {
@@ -1665,7 +1652,7 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
 
     (void)dyn_off;
     *out_buf = buf;
-    return (int)total_size;
+    return ((int)total_size);
 }
 
 /**
@@ -1676,53 +1663,39 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t** out_buf) {
  * On any error, partial allocations are cleaned up before returning.
  */
 int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, void *out_item) {
-    if (!in_buf || !out_item ||
-        fixed_payload_len < ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE ||
-        overall_payload_len < fixed_payload_len ||
-        overall_payload_len > MAX_ALLOWED_PACKET) {
-        return -1;
+                                        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item || fixed_payload_len < ONLY_VARIABLE_TYPES_MSG_FIXED_SIZE ||
+        overall_payload_len < fixed_payload_len || overall_payload_len > MAX_ALLOWED_PACKET) {
+        return (-1);
     }
 
     only_variable_types_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(only_variable_types_msg_t));
 
     const uint8_t *hdr = in_buf;
-    size_t dyn_off = fixed_payload_len;
+    size_t dyn_off     = fixed_payload_len;
 
     /* Decode fixed-size primitives from structural block offsets */
     uint32_t name_len = get_u32_be(hdr + 0);
-    if (name_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (name_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t data_len = get_u32_be(hdr + 4);
-    if (data_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (data_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t nested_len = get_u32_be(hdr + 8);
-    if (nested_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (nested_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t byte_array_len = get_u32_be(hdr + 12);
-    if (byte_array_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (byte_array_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t matrix_len = get_u32_be(hdr + 16);
-    if (matrix_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (matrix_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t tags_len = get_u32_be(hdr + 20);
-    if (tags_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (tags_len > MAX_ALLOWED_PACKET) { return (-1); }
 
     /* Decode variable-length dynamic fields safely */
     if (name_len > 0) {
-        out_msg->name.len = name_len;
-        out_msg->name.data = (char *) malloc(name_len + 1);
+        out_msg->name.len  = name_len;
+        out_msg->name.data = (char *)malloc(name_len + 1);
         if (!out_msg->name.data) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->name.data, in_buf + dyn_off, name_len);
@@ -1730,11 +1703,11 @@ int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_
         dyn_off += name_len;
     }
     if (data_len > 0) {
-        out_msg->data.len = data_len;
-        out_msg->data.data = (uint8_t *) malloc(data_len);
+        out_msg->data.len  = data_len;
+        out_msg->data.data = (uint8_t *)malloc(data_len);
         if (!out_msg->data.data) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->data.data, in_buf + dyn_off, data_len);
@@ -1744,58 +1717,58 @@ int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_
         out_msg->nested = malloc(sizeof(only_scalar_types_msg_t));
         if (!out_msg->nested) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
-        uint16_t fixed_len = get_message_fixed_payload_length(in_buf + dyn_off);
+        uint16_t fixed_len        = get_message_fixed_payload_length(in_buf + dyn_off);
         uint32_t full_payload_len = get_message_overall_payload_length(in_buf + dyn_off);
 
-        int status = only_scalar_types_msg_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE, fixed_len, full_payload_len, out_msg->nested);
+        int status = only_scalar_types_msg_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE,
+                                                       fixed_len,
+                                                       full_payload_len,
+                                                       out_msg->nested);
         if (status != 0) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += nested_len;
     }
     if (byte_array_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, byte_array_len,
-            &out_msg->byte_array, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, byte_array_len, &out_msg->byte_array, NULL);
         if (status != DYN_ARR_OK) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += byte_array_len;
     }
     if (matrix_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, matrix_len,
-            &out_msg->matrix, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, matrix_len, &out_msg->matrix, NULL);
         if (status != DYN_ARR_OK) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += matrix_len;
     }
     if (tags_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, tags_len,
-            &out_msg->tags, NULL);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, tags_len, &out_msg->tags, NULL);
         if (status != DYN_ARR_OK) {
             only_variable_types_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += tags_len;
     }
 
     (void)dyn_off;
-    return 0;
+    return (0);
 }
 
 /**
  * only_variable_types_msg_t_free - Release heap memory owned by a only_variable_types_msg_t struct.
  */
 void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
-    if (!msg) {
-        return;
-    }
+    if (!msg) { return; }
     if (msg->name.data) {
         free(msg->name.data);
         msg->name.data = NULL;
@@ -1814,10 +1787,9 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
     if (msg->byte_array.data) {
         size_t _total = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            if (msg->byte_array.is_set[_i] && _elem->data) {
-                byte_array_t_free(_elem);
-            }
+            byte_array_t *_elem =
+                (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
+            if (msg->byte_array.is_set[_i] && _elem->data) { byte_array_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->byte_array);
@@ -1826,14 +1798,11 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
         size_t _total = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            if (msg->tags.is_set[_i] && _elem->data) {
-                string_t_free(_elem);
-            }
+            if (msg->tags.is_set[_i] && _elem->data) { string_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->tags);
 }
-
 
 /* ===========================================================================
  * AllTypesFieldsMsg (Type ID: 3, Fixed Payload: 72 bytes)
@@ -1842,145 +1811,152 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg) {
 /**
  * Sets the value of the val_uint64 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_uint64(all_types_fields_msg_t* msg, const uint64_t value) {
+void all_types_fields_msg_t_set_val_uint64(all_types_fields_msg_t *msg, const uint64_t value) {
     if (msg) {
         msg->val_uint64 = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_int64 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_int64(all_types_fields_msg_t* msg, const int64_t value) {
+void all_types_fields_msg_t_set_val_int64(all_types_fields_msg_t *msg, const int64_t value) {
     if (msg) {
         msg->val_int64 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_double field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_double(all_types_fields_msg_t* msg, const double value) {
+void all_types_fields_msg_t_set_val_double(all_types_fields_msg_t *msg, const double value) {
     if (msg) {
         msg->val_double = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_uint32 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_uint32(all_types_fields_msg_t* msg, const uint32_t value) {
+void all_types_fields_msg_t_set_val_uint32(all_types_fields_msg_t *msg, const uint32_t value) {
     if (msg) {
         msg->val_uint32 = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_int32 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_int32(all_types_fields_msg_t* msg, const int32_t value) {
+void all_types_fields_msg_t_set_val_int32(all_types_fields_msg_t *msg, const int32_t value) {
     if (msg) {
         msg->val_int32 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_float field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_float(all_types_fields_msg_t* msg, const float value) {
+void all_types_fields_msg_t_set_val_float(all_types_fields_msg_t *msg, const float value) {
     if (msg) {
         msg->val_float = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the name field in the all_types_fields_msg_t struct.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value,
+                                                 const size_t len) {
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     string_t_free(&msg->name);
     msg->name.data = NULL;
     string_t_set_value(&msg->name, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the data field in the all_types_fields_msg_t struct.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t *value,
+                                                 const size_t len) {
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     byte_array_t_free(&msg->data);
     msg->data.data = NULL;
     byte_array_t_set_value(&msg->data, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the nested field in the all_types_fields_msg_t struct.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg, const only_scalar_types_msg_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg,
+                                                   const only_scalar_types_msg_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->nested) {
         free(msg->nested);
         msg->nested = NULL;
     }
 
     msg->nested = malloc(sizeof(only_scalar_types_msg_t));
-    if (!msg->nested) return DYN_ARR_ERR_NO_MEMORY;
+    if (!msg->nested) return (DYN_ARR_ERR_NO_MEMORY);
 
     *msg->nested = *value;
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the byte_array field in the all_types_fields_msg_t struct.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg,
+                                                       const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->byte_array.data) {
         size_t _existing = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
+            byte_array_t *_e =
+                (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
             byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->byte_array);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->byte_array, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the matrix field in the all_types_fields_msg_t struct.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg,
+                                                   const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->matrix);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->matrix, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the tags field in the all_types_fields_msg_t struct.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg,
+                                                 const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->tags.data) {
         size_t _existing = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _existing; _i++) {
@@ -1990,59 +1966,59 @@ dyn_arr_status_t all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, co
     }
     dynamic_array_destroy(&msg->tags);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->tags, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the val_uint16 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_uint16(all_types_fields_msg_t* msg, const uint16_t value) {
+void all_types_fields_msg_t_set_val_uint16(all_types_fields_msg_t *msg, const uint16_t value) {
     if (msg) {
         msg->val_uint16 = value;
-        msg->_is_set = true;
+        msg->_is_set    = true;
     }
 }
 
 /**
  * Sets the value of the val_int16 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_int16(all_types_fields_msg_t* msg, const int16_t value) {
+void all_types_fields_msg_t_set_val_int16(all_types_fields_msg_t *msg, const int16_t value) {
     if (msg) {
         msg->val_int16 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_uint8 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_uint8(all_types_fields_msg_t* msg, const uint8_t value) {
+void all_types_fields_msg_t_set_val_uint8(all_types_fields_msg_t *msg, const uint8_t value) {
     if (msg) {
         msg->val_uint8 = value;
-        msg->_is_set = true;
+        msg->_is_set   = true;
     }
 }
 
 /**
  * Sets the value of the val_int8 field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_int8(all_types_fields_msg_t* msg, const int8_t value) {
+void all_types_fields_msg_t_set_val_int8(all_types_fields_msg_t *msg, const int8_t value) {
     if (msg) {
         msg->val_int8 = value;
-        msg->_is_set = true;
+        msg->_is_set  = true;
     }
 }
 
 /**
  * Sets the value of the val_bool field in the all_types_fields_msg_t struct.
  */
-void all_types_fields_msg_t_set_val_bool(all_types_fields_msg_t* msg, const uint8_t value) {
+void all_types_fields_msg_t_set_val_bool(all_types_fields_msg_t *msg, const uint8_t value) {
     if (msg) {
         msg->val_bool = value;
-        msg->_is_set = true;
+        msg->_is_set  = true;
     }
 }
 
@@ -2050,21 +2026,19 @@ size_t all_types_fields_msg_t_dynamic_payload_size(all_types_fields_msg_t *msg) 
     size_t dyn_size = 0;
     dyn_size += msg->name.len;
     dyn_size += msg->data.len;
-    if (msg->nested) {
-        dyn_size += only_scalar_types_msg_t_size(msg->nested);
-    }
+    if (msg->nested) { dyn_size += only_scalar_types_msg_t_size(msg->nested); }
     dyn_size += calc_array_size(&msg->byte_array, TAG_BYTES, NULL);
     dyn_size += calc_array_size(&msg->matrix, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->tags, TAG_STRING, NULL);
     (void)msg;
-    return dyn_size;
+    return (dyn_size);
 }
 
 size_t all_types_fields_msg_t_size(void *in_item) {
     all_types_fields_msg_t *msg = in_item;
-    return WIRE_FRAME_HEADER_SIZE + ALL_TYPES_FIELDS_MSG_FIXED_SIZE + all_types_fields_msg_t_dynamic_payload_size(msg);
+    return (WIRE_FRAME_HEADER_SIZE + ALL_TYPES_FIELDS_MSG_FIXED_SIZE +
+            all_types_fields_msg_t_dynamic_payload_size(msg));
 }
-
 
 /**
  * all_types_fields_msg_t_marshal - Serialize AllTypesFieldsMsg to wire format.
@@ -2076,20 +2050,17 @@ size_t all_types_fields_msg_t_size(void *in_item) {
  *   [8:80]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [80:end]   Dynamic payload (variable-length field data)
  */
-int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
-    if (!in_item || !out_buf) return -1;
+int all_types_fields_msg_t_marshal(void *in_item, uint8_t **out_buf) {
+    if (!in_item || !out_buf) return (-1);
 
     all_types_fields_msg_t *msg = in_item;
-    size_t payload_size = ALL_TYPES_FIELDS_MSG_FIXED_SIZE + all_types_fields_msg_t_dynamic_payload_size(msg);
+    size_t payload_size =
+        ALL_TYPES_FIELDS_MSG_FIXED_SIZE + all_types_fields_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
-    if (total_size > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (total_size > MAX_ALLOWED_PACKET) { return (-1); }
 
-    uint8_t *buf = (uint8_t *) malloc(total_size);
-    if (!buf) {
-        return -1;
-    }
+    uint8_t *buf = (uint8_t *)malloc(total_size);
+    if (!buf) { return (-1); }
 
     memset(buf, 0, total_size);
 
@@ -2098,7 +2069,7 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, ALL_TYPES_FIELDS_MSG_FIXED_SIZE);
     put_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, payload_size);
 
-    uint8_t *hdr = buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t *hdr   = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + ALL_TYPES_FIELDS_MSG_FIXED_SIZE;
 
     // all_types_fields_msg_t -> val_uint64 (offset: 0, size: 8)
@@ -2144,11 +2115,12 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_fields_msg_t -> nested (offset: 44, size: 4)
     put_u32_be(hdr + 44, 0);
     if (msg->nested != NULL) {
-        uint8_t* only_scalar_types_msg_t_buf = NULL;
-        int only_scalar_types_msg_t_len = only_scalar_types_msg_t_marshal(msg->nested, &only_scalar_types_msg_t_buf);
+        uint8_t *only_scalar_types_msg_t_buf = NULL;
+        int only_scalar_types_msg_t_len =
+            only_scalar_types_msg_t_marshal(msg->nested, &only_scalar_types_msg_t_buf);
         if (only_scalar_types_msg_t_len < 0) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 44, only_scalar_types_msg_t_len);
         memcpy(buf + dyn_off, only_scalar_types_msg_t_buf, only_scalar_types_msg_t_len);
@@ -2159,13 +2131,13 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_fields_msg_t -> byte_array (offset: 48, size: 4)
     put_u32_be(hdr + 48, 0);
     if (msg->byte_array.data != NULL && msg->byte_array.x > 0) {
-        size_t byte_array_len = 0;
-        uint8_t* byte_array_buf = NULL;
-        dyn_arr_status_t byte_array_status = array_to_bytes(&msg->byte_array, &byte_array_buf,
-                &byte_array_len, NULL, NULL);
+        size_t byte_array_len   = 0;
+        uint8_t *byte_array_buf = NULL;
+        dyn_arr_status_t byte_array_status =
+            array_to_bytes(&msg->byte_array, &byte_array_buf, &byte_array_len, NULL, NULL);
         if (byte_array_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 48, byte_array_len);
         if (byte_array_len > 0) {
@@ -2178,13 +2150,13 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_fields_msg_t -> matrix (offset: 52, size: 4)
     put_u32_be(hdr + 52, 0);
     if (msg->matrix.data != NULL && msg->matrix.x > 0) {
-        size_t matrix_len = 0;
-        uint8_t* matrix_buf = NULL;
-        dyn_arr_status_t matrix_status = array_to_bytes(&msg->matrix, &matrix_buf,
-                &matrix_len, NULL, NULL);
+        size_t matrix_len   = 0;
+        uint8_t *matrix_buf = NULL;
+        dyn_arr_status_t matrix_status =
+            array_to_bytes(&msg->matrix, &matrix_buf, &matrix_len, NULL, NULL);
         if (matrix_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 52, matrix_len);
         if (matrix_len > 0) {
@@ -2197,13 +2169,12 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_fields_msg_t -> tags (offset: 56, size: 4)
     put_u32_be(hdr + 56, 0);
     if (msg->tags.data != NULL && msg->tags.x > 0) {
-        size_t tags_len = 0;
-        uint8_t* tags_buf = NULL;
-        dyn_arr_status_t tags_status = array_to_bytes(&msg->tags, &tags_buf,
-                &tags_len, NULL, NULL);
+        size_t tags_len              = 0;
+        uint8_t *tags_buf            = NULL;
+        dyn_arr_status_t tags_status = array_to_bytes(&msg->tags, &tags_buf, &tags_len, NULL, NULL);
         if (tags_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 56, tags_len);
         if (tags_len > 0) {
@@ -2230,7 +2201,7 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
 
     (void)dyn_off;
     *out_buf = buf;
-    return (int)total_size;
+    return ((int)total_size);
 }
 
 /**
@@ -2241,70 +2212,56 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t** out_buf) {
  * On any error, partial allocations are cleaned up before returning.
  */
 int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, void *out_item) {
-    if (!in_buf || !out_item ||
-        fixed_payload_len < ALL_TYPES_FIELDS_MSG_FIXED_SIZE ||
-        overall_payload_len < fixed_payload_len ||
-        overall_payload_len > MAX_ALLOWED_PACKET) {
-        return -1;
+                                     uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item || fixed_payload_len < ALL_TYPES_FIELDS_MSG_FIXED_SIZE ||
+        overall_payload_len < fixed_payload_len || overall_payload_len > MAX_ALLOWED_PACKET) {
+        return (-1);
     }
 
     all_types_fields_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(all_types_fields_msg_t));
 
     const uint8_t *hdr = in_buf;
-    size_t dyn_off = fixed_payload_len;
+    size_t dyn_off     = fixed_payload_len;
 
-    /* Decode fixed-size primitives from structural block offsets */ 
-    out_msg->val_uint64 = get_u64_be(hdr + 0); 
-    out_msg->val_int64 = (int64_t)get_u64_be(hdr + 8); 
+    /* Decode fixed-size primitives from structural block offsets */
+    out_msg->val_uint64 = get_u64_be(hdr + 0);
+    out_msg->val_int64  = (int64_t)get_u64_be(hdr + 8);
     {
         uint64_t tmp = get_u64_be(hdr + 16);
         memcpy(&out_msg->val_double, &tmp, sizeof(tmp));
-    } 
-    out_msg->val_uint32 = get_u32_be(hdr + 24); 
-    out_msg->val_int32 = (int32_t)get_u32_be(hdr + 28); 
+    }
+    out_msg->val_uint32 = get_u32_be(hdr + 24);
+    out_msg->val_int32  = (int32_t)get_u32_be(hdr + 28);
     {
         uint32_t tmp = get_u32_be(hdr + 32);
         memcpy(&out_msg->val_float, &tmp, sizeof(tmp));
     }
     uint32_t name_len = get_u32_be(hdr + 36);
-    if (name_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (name_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t data_len = get_u32_be(hdr + 40);
-    if (data_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (data_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t nested_len = get_u32_be(hdr + 44);
-    if (nested_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (nested_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t byte_array_len = get_u32_be(hdr + 48);
-    if (byte_array_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (byte_array_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t matrix_len = get_u32_be(hdr + 52);
-    if (matrix_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (matrix_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t tags_len = get_u32_be(hdr + 56);
-    if (tags_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    } 
-    out_msg->val_uint16 = get_u16_be(hdr + 60); 
-    out_msg->val_int16 = (int16_t)get_u16_be(hdr + 62); 
-    out_msg->val_uint8 = hdr[64]; 
-    out_msg->val_int8 = (int8_t)hdr[65]; 
-    out_msg->val_bool = hdr[66];
+    if (tags_len > MAX_ALLOWED_PACKET) { return (-1); }
+    out_msg->val_uint16 = get_u16_be(hdr + 60);
+    out_msg->val_int16  = (int16_t)get_u16_be(hdr + 62);
+    out_msg->val_uint8  = hdr[64];
+    out_msg->val_int8   = (int8_t)hdr[65];
+    out_msg->val_bool   = hdr[66];
 
     /* Decode variable-length dynamic fields safely */
     if (name_len > 0) {
-        out_msg->name.len = name_len;
-        out_msg->name.data = (char *) malloc(name_len + 1);
+        out_msg->name.len  = name_len;
+        out_msg->name.data = (char *)malloc(name_len + 1);
         if (!out_msg->name.data) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->name.data, in_buf + dyn_off, name_len);
@@ -2312,11 +2269,11 @@ int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len
         dyn_off += name_len;
     }
     if (data_len > 0) {
-        out_msg->data.len = data_len;
-        out_msg->data.data = (uint8_t *) malloc(data_len);
+        out_msg->data.len  = data_len;
+        out_msg->data.data = (uint8_t *)malloc(data_len);
         if (!out_msg->data.data) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->data.data, in_buf + dyn_off, data_len);
@@ -2326,58 +2283,58 @@ int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len
         out_msg->nested = malloc(sizeof(only_scalar_types_msg_t));
         if (!out_msg->nested) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
-        uint16_t fixed_len = get_message_fixed_payload_length(in_buf + dyn_off);
+        uint16_t fixed_len        = get_message_fixed_payload_length(in_buf + dyn_off);
         uint32_t full_payload_len = get_message_overall_payload_length(in_buf + dyn_off);
 
-        int status = only_scalar_types_msg_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE, fixed_len, full_payload_len, out_msg->nested);
+        int status = only_scalar_types_msg_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE,
+                                                       fixed_len,
+                                                       full_payload_len,
+                                                       out_msg->nested);
         if (status != 0) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += nested_len;
     }
     if (byte_array_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, byte_array_len,
-            &out_msg->byte_array, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, byte_array_len, &out_msg->byte_array, NULL);
         if (status != DYN_ARR_OK) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += byte_array_len;
     }
     if (matrix_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, matrix_len,
-            &out_msg->matrix, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, matrix_len, &out_msg->matrix, NULL);
         if (status != DYN_ARR_OK) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += matrix_len;
     }
     if (tags_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, tags_len,
-            &out_msg->tags, NULL);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, tags_len, &out_msg->tags, NULL);
         if (status != DYN_ARR_OK) {
             all_types_fields_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += tags_len;
     }
 
     (void)dyn_off;
-    return 0;
+    return (0);
 }
 
 /**
  * all_types_fields_msg_t_free - Release heap memory owned by a all_types_fields_msg_t struct.
  */
 void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
-    if (!msg) {
-        return;
-    }
+    if (!msg) { return; }
     if (msg->name.data) {
         free(msg->name.data);
         msg->name.data = NULL;
@@ -2396,10 +2353,9 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
     if (msg->byte_array.data) {
         size_t _total = msg->byte_array.x * msg->byte_array.y * msg->byte_array.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
-            if (msg->byte_array.is_set[_i] && _elem->data) {
-                byte_array_t_free(_elem);
-            }
+            byte_array_t *_elem =
+                (byte_array_t *)((uint8_t *)msg->byte_array.data + _i * msg->byte_array.elem_size);
+            if (msg->byte_array.is_set[_i] && _elem->data) { byte_array_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->byte_array);
@@ -2408,14 +2364,11 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
         size_t _total = msg->tags.x * msg->tags.y * msg->tags.z;
         for (size_t _i = 0; _i < _total; _i++) {
             string_t *_elem = (string_t *)((uint8_t *)msg->tags.data + _i * msg->tags.elem_size);
-            if (msg->tags.is_set[_i] && _elem->data) {
-                string_t_free(_elem);
-            }
+            if (msg->tags.is_set[_i] && _elem->data) { string_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->tags);
 }
-
 
 /* ===========================================================================
  * RecursiveNestedMsg (Type ID: 4, Fixed Payload: 8 bytes)
@@ -2424,49 +2377,49 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg) {
 /**
  * Sets the value of the name field in the recursive_nested_msg_t struct.
  */
-dyn_arr_status_t recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *value,
+                                                 const size_t len) {
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     string_t_free(&msg->name);
     msg->name.data = NULL;
     string_t_set_value(&msg->name, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the nested field in the recursive_nested_msg_t struct.
  */
-dyn_arr_status_t recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg, const recursive_nested_msg_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg,
+                                                   const recursive_nested_msg_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->nested) {
         free(msg->nested);
         msg->nested = NULL;
     }
 
     msg->nested = malloc(sizeof(recursive_nested_msg_t));
-    if (!msg->nested) return DYN_ARR_ERR_NO_MEMORY;
+    if (!msg->nested) return (DYN_ARR_ERR_NO_MEMORY);
 
     *msg->nested = *value;
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 size_t recursive_nested_msg_t_dynamic_payload_size(recursive_nested_msg_t *msg) {
     size_t dyn_size = 0;
     dyn_size += msg->name.len;
-    if (msg->nested) {
-        dyn_size += recursive_nested_msg_t_size(msg->nested);
-    }
+    if (msg->nested) { dyn_size += recursive_nested_msg_t_size(msg->nested); }
     (void)msg;
-    return dyn_size;
+    return (dyn_size);
 }
 
 size_t recursive_nested_msg_t_size(void *in_item) {
     recursive_nested_msg_t *msg = in_item;
-    return WIRE_FRAME_HEADER_SIZE + RECURSIVE_NESTED_MSG_FIXED_SIZE + recursive_nested_msg_t_dynamic_payload_size(msg);
+    return (WIRE_FRAME_HEADER_SIZE + RECURSIVE_NESTED_MSG_FIXED_SIZE +
+            recursive_nested_msg_t_dynamic_payload_size(msg));
 }
-
 
 /**
  * recursive_nested_msg_t_marshal - Serialize RecursiveNestedMsg to wire format.
@@ -2478,20 +2431,17 @@ size_t recursive_nested_msg_t_size(void *in_item) {
  *   [8:16]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [16:end]   Dynamic payload (variable-length field data)
  */
-int recursive_nested_msg_t_marshal(void *in_item, uint8_t** out_buf) {
-    if (!in_item || !out_buf) return -1;
+int recursive_nested_msg_t_marshal(void *in_item, uint8_t **out_buf) {
+    if (!in_item || !out_buf) return (-1);
 
     recursive_nested_msg_t *msg = in_item;
-    size_t payload_size = RECURSIVE_NESTED_MSG_FIXED_SIZE + recursive_nested_msg_t_dynamic_payload_size(msg);
+    size_t payload_size =
+        RECURSIVE_NESTED_MSG_FIXED_SIZE + recursive_nested_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
-    if (total_size > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (total_size > MAX_ALLOWED_PACKET) { return (-1); }
 
-    uint8_t *buf = (uint8_t *) malloc(total_size);
-    if (!buf) {
-        return -1;
-    }
+    uint8_t *buf = (uint8_t *)malloc(total_size);
+    if (!buf) { return (-1); }
 
     memset(buf, 0, total_size);
 
@@ -2500,7 +2450,7 @@ int recursive_nested_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, RECURSIVE_NESTED_MSG_FIXED_SIZE);
     put_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, payload_size);
 
-    uint8_t *hdr = buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t *hdr   = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + RECURSIVE_NESTED_MSG_FIXED_SIZE;
 
     // recursive_nested_msg_t -> name (offset: 0, size: 4)
@@ -2513,11 +2463,12 @@ int recursive_nested_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // recursive_nested_msg_t -> nested (offset: 4, size: 4)
     put_u32_be(hdr + 4, 0);
     if (msg->nested != NULL) {
-        uint8_t* recursive_nested_msg_t_buf = NULL;
-        int recursive_nested_msg_t_len = recursive_nested_msg_t_marshal(msg->nested, &recursive_nested_msg_t_buf);
+        uint8_t *recursive_nested_msg_t_buf = NULL;
+        int recursive_nested_msg_t_len =
+            recursive_nested_msg_t_marshal(msg->nested, &recursive_nested_msg_t_buf);
         if (recursive_nested_msg_t_len < 0) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 4, recursive_nested_msg_t_len);
         memcpy(buf + dyn_off, recursive_nested_msg_t_buf, recursive_nested_msg_t_len);
@@ -2527,7 +2478,7 @@ int recursive_nested_msg_t_marshal(void *in_item, uint8_t** out_buf) {
 
     (void)dyn_off;
     *out_buf = buf;
-    return (int)total_size;
+    return ((int)total_size);
 }
 
 /**
@@ -2538,37 +2489,31 @@ int recursive_nested_msg_t_marshal(void *in_item, uint8_t** out_buf) {
  * On any error, partial allocations are cleaned up before returning.
  */
 int recursive_nested_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, void *out_item) {
-    if (!in_buf || !out_item ||
-        fixed_payload_len < RECURSIVE_NESTED_MSG_FIXED_SIZE ||
-        overall_payload_len < fixed_payload_len ||
-        overall_payload_len > MAX_ALLOWED_PACKET) {
-        return -1;
+                                     uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item || fixed_payload_len < RECURSIVE_NESTED_MSG_FIXED_SIZE ||
+        overall_payload_len < fixed_payload_len || overall_payload_len > MAX_ALLOWED_PACKET) {
+        return (-1);
     }
 
     recursive_nested_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(recursive_nested_msg_t));
 
     const uint8_t *hdr = in_buf;
-    size_t dyn_off = fixed_payload_len;
+    size_t dyn_off     = fixed_payload_len;
 
     /* Decode fixed-size primitives from structural block offsets */
     uint32_t name_len = get_u32_be(hdr + 0);
-    if (name_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (name_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t nested_len = get_u32_be(hdr + 4);
-    if (nested_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (nested_len > MAX_ALLOWED_PACKET) { return (-1); }
 
     /* Decode variable-length dynamic fields safely */
     if (name_len > 0) {
-        out_msg->name.len = name_len;
-        out_msg->name.data = (char *) malloc(name_len + 1);
+        out_msg->name.len  = name_len;
+        out_msg->name.data = (char *)malloc(name_len + 1);
         if (!out_msg->name.data) {
             recursive_nested_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->name.data, in_buf + dyn_off, name_len);
@@ -2579,31 +2524,32 @@ int recursive_nested_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len
         out_msg->nested = malloc(sizeof(recursive_nested_msg_t));
         if (!out_msg->nested) {
             recursive_nested_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
-        uint16_t fixed_len = get_message_fixed_payload_length(in_buf + dyn_off);
+        uint16_t fixed_len        = get_message_fixed_payload_length(in_buf + dyn_off);
         uint32_t full_payload_len = get_message_overall_payload_length(in_buf + dyn_off);
 
-        int status = recursive_nested_msg_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE, fixed_len, full_payload_len, out_msg->nested);
+        int status = recursive_nested_msg_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE,
+                                                      fixed_len,
+                                                      full_payload_len,
+                                                      out_msg->nested);
         if (status != 0) {
             recursive_nested_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += nested_len;
     }
 
     (void)dyn_off;
-    return 0;
+    return (0);
 }
 
 /**
  * recursive_nested_msg_t_free - Release heap memory owned by a recursive_nested_msg_t struct.
  */
 void recursive_nested_msg_t_free(recursive_nested_msg_t *msg) {
-    if (!msg) {
-        return;
-    }
+    if (!msg) { return; }
     if (msg->name.data) {
         free(msg->name.data);
         msg->name.data = NULL;
@@ -2616,7 +2562,6 @@ void recursive_nested_msg_t_free(recursive_nested_msg_t *msg) {
     }
 }
 
-
 /* ===========================================================================
  * AllTypesOfArraysMsg (Type ID: 5, Fixed Payload: 180 bytes)
  * ===========================================================================*/
@@ -2624,670 +2569,733 @@ void recursive_nested_msg_t_free(recursive_nested_msg_t *msg) {
 /**
  * Sets the value of the arr1_d_bool field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_bool);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_bool, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_bytes field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr1_d_bytes.data) {
         size_t _existing = msg->arr1_d_bytes.x * msg->arr1_d_bytes.y * msg->arr1_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data + _i * msg->arr1_d_bytes.elem_size);
+            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data +
+                                                _i * msg->arr1_d_bytes.elem_size);
             byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_bytes);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_bytes, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_double field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_double);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_double, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_float field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_float);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_float, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_int16 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_int16);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int16, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_int32 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_int32);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int32, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_int64 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_int64);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int64, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_int8 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_int8);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_int8, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_nested field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr1_d_nested.data) {
         size_t _existing = msg->arr1_d_nested.x * msg->arr1_d_nested.y * msg->arr1_d_nested.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            only_variable_types_msg_t *_e = (only_variable_types_msg_t *)((uint8_t *)msg->arr1_d_nested.data + _i * msg->arr1_d_nested.elem_size);
+            only_variable_types_msg_t *_e =
+                (only_variable_types_msg_t *)((uint8_t *)msg->arr1_d_nested.data +
+                                              _i * msg->arr1_d_nested.elem_size);
             only_variable_types_msg_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_nested);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_nested, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_object field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr1_d_object.data) {
         size_t _existing = msg->arr1_d_object.x * msg->arr1_d_object.y * msg->arr1_d_object.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            only_scalar_types_msg_t *_e = (only_scalar_types_msg_t *)((uint8_t *)msg->arr1_d_object.data + _i * msg->arr1_d_object.elem_size);
+            only_scalar_types_msg_t *_e =
+                (only_scalar_types_msg_t *)((uint8_t *)msg->arr1_d_object.data +
+                                            _i * msg->arr1_d_object.elem_size);
             only_scalar_types_msg_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_object);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_object, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_string field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr1_d_string.data) {
         size_t _existing = msg->arr1_d_string.x * msg->arr1_d_string.y * msg->arr1_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            string_t *_e = (string_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
+            string_t *_e = (string_t *)((uint8_t *)msg->arr1_d_string.data +
+                                        _i * msg->arr1_d_string.elem_size);
             string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr1_d_string);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_string, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_uint16 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_uint16);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint16, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_uint32 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_uint32);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint32, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_uint64 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_uint64);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint64, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr1_d_uint8 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr1_d_uint8);
     dyn_arr_status_t status = dynamic_array_copy_1d(&msg->arr1_d_uint8, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_bool field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_bool);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_bool, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_bytes field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr2_d_bytes.data) {
         size_t _existing = msg->arr2_d_bytes.x * msg->arr2_d_bytes.y * msg->arr2_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data + _i * msg->arr2_d_bytes.elem_size);
+            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data +
+                                                _i * msg->arr2_d_bytes.elem_size);
             byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_bytes);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_bytes, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_double field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_double);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_double, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_float field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_float);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_float, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_int16 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_int16);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int16, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_int32 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_int32);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int32, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_int64 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_int64);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int64, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_int8 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_int8);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_int8, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_nested field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr2_d_nested.data) {
         size_t _existing = msg->arr2_d_nested.x * msg->arr2_d_nested.y * msg->arr2_d_nested.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            only_variable_types_msg_t *_e = (only_variable_types_msg_t *)((uint8_t *)msg->arr2_d_nested.data + _i * msg->arr2_d_nested.elem_size);
+            only_variable_types_msg_t *_e =
+                (only_variable_types_msg_t *)((uint8_t *)msg->arr2_d_nested.data +
+                                              _i * msg->arr2_d_nested.elem_size);
             only_variable_types_msg_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_nested);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_nested, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_object field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr2_d_object.data) {
         size_t _existing = msg->arr2_d_object.x * msg->arr2_d_object.y * msg->arr2_d_object.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            only_scalar_types_msg_t *_e = (only_scalar_types_msg_t *)((uint8_t *)msg->arr2_d_object.data + _i * msg->arr2_d_object.elem_size);
+            only_scalar_types_msg_t *_e =
+                (only_scalar_types_msg_t *)((uint8_t *)msg->arr2_d_object.data +
+                                            _i * msg->arr2_d_object.elem_size);
             only_scalar_types_msg_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_object);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_object, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_string field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr2_d_string.data) {
         size_t _existing = msg->arr2_d_string.x * msg->arr2_d_string.y * msg->arr2_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            string_t *_e = (string_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
+            string_t *_e = (string_t *)((uint8_t *)msg->arr2_d_string.data +
+                                        _i * msg->arr2_d_string.elem_size);
             string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr2_d_string);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_string, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_uint16 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_uint16);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint16, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_uint32 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_uint32);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint32, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_uint64 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_uint64);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint64, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr2_d_uint8 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr2_d_uint8);
     dyn_arr_status_t status = dynamic_array_copy_2d(&msg->arr2_d_uint8, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_bool field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_bool);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_bool, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_bytes field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr3_d_bytes.data) {
         size_t _existing = msg->arr3_d_bytes.x * msg->arr3_d_bytes.y * msg->arr3_d_bytes.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data + _i * msg->arr3_d_bytes.elem_size);
+            byte_array_t *_e = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data +
+                                                _i * msg->arr3_d_bytes.elem_size);
             byte_array_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_bytes);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_bytes, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_double field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_double);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_double, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_float field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_float);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_float, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_int16 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_int16);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int16, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_int32 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_int32);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int32, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_int64 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_int64);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int64, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_int8 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_int8);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_int8, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_nested field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr3_d_nested.data) {
         size_t _existing = msg->arr3_d_nested.x * msg->arr3_d_nested.y * msg->arr3_d_nested.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            only_variable_types_msg_t *_e = (only_variable_types_msg_t *)((uint8_t *)msg->arr3_d_nested.data + _i * msg->arr3_d_nested.elem_size);
+            only_variable_types_msg_t *_e =
+                (only_variable_types_msg_t *)((uint8_t *)msg->arr3_d_nested.data +
+                                              _i * msg->arr3_d_nested.elem_size);
             only_variable_types_msg_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_nested);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_nested, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_object field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr3_d_object.data) {
         size_t _existing = msg->arr3_d_object.x * msg->arr3_d_object.y * msg->arr3_d_object.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            only_scalar_types_msg_t *_e = (only_scalar_types_msg_t *)((uint8_t *)msg->arr3_d_object.data + _i * msg->arr3_d_object.elem_size);
+            only_scalar_types_msg_t *_e =
+                (only_scalar_types_msg_t *)((uint8_t *)msg->arr3_d_object.data +
+                                            _i * msg->arr3_d_object.elem_size);
             only_scalar_types_msg_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_object);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_object, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_string field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->arr3_d_string.data) {
         size_t _existing = msg->arr3_d_string.x * msg->arr3_d_string.y * msg->arr3_d_string.z;
         for (size_t _i = 0; _i < _existing; _i++) {
-            string_t *_e = (string_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
+            string_t *_e = (string_t *)((uint8_t *)msg->arr3_d_string.data +
+                                        _i * msg->arr3_d_string.elem_size);
             string_t_free(_e);
         }
     }
     dynamic_array_destroy(&msg->arr3_d_string);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_string, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_uint16 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_uint16);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint16, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_uint32 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_uint32);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint32, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_uint64 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_uint64);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint64, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /**
  * Sets the value of the arr3_d_uint8 field in the all_types_of_arrays_msg_t struct.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value) {
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     dynamic_array_destroy(&msg->arr3_d_uint8);
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->arr3_d_uint8, value);
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t *msg) {
@@ -3300,8 +3308,10 @@ size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t 
     dyn_size += calc_array_size(&msg->arr1_d_int32, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->arr1_d_int64, TAG_INT64, NULL);
     dyn_size += calc_array_size(&msg->arr1_d_int8, TAG_INT8, NULL);
-    dyn_size += calc_array_size(&msg->arr1_d_nested, TAG_ONLY_VARIABLE_TYPES_MSG, only_variable_types_msg_t_size);
-    dyn_size += calc_array_size(&msg->arr1_d_object, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
+    dyn_size += calc_array_size(
+        &msg->arr1_d_nested, TAG_ONLY_VARIABLE_TYPES_MSG, only_variable_types_msg_t_size);
+    dyn_size += calc_array_size(
+        &msg->arr1_d_object, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
     dyn_size += calc_array_size(&msg->arr1_d_string, TAG_STRING, NULL);
     dyn_size += calc_array_size(&msg->arr1_d_uint16, TAG_UINT16, NULL);
     dyn_size += calc_array_size(&msg->arr1_d_uint32, TAG_UINT32, NULL);
@@ -3315,8 +3325,10 @@ size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t 
     dyn_size += calc_array_size(&msg->arr2_d_int32, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->arr2_d_int64, TAG_INT64, NULL);
     dyn_size += calc_array_size(&msg->arr2_d_int8, TAG_INT8, NULL);
-    dyn_size += calc_array_size(&msg->arr2_d_nested, TAG_ONLY_VARIABLE_TYPES_MSG, only_variable_types_msg_t_size);
-    dyn_size += calc_array_size(&msg->arr2_d_object, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
+    dyn_size += calc_array_size(
+        &msg->arr2_d_nested, TAG_ONLY_VARIABLE_TYPES_MSG, only_variable_types_msg_t_size);
+    dyn_size += calc_array_size(
+        &msg->arr2_d_object, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
     dyn_size += calc_array_size(&msg->arr2_d_string, TAG_STRING, NULL);
     dyn_size += calc_array_size(&msg->arr2_d_uint16, TAG_UINT16, NULL);
     dyn_size += calc_array_size(&msg->arr2_d_uint32, TAG_UINT32, NULL);
@@ -3330,22 +3342,24 @@ size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t 
     dyn_size += calc_array_size(&msg->arr3_d_int32, TAG_INT32, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_int64, TAG_INT64, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_int8, TAG_INT8, NULL);
-    dyn_size += calc_array_size(&msg->arr3_d_nested, TAG_ONLY_VARIABLE_TYPES_MSG, only_variable_types_msg_t_size);
-    dyn_size += calc_array_size(&msg->arr3_d_object, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
+    dyn_size += calc_array_size(
+        &msg->arr3_d_nested, TAG_ONLY_VARIABLE_TYPES_MSG, only_variable_types_msg_t_size);
+    dyn_size += calc_array_size(
+        &msg->arr3_d_object, TAG_ONLY_SCALAR_TYPES_MSG, only_scalar_types_msg_t_size);
     dyn_size += calc_array_size(&msg->arr3_d_string, TAG_STRING, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_uint16, TAG_UINT16, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_uint32, TAG_UINT32, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_uint64, TAG_UINT64, NULL);
     dyn_size += calc_array_size(&msg->arr3_d_uint8, TAG_UINT8, NULL);
     (void)msg;
-    return dyn_size;
+    return (dyn_size);
 }
 
 size_t all_types_of_arrays_msg_t_size(void *in_item) {
     all_types_of_arrays_msg_t *msg = in_item;
-    return WIRE_FRAME_HEADER_SIZE + ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE + all_types_of_arrays_msg_t_dynamic_payload_size(msg);
+    return (WIRE_FRAME_HEADER_SIZE + ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE +
+            all_types_of_arrays_msg_t_dynamic_payload_size(msg));
 }
-
 
 /**
  * all_types_of_arrays_msg_t_marshal - Serialize AllTypesOfArraysMsg to wire format.
@@ -3357,20 +3371,17 @@ size_t all_types_of_arrays_msg_t_size(void *in_item) {
  *   [8:188]     Fixed payoad (fields + padding, Big-Endian encoded)
  *   [188:end]   Dynamic payload (variable-length field data)
  */
-int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
-    if (!in_item || !out_buf) return -1;
+int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t **out_buf) {
+    if (!in_item || !out_buf) return (-1);
 
     all_types_of_arrays_msg_t *msg = in_item;
-    size_t payload_size = ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE + all_types_of_arrays_msg_t_dynamic_payload_size(msg);
+    size_t payload_size =
+        ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE + all_types_of_arrays_msg_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
-    if (total_size > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (total_size > MAX_ALLOWED_PACKET) { return (-1); }
 
-    uint8_t *buf = (uint8_t *) malloc(total_size);
-    if (!buf) {
-        return -1;
-    }
+    uint8_t *buf = (uint8_t *)malloc(total_size);
+    if (!buf) { return (-1); }
 
     memset(buf, 0, total_size);
 
@@ -3379,19 +3390,19 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     put_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE, ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE);
     put_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE, payload_size);
 
-    uint8_t *hdr = buf + WIRE_FRAME_HEADER_SIZE;
+    uint8_t *hdr   = buf + WIRE_FRAME_HEADER_SIZE;
     size_t dyn_off = WIRE_FRAME_HEADER_SIZE + ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE;
 
     // all_types_of_arrays_msg_t -> arr1_d_bool (offset: 0, size: 4)
     put_u32_be(hdr + 0, 0);
     if (msg->arr1_d_bool.data != NULL && msg->arr1_d_bool.x > 0) {
-        size_t arr1_d_bool_len = 0;
-        uint8_t* arr1_d_bool_buf = NULL;
-        dyn_arr_status_t arr1_d_bool_status = array_to_bytes(&msg->arr1_d_bool, &arr1_d_bool_buf,
-                &arr1_d_bool_len, NULL, NULL);
+        size_t arr1_d_bool_len   = 0;
+        uint8_t *arr1_d_bool_buf = NULL;
+        dyn_arr_status_t arr1_d_bool_status =
+            array_to_bytes(&msg->arr1_d_bool, &arr1_d_bool_buf, &arr1_d_bool_len, NULL, NULL);
         if (arr1_d_bool_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 0, arr1_d_bool_len);
         if (arr1_d_bool_len > 0) {
@@ -3404,13 +3415,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_bytes (offset: 4, size: 4)
     put_u32_be(hdr + 4, 0);
     if (msg->arr1_d_bytes.data != NULL && msg->arr1_d_bytes.x > 0) {
-        size_t arr1_d_bytes_len = 0;
-        uint8_t* arr1_d_bytes_buf = NULL;
-        dyn_arr_status_t arr1_d_bytes_status = array_to_bytes(&msg->arr1_d_bytes, &arr1_d_bytes_buf,
-                &arr1_d_bytes_len, NULL, NULL);
+        size_t arr1_d_bytes_len   = 0;
+        uint8_t *arr1_d_bytes_buf = NULL;
+        dyn_arr_status_t arr1_d_bytes_status =
+            array_to_bytes(&msg->arr1_d_bytes, &arr1_d_bytes_buf, &arr1_d_bytes_len, NULL, NULL);
         if (arr1_d_bytes_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 4, arr1_d_bytes_len);
         if (arr1_d_bytes_len > 0) {
@@ -3423,13 +3434,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_double (offset: 8, size: 4)
     put_u32_be(hdr + 8, 0);
     if (msg->arr1_d_double.data != NULL && msg->arr1_d_double.x > 0) {
-        size_t arr1_d_double_len = 0;
-        uint8_t* arr1_d_double_buf = NULL;
-        dyn_arr_status_t arr1_d_double_status = array_to_bytes(&msg->arr1_d_double, &arr1_d_double_buf,
-                &arr1_d_double_len, NULL, NULL);
+        size_t arr1_d_double_len   = 0;
+        uint8_t *arr1_d_double_buf = NULL;
+        dyn_arr_status_t arr1_d_double_status =
+            array_to_bytes(&msg->arr1_d_double, &arr1_d_double_buf, &arr1_d_double_len, NULL, NULL);
         if (arr1_d_double_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 8, arr1_d_double_len);
         if (arr1_d_double_len > 0) {
@@ -3442,13 +3453,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_float (offset: 12, size: 4)
     put_u32_be(hdr + 12, 0);
     if (msg->arr1_d_float.data != NULL && msg->arr1_d_float.x > 0) {
-        size_t arr1_d_float_len = 0;
-        uint8_t* arr1_d_float_buf = NULL;
-        dyn_arr_status_t arr1_d_float_status = array_to_bytes(&msg->arr1_d_float, &arr1_d_float_buf,
-                &arr1_d_float_len, NULL, NULL);
+        size_t arr1_d_float_len   = 0;
+        uint8_t *arr1_d_float_buf = NULL;
+        dyn_arr_status_t arr1_d_float_status =
+            array_to_bytes(&msg->arr1_d_float, &arr1_d_float_buf, &arr1_d_float_len, NULL, NULL);
         if (arr1_d_float_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 12, arr1_d_float_len);
         if (arr1_d_float_len > 0) {
@@ -3461,13 +3472,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_int16 (offset: 16, size: 4)
     put_u32_be(hdr + 16, 0);
     if (msg->arr1_d_int16.data != NULL && msg->arr1_d_int16.x > 0) {
-        size_t arr1_d_int16_len = 0;
-        uint8_t* arr1_d_int16_buf = NULL;
-        dyn_arr_status_t arr1_d_int16_status = array_to_bytes(&msg->arr1_d_int16, &arr1_d_int16_buf,
-                &arr1_d_int16_len, NULL, NULL);
+        size_t arr1_d_int16_len   = 0;
+        uint8_t *arr1_d_int16_buf = NULL;
+        dyn_arr_status_t arr1_d_int16_status =
+            array_to_bytes(&msg->arr1_d_int16, &arr1_d_int16_buf, &arr1_d_int16_len, NULL, NULL);
         if (arr1_d_int16_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 16, arr1_d_int16_len);
         if (arr1_d_int16_len > 0) {
@@ -3480,13 +3491,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_int32 (offset: 20, size: 4)
     put_u32_be(hdr + 20, 0);
     if (msg->arr1_d_int32.data != NULL && msg->arr1_d_int32.x > 0) {
-        size_t arr1_d_int32_len = 0;
-        uint8_t* arr1_d_int32_buf = NULL;
-        dyn_arr_status_t arr1_d_int32_status = array_to_bytes(&msg->arr1_d_int32, &arr1_d_int32_buf,
-                &arr1_d_int32_len, NULL, NULL);
+        size_t arr1_d_int32_len   = 0;
+        uint8_t *arr1_d_int32_buf = NULL;
+        dyn_arr_status_t arr1_d_int32_status =
+            array_to_bytes(&msg->arr1_d_int32, &arr1_d_int32_buf, &arr1_d_int32_len, NULL, NULL);
         if (arr1_d_int32_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 20, arr1_d_int32_len);
         if (arr1_d_int32_len > 0) {
@@ -3499,13 +3510,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_int64 (offset: 24, size: 4)
     put_u32_be(hdr + 24, 0);
     if (msg->arr1_d_int64.data != NULL && msg->arr1_d_int64.x > 0) {
-        size_t arr1_d_int64_len = 0;
-        uint8_t* arr1_d_int64_buf = NULL;
-        dyn_arr_status_t arr1_d_int64_status = array_to_bytes(&msg->arr1_d_int64, &arr1_d_int64_buf,
-                &arr1_d_int64_len, NULL, NULL);
+        size_t arr1_d_int64_len   = 0;
+        uint8_t *arr1_d_int64_buf = NULL;
+        dyn_arr_status_t arr1_d_int64_status =
+            array_to_bytes(&msg->arr1_d_int64, &arr1_d_int64_buf, &arr1_d_int64_len, NULL, NULL);
         if (arr1_d_int64_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 24, arr1_d_int64_len);
         if (arr1_d_int64_len > 0) {
@@ -3518,13 +3529,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_int8 (offset: 28, size: 4)
     put_u32_be(hdr + 28, 0);
     if (msg->arr1_d_int8.data != NULL && msg->arr1_d_int8.x > 0) {
-        size_t arr1_d_int8_len = 0;
-        uint8_t* arr1_d_int8_buf = NULL;
-        dyn_arr_status_t arr1_d_int8_status = array_to_bytes(&msg->arr1_d_int8, &arr1_d_int8_buf,
-                &arr1_d_int8_len, NULL, NULL);
+        size_t arr1_d_int8_len   = 0;
+        uint8_t *arr1_d_int8_buf = NULL;
+        dyn_arr_status_t arr1_d_int8_status =
+            array_to_bytes(&msg->arr1_d_int8, &arr1_d_int8_buf, &arr1_d_int8_len, NULL, NULL);
         if (arr1_d_int8_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 28, arr1_d_int8_len);
         if (arr1_d_int8_len > 0) {
@@ -3537,13 +3548,16 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_nested (offset: 32, size: 4)
     put_u32_be(hdr + 32, 0);
     if (msg->arr1_d_nested.data != NULL && msg->arr1_d_nested.x > 0) {
-        size_t arr1_d_nested_len = 0;
-        uint8_t* arr1_d_nested_buf = NULL;
-        dyn_arr_status_t arr1_d_nested_status = array_to_bytes(&msg->arr1_d_nested, &arr1_d_nested_buf,
-                &arr1_d_nested_len, only_variable_types_msg_t_size, only_variable_types_msg_t_marshal);
+        size_t arr1_d_nested_len              = 0;
+        uint8_t *arr1_d_nested_buf            = NULL;
+        dyn_arr_status_t arr1_d_nested_status = array_to_bytes(&msg->arr1_d_nested,
+                                                               &arr1_d_nested_buf,
+                                                               &arr1_d_nested_len,
+                                                               only_variable_types_msg_t_size,
+                                                               only_variable_types_msg_t_marshal);
         if (arr1_d_nested_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 32, arr1_d_nested_len);
         if (arr1_d_nested_len > 0) {
@@ -3556,13 +3570,16 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_object (offset: 36, size: 4)
     put_u32_be(hdr + 36, 0);
     if (msg->arr1_d_object.data != NULL && msg->arr1_d_object.x > 0) {
-        size_t arr1_d_object_len = 0;
-        uint8_t* arr1_d_object_buf = NULL;
-        dyn_arr_status_t arr1_d_object_status = array_to_bytes(&msg->arr1_d_object, &arr1_d_object_buf,
-                &arr1_d_object_len, only_scalar_types_msg_t_size, only_scalar_types_msg_t_marshal);
+        size_t arr1_d_object_len              = 0;
+        uint8_t *arr1_d_object_buf            = NULL;
+        dyn_arr_status_t arr1_d_object_status = array_to_bytes(&msg->arr1_d_object,
+                                                               &arr1_d_object_buf,
+                                                               &arr1_d_object_len,
+                                                               only_scalar_types_msg_t_size,
+                                                               only_scalar_types_msg_t_marshal);
         if (arr1_d_object_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 36, arr1_d_object_len);
         if (arr1_d_object_len > 0) {
@@ -3575,13 +3592,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_string (offset: 40, size: 4)
     put_u32_be(hdr + 40, 0);
     if (msg->arr1_d_string.data != NULL && msg->arr1_d_string.x > 0) {
-        size_t arr1_d_string_len = 0;
-        uint8_t* arr1_d_string_buf = NULL;
-        dyn_arr_status_t arr1_d_string_status = array_to_bytes(&msg->arr1_d_string, &arr1_d_string_buf,
-                &arr1_d_string_len, NULL, NULL);
+        size_t arr1_d_string_len   = 0;
+        uint8_t *arr1_d_string_buf = NULL;
+        dyn_arr_status_t arr1_d_string_status =
+            array_to_bytes(&msg->arr1_d_string, &arr1_d_string_buf, &arr1_d_string_len, NULL, NULL);
         if (arr1_d_string_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 40, arr1_d_string_len);
         if (arr1_d_string_len > 0) {
@@ -3594,13 +3611,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_uint16 (offset: 44, size: 4)
     put_u32_be(hdr + 44, 0);
     if (msg->arr1_d_uint16.data != NULL && msg->arr1_d_uint16.x > 0) {
-        size_t arr1_d_uint16_len = 0;
-        uint8_t* arr1_d_uint16_buf = NULL;
-        dyn_arr_status_t arr1_d_uint16_status = array_to_bytes(&msg->arr1_d_uint16, &arr1_d_uint16_buf,
-                &arr1_d_uint16_len, NULL, NULL);
+        size_t arr1_d_uint16_len   = 0;
+        uint8_t *arr1_d_uint16_buf = NULL;
+        dyn_arr_status_t arr1_d_uint16_status =
+            array_to_bytes(&msg->arr1_d_uint16, &arr1_d_uint16_buf, &arr1_d_uint16_len, NULL, NULL);
         if (arr1_d_uint16_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 44, arr1_d_uint16_len);
         if (arr1_d_uint16_len > 0) {
@@ -3613,13 +3630,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_uint32 (offset: 48, size: 4)
     put_u32_be(hdr + 48, 0);
     if (msg->arr1_d_uint32.data != NULL && msg->arr1_d_uint32.x > 0) {
-        size_t arr1_d_uint32_len = 0;
-        uint8_t* arr1_d_uint32_buf = NULL;
-        dyn_arr_status_t arr1_d_uint32_status = array_to_bytes(&msg->arr1_d_uint32, &arr1_d_uint32_buf,
-                &arr1_d_uint32_len, NULL, NULL);
+        size_t arr1_d_uint32_len   = 0;
+        uint8_t *arr1_d_uint32_buf = NULL;
+        dyn_arr_status_t arr1_d_uint32_status =
+            array_to_bytes(&msg->arr1_d_uint32, &arr1_d_uint32_buf, &arr1_d_uint32_len, NULL, NULL);
         if (arr1_d_uint32_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 48, arr1_d_uint32_len);
         if (arr1_d_uint32_len > 0) {
@@ -3632,13 +3649,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_uint64 (offset: 52, size: 4)
     put_u32_be(hdr + 52, 0);
     if (msg->arr1_d_uint64.data != NULL && msg->arr1_d_uint64.x > 0) {
-        size_t arr1_d_uint64_len = 0;
-        uint8_t* arr1_d_uint64_buf = NULL;
-        dyn_arr_status_t arr1_d_uint64_status = array_to_bytes(&msg->arr1_d_uint64, &arr1_d_uint64_buf,
-                &arr1_d_uint64_len, NULL, NULL);
+        size_t arr1_d_uint64_len   = 0;
+        uint8_t *arr1_d_uint64_buf = NULL;
+        dyn_arr_status_t arr1_d_uint64_status =
+            array_to_bytes(&msg->arr1_d_uint64, &arr1_d_uint64_buf, &arr1_d_uint64_len, NULL, NULL);
         if (arr1_d_uint64_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 52, arr1_d_uint64_len);
         if (arr1_d_uint64_len > 0) {
@@ -3651,13 +3668,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr1_d_uint8 (offset: 56, size: 4)
     put_u32_be(hdr + 56, 0);
     if (msg->arr1_d_uint8.data != NULL && msg->arr1_d_uint8.x > 0) {
-        size_t arr1_d_uint8_len = 0;
-        uint8_t* arr1_d_uint8_buf = NULL;
-        dyn_arr_status_t arr1_d_uint8_status = array_to_bytes(&msg->arr1_d_uint8, &arr1_d_uint8_buf,
-                &arr1_d_uint8_len, NULL, NULL);
+        size_t arr1_d_uint8_len   = 0;
+        uint8_t *arr1_d_uint8_buf = NULL;
+        dyn_arr_status_t arr1_d_uint8_status =
+            array_to_bytes(&msg->arr1_d_uint8, &arr1_d_uint8_buf, &arr1_d_uint8_len, NULL, NULL);
         if (arr1_d_uint8_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 56, arr1_d_uint8_len);
         if (arr1_d_uint8_len > 0) {
@@ -3670,13 +3687,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_bool (offset: 60, size: 4)
     put_u32_be(hdr + 60, 0);
     if (msg->arr2_d_bool.data != NULL && msg->arr2_d_bool.x > 0) {
-        size_t arr2_d_bool_len = 0;
-        uint8_t* arr2_d_bool_buf = NULL;
-        dyn_arr_status_t arr2_d_bool_status = array_to_bytes(&msg->arr2_d_bool, &arr2_d_bool_buf,
-                &arr2_d_bool_len, NULL, NULL);
+        size_t arr2_d_bool_len   = 0;
+        uint8_t *arr2_d_bool_buf = NULL;
+        dyn_arr_status_t arr2_d_bool_status =
+            array_to_bytes(&msg->arr2_d_bool, &arr2_d_bool_buf, &arr2_d_bool_len, NULL, NULL);
         if (arr2_d_bool_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 60, arr2_d_bool_len);
         if (arr2_d_bool_len > 0) {
@@ -3689,13 +3706,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_bytes (offset: 64, size: 4)
     put_u32_be(hdr + 64, 0);
     if (msg->arr2_d_bytes.data != NULL && msg->arr2_d_bytes.x > 0) {
-        size_t arr2_d_bytes_len = 0;
-        uint8_t* arr2_d_bytes_buf = NULL;
-        dyn_arr_status_t arr2_d_bytes_status = array_to_bytes(&msg->arr2_d_bytes, &arr2_d_bytes_buf,
-                &arr2_d_bytes_len, NULL, NULL);
+        size_t arr2_d_bytes_len   = 0;
+        uint8_t *arr2_d_bytes_buf = NULL;
+        dyn_arr_status_t arr2_d_bytes_status =
+            array_to_bytes(&msg->arr2_d_bytes, &arr2_d_bytes_buf, &arr2_d_bytes_len, NULL, NULL);
         if (arr2_d_bytes_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 64, arr2_d_bytes_len);
         if (arr2_d_bytes_len > 0) {
@@ -3708,13 +3725,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_double (offset: 68, size: 4)
     put_u32_be(hdr + 68, 0);
     if (msg->arr2_d_double.data != NULL && msg->arr2_d_double.x > 0) {
-        size_t arr2_d_double_len = 0;
-        uint8_t* arr2_d_double_buf = NULL;
-        dyn_arr_status_t arr2_d_double_status = array_to_bytes(&msg->arr2_d_double, &arr2_d_double_buf,
-                &arr2_d_double_len, NULL, NULL);
+        size_t arr2_d_double_len   = 0;
+        uint8_t *arr2_d_double_buf = NULL;
+        dyn_arr_status_t arr2_d_double_status =
+            array_to_bytes(&msg->arr2_d_double, &arr2_d_double_buf, &arr2_d_double_len, NULL, NULL);
         if (arr2_d_double_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 68, arr2_d_double_len);
         if (arr2_d_double_len > 0) {
@@ -3727,13 +3744,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_float (offset: 72, size: 4)
     put_u32_be(hdr + 72, 0);
     if (msg->arr2_d_float.data != NULL && msg->arr2_d_float.x > 0) {
-        size_t arr2_d_float_len = 0;
-        uint8_t* arr2_d_float_buf = NULL;
-        dyn_arr_status_t arr2_d_float_status = array_to_bytes(&msg->arr2_d_float, &arr2_d_float_buf,
-                &arr2_d_float_len, NULL, NULL);
+        size_t arr2_d_float_len   = 0;
+        uint8_t *arr2_d_float_buf = NULL;
+        dyn_arr_status_t arr2_d_float_status =
+            array_to_bytes(&msg->arr2_d_float, &arr2_d_float_buf, &arr2_d_float_len, NULL, NULL);
         if (arr2_d_float_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 72, arr2_d_float_len);
         if (arr2_d_float_len > 0) {
@@ -3746,13 +3763,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_int16 (offset: 76, size: 4)
     put_u32_be(hdr + 76, 0);
     if (msg->arr2_d_int16.data != NULL && msg->arr2_d_int16.x > 0) {
-        size_t arr2_d_int16_len = 0;
-        uint8_t* arr2_d_int16_buf = NULL;
-        dyn_arr_status_t arr2_d_int16_status = array_to_bytes(&msg->arr2_d_int16, &arr2_d_int16_buf,
-                &arr2_d_int16_len, NULL, NULL);
+        size_t arr2_d_int16_len   = 0;
+        uint8_t *arr2_d_int16_buf = NULL;
+        dyn_arr_status_t arr2_d_int16_status =
+            array_to_bytes(&msg->arr2_d_int16, &arr2_d_int16_buf, &arr2_d_int16_len, NULL, NULL);
         if (arr2_d_int16_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 76, arr2_d_int16_len);
         if (arr2_d_int16_len > 0) {
@@ -3765,13 +3782,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_int32 (offset: 80, size: 4)
     put_u32_be(hdr + 80, 0);
     if (msg->arr2_d_int32.data != NULL && msg->arr2_d_int32.x > 0) {
-        size_t arr2_d_int32_len = 0;
-        uint8_t* arr2_d_int32_buf = NULL;
-        dyn_arr_status_t arr2_d_int32_status = array_to_bytes(&msg->arr2_d_int32, &arr2_d_int32_buf,
-                &arr2_d_int32_len, NULL, NULL);
+        size_t arr2_d_int32_len   = 0;
+        uint8_t *arr2_d_int32_buf = NULL;
+        dyn_arr_status_t arr2_d_int32_status =
+            array_to_bytes(&msg->arr2_d_int32, &arr2_d_int32_buf, &arr2_d_int32_len, NULL, NULL);
         if (arr2_d_int32_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 80, arr2_d_int32_len);
         if (arr2_d_int32_len > 0) {
@@ -3784,13 +3801,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_int64 (offset: 84, size: 4)
     put_u32_be(hdr + 84, 0);
     if (msg->arr2_d_int64.data != NULL && msg->arr2_d_int64.x > 0) {
-        size_t arr2_d_int64_len = 0;
-        uint8_t* arr2_d_int64_buf = NULL;
-        dyn_arr_status_t arr2_d_int64_status = array_to_bytes(&msg->arr2_d_int64, &arr2_d_int64_buf,
-                &arr2_d_int64_len, NULL, NULL);
+        size_t arr2_d_int64_len   = 0;
+        uint8_t *arr2_d_int64_buf = NULL;
+        dyn_arr_status_t arr2_d_int64_status =
+            array_to_bytes(&msg->arr2_d_int64, &arr2_d_int64_buf, &arr2_d_int64_len, NULL, NULL);
         if (arr2_d_int64_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 84, arr2_d_int64_len);
         if (arr2_d_int64_len > 0) {
@@ -3803,13 +3820,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_int8 (offset: 88, size: 4)
     put_u32_be(hdr + 88, 0);
     if (msg->arr2_d_int8.data != NULL && msg->arr2_d_int8.x > 0) {
-        size_t arr2_d_int8_len = 0;
-        uint8_t* arr2_d_int8_buf = NULL;
-        dyn_arr_status_t arr2_d_int8_status = array_to_bytes(&msg->arr2_d_int8, &arr2_d_int8_buf,
-                &arr2_d_int8_len, NULL, NULL);
+        size_t arr2_d_int8_len   = 0;
+        uint8_t *arr2_d_int8_buf = NULL;
+        dyn_arr_status_t arr2_d_int8_status =
+            array_to_bytes(&msg->arr2_d_int8, &arr2_d_int8_buf, &arr2_d_int8_len, NULL, NULL);
         if (arr2_d_int8_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 88, arr2_d_int8_len);
         if (arr2_d_int8_len > 0) {
@@ -3822,13 +3839,16 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_nested (offset: 92, size: 4)
     put_u32_be(hdr + 92, 0);
     if (msg->arr2_d_nested.data != NULL && msg->arr2_d_nested.x > 0) {
-        size_t arr2_d_nested_len = 0;
-        uint8_t* arr2_d_nested_buf = NULL;
-        dyn_arr_status_t arr2_d_nested_status = array_to_bytes(&msg->arr2_d_nested, &arr2_d_nested_buf,
-                &arr2_d_nested_len, only_variable_types_msg_t_size, only_variable_types_msg_t_marshal);
+        size_t arr2_d_nested_len              = 0;
+        uint8_t *arr2_d_nested_buf            = NULL;
+        dyn_arr_status_t arr2_d_nested_status = array_to_bytes(&msg->arr2_d_nested,
+                                                               &arr2_d_nested_buf,
+                                                               &arr2_d_nested_len,
+                                                               only_variable_types_msg_t_size,
+                                                               only_variable_types_msg_t_marshal);
         if (arr2_d_nested_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 92, arr2_d_nested_len);
         if (arr2_d_nested_len > 0) {
@@ -3841,13 +3861,16 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_object (offset: 96, size: 4)
     put_u32_be(hdr + 96, 0);
     if (msg->arr2_d_object.data != NULL && msg->arr2_d_object.x > 0) {
-        size_t arr2_d_object_len = 0;
-        uint8_t* arr2_d_object_buf = NULL;
-        dyn_arr_status_t arr2_d_object_status = array_to_bytes(&msg->arr2_d_object, &arr2_d_object_buf,
-                &arr2_d_object_len, only_scalar_types_msg_t_size, only_scalar_types_msg_t_marshal);
+        size_t arr2_d_object_len              = 0;
+        uint8_t *arr2_d_object_buf            = NULL;
+        dyn_arr_status_t arr2_d_object_status = array_to_bytes(&msg->arr2_d_object,
+                                                               &arr2_d_object_buf,
+                                                               &arr2_d_object_len,
+                                                               only_scalar_types_msg_t_size,
+                                                               only_scalar_types_msg_t_marshal);
         if (arr2_d_object_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 96, arr2_d_object_len);
         if (arr2_d_object_len > 0) {
@@ -3860,13 +3883,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_string (offset: 100, size: 4)
     put_u32_be(hdr + 100, 0);
     if (msg->arr2_d_string.data != NULL && msg->arr2_d_string.x > 0) {
-        size_t arr2_d_string_len = 0;
-        uint8_t* arr2_d_string_buf = NULL;
-        dyn_arr_status_t arr2_d_string_status = array_to_bytes(&msg->arr2_d_string, &arr2_d_string_buf,
-                &arr2_d_string_len, NULL, NULL);
+        size_t arr2_d_string_len   = 0;
+        uint8_t *arr2_d_string_buf = NULL;
+        dyn_arr_status_t arr2_d_string_status =
+            array_to_bytes(&msg->arr2_d_string, &arr2_d_string_buf, &arr2_d_string_len, NULL, NULL);
         if (arr2_d_string_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 100, arr2_d_string_len);
         if (arr2_d_string_len > 0) {
@@ -3879,13 +3902,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_uint16 (offset: 104, size: 4)
     put_u32_be(hdr + 104, 0);
     if (msg->arr2_d_uint16.data != NULL && msg->arr2_d_uint16.x > 0) {
-        size_t arr2_d_uint16_len = 0;
-        uint8_t* arr2_d_uint16_buf = NULL;
-        dyn_arr_status_t arr2_d_uint16_status = array_to_bytes(&msg->arr2_d_uint16, &arr2_d_uint16_buf,
-                &arr2_d_uint16_len, NULL, NULL);
+        size_t arr2_d_uint16_len   = 0;
+        uint8_t *arr2_d_uint16_buf = NULL;
+        dyn_arr_status_t arr2_d_uint16_status =
+            array_to_bytes(&msg->arr2_d_uint16, &arr2_d_uint16_buf, &arr2_d_uint16_len, NULL, NULL);
         if (arr2_d_uint16_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 104, arr2_d_uint16_len);
         if (arr2_d_uint16_len > 0) {
@@ -3898,13 +3921,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_uint32 (offset: 108, size: 4)
     put_u32_be(hdr + 108, 0);
     if (msg->arr2_d_uint32.data != NULL && msg->arr2_d_uint32.x > 0) {
-        size_t arr2_d_uint32_len = 0;
-        uint8_t* arr2_d_uint32_buf = NULL;
-        dyn_arr_status_t arr2_d_uint32_status = array_to_bytes(&msg->arr2_d_uint32, &arr2_d_uint32_buf,
-                &arr2_d_uint32_len, NULL, NULL);
+        size_t arr2_d_uint32_len   = 0;
+        uint8_t *arr2_d_uint32_buf = NULL;
+        dyn_arr_status_t arr2_d_uint32_status =
+            array_to_bytes(&msg->arr2_d_uint32, &arr2_d_uint32_buf, &arr2_d_uint32_len, NULL, NULL);
         if (arr2_d_uint32_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 108, arr2_d_uint32_len);
         if (arr2_d_uint32_len > 0) {
@@ -3917,13 +3940,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_uint64 (offset: 112, size: 4)
     put_u32_be(hdr + 112, 0);
     if (msg->arr2_d_uint64.data != NULL && msg->arr2_d_uint64.x > 0) {
-        size_t arr2_d_uint64_len = 0;
-        uint8_t* arr2_d_uint64_buf = NULL;
-        dyn_arr_status_t arr2_d_uint64_status = array_to_bytes(&msg->arr2_d_uint64, &arr2_d_uint64_buf,
-                &arr2_d_uint64_len, NULL, NULL);
+        size_t arr2_d_uint64_len   = 0;
+        uint8_t *arr2_d_uint64_buf = NULL;
+        dyn_arr_status_t arr2_d_uint64_status =
+            array_to_bytes(&msg->arr2_d_uint64, &arr2_d_uint64_buf, &arr2_d_uint64_len, NULL, NULL);
         if (arr2_d_uint64_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 112, arr2_d_uint64_len);
         if (arr2_d_uint64_len > 0) {
@@ -3936,13 +3959,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr2_d_uint8 (offset: 116, size: 4)
     put_u32_be(hdr + 116, 0);
     if (msg->arr2_d_uint8.data != NULL && msg->arr2_d_uint8.x > 0) {
-        size_t arr2_d_uint8_len = 0;
-        uint8_t* arr2_d_uint8_buf = NULL;
-        dyn_arr_status_t arr2_d_uint8_status = array_to_bytes(&msg->arr2_d_uint8, &arr2_d_uint8_buf,
-                &arr2_d_uint8_len, NULL, NULL);
+        size_t arr2_d_uint8_len   = 0;
+        uint8_t *arr2_d_uint8_buf = NULL;
+        dyn_arr_status_t arr2_d_uint8_status =
+            array_to_bytes(&msg->arr2_d_uint8, &arr2_d_uint8_buf, &arr2_d_uint8_len, NULL, NULL);
         if (arr2_d_uint8_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 116, arr2_d_uint8_len);
         if (arr2_d_uint8_len > 0) {
@@ -3955,13 +3978,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_bool (offset: 120, size: 4)
     put_u32_be(hdr + 120, 0);
     if (msg->arr3_d_bool.data != NULL && msg->arr3_d_bool.x > 0) {
-        size_t arr3_d_bool_len = 0;
-        uint8_t* arr3_d_bool_buf = NULL;
-        dyn_arr_status_t arr3_d_bool_status = array_to_bytes(&msg->arr3_d_bool, &arr3_d_bool_buf,
-                &arr3_d_bool_len, NULL, NULL);
+        size_t arr3_d_bool_len   = 0;
+        uint8_t *arr3_d_bool_buf = NULL;
+        dyn_arr_status_t arr3_d_bool_status =
+            array_to_bytes(&msg->arr3_d_bool, &arr3_d_bool_buf, &arr3_d_bool_len, NULL, NULL);
         if (arr3_d_bool_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 120, arr3_d_bool_len);
         if (arr3_d_bool_len > 0) {
@@ -3974,13 +3997,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_bytes (offset: 124, size: 4)
     put_u32_be(hdr + 124, 0);
     if (msg->arr3_d_bytes.data != NULL && msg->arr3_d_bytes.x > 0) {
-        size_t arr3_d_bytes_len = 0;
-        uint8_t* arr3_d_bytes_buf = NULL;
-        dyn_arr_status_t arr3_d_bytes_status = array_to_bytes(&msg->arr3_d_bytes, &arr3_d_bytes_buf,
-                &arr3_d_bytes_len, NULL, NULL);
+        size_t arr3_d_bytes_len   = 0;
+        uint8_t *arr3_d_bytes_buf = NULL;
+        dyn_arr_status_t arr3_d_bytes_status =
+            array_to_bytes(&msg->arr3_d_bytes, &arr3_d_bytes_buf, &arr3_d_bytes_len, NULL, NULL);
         if (arr3_d_bytes_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 124, arr3_d_bytes_len);
         if (arr3_d_bytes_len > 0) {
@@ -3993,13 +4016,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_double (offset: 128, size: 4)
     put_u32_be(hdr + 128, 0);
     if (msg->arr3_d_double.data != NULL && msg->arr3_d_double.x > 0) {
-        size_t arr3_d_double_len = 0;
-        uint8_t* arr3_d_double_buf = NULL;
-        dyn_arr_status_t arr3_d_double_status = array_to_bytes(&msg->arr3_d_double, &arr3_d_double_buf,
-                &arr3_d_double_len, NULL, NULL);
+        size_t arr3_d_double_len   = 0;
+        uint8_t *arr3_d_double_buf = NULL;
+        dyn_arr_status_t arr3_d_double_status =
+            array_to_bytes(&msg->arr3_d_double, &arr3_d_double_buf, &arr3_d_double_len, NULL, NULL);
         if (arr3_d_double_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 128, arr3_d_double_len);
         if (arr3_d_double_len > 0) {
@@ -4012,13 +4035,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_float (offset: 132, size: 4)
     put_u32_be(hdr + 132, 0);
     if (msg->arr3_d_float.data != NULL && msg->arr3_d_float.x > 0) {
-        size_t arr3_d_float_len = 0;
-        uint8_t* arr3_d_float_buf = NULL;
-        dyn_arr_status_t arr3_d_float_status = array_to_bytes(&msg->arr3_d_float, &arr3_d_float_buf,
-                &arr3_d_float_len, NULL, NULL);
+        size_t arr3_d_float_len   = 0;
+        uint8_t *arr3_d_float_buf = NULL;
+        dyn_arr_status_t arr3_d_float_status =
+            array_to_bytes(&msg->arr3_d_float, &arr3_d_float_buf, &arr3_d_float_len, NULL, NULL);
         if (arr3_d_float_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 132, arr3_d_float_len);
         if (arr3_d_float_len > 0) {
@@ -4031,13 +4054,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_int16 (offset: 136, size: 4)
     put_u32_be(hdr + 136, 0);
     if (msg->arr3_d_int16.data != NULL && msg->arr3_d_int16.x > 0) {
-        size_t arr3_d_int16_len = 0;
-        uint8_t* arr3_d_int16_buf = NULL;
-        dyn_arr_status_t arr3_d_int16_status = array_to_bytes(&msg->arr3_d_int16, &arr3_d_int16_buf,
-                &arr3_d_int16_len, NULL, NULL);
+        size_t arr3_d_int16_len   = 0;
+        uint8_t *arr3_d_int16_buf = NULL;
+        dyn_arr_status_t arr3_d_int16_status =
+            array_to_bytes(&msg->arr3_d_int16, &arr3_d_int16_buf, &arr3_d_int16_len, NULL, NULL);
         if (arr3_d_int16_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 136, arr3_d_int16_len);
         if (arr3_d_int16_len > 0) {
@@ -4050,13 +4073,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_int32 (offset: 140, size: 4)
     put_u32_be(hdr + 140, 0);
     if (msg->arr3_d_int32.data != NULL && msg->arr3_d_int32.x > 0) {
-        size_t arr3_d_int32_len = 0;
-        uint8_t* arr3_d_int32_buf = NULL;
-        dyn_arr_status_t arr3_d_int32_status = array_to_bytes(&msg->arr3_d_int32, &arr3_d_int32_buf,
-                &arr3_d_int32_len, NULL, NULL);
+        size_t arr3_d_int32_len   = 0;
+        uint8_t *arr3_d_int32_buf = NULL;
+        dyn_arr_status_t arr3_d_int32_status =
+            array_to_bytes(&msg->arr3_d_int32, &arr3_d_int32_buf, &arr3_d_int32_len, NULL, NULL);
         if (arr3_d_int32_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 140, arr3_d_int32_len);
         if (arr3_d_int32_len > 0) {
@@ -4069,13 +4092,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_int64 (offset: 144, size: 4)
     put_u32_be(hdr + 144, 0);
     if (msg->arr3_d_int64.data != NULL && msg->arr3_d_int64.x > 0) {
-        size_t arr3_d_int64_len = 0;
-        uint8_t* arr3_d_int64_buf = NULL;
-        dyn_arr_status_t arr3_d_int64_status = array_to_bytes(&msg->arr3_d_int64, &arr3_d_int64_buf,
-                &arr3_d_int64_len, NULL, NULL);
+        size_t arr3_d_int64_len   = 0;
+        uint8_t *arr3_d_int64_buf = NULL;
+        dyn_arr_status_t arr3_d_int64_status =
+            array_to_bytes(&msg->arr3_d_int64, &arr3_d_int64_buf, &arr3_d_int64_len, NULL, NULL);
         if (arr3_d_int64_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 144, arr3_d_int64_len);
         if (arr3_d_int64_len > 0) {
@@ -4088,13 +4111,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_int8 (offset: 148, size: 4)
     put_u32_be(hdr + 148, 0);
     if (msg->arr3_d_int8.data != NULL && msg->arr3_d_int8.x > 0) {
-        size_t arr3_d_int8_len = 0;
-        uint8_t* arr3_d_int8_buf = NULL;
-        dyn_arr_status_t arr3_d_int8_status = array_to_bytes(&msg->arr3_d_int8, &arr3_d_int8_buf,
-                &arr3_d_int8_len, NULL, NULL);
+        size_t arr3_d_int8_len   = 0;
+        uint8_t *arr3_d_int8_buf = NULL;
+        dyn_arr_status_t arr3_d_int8_status =
+            array_to_bytes(&msg->arr3_d_int8, &arr3_d_int8_buf, &arr3_d_int8_len, NULL, NULL);
         if (arr3_d_int8_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 148, arr3_d_int8_len);
         if (arr3_d_int8_len > 0) {
@@ -4107,13 +4130,16 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_nested (offset: 152, size: 4)
     put_u32_be(hdr + 152, 0);
     if (msg->arr3_d_nested.data != NULL && msg->arr3_d_nested.x > 0) {
-        size_t arr3_d_nested_len = 0;
-        uint8_t* arr3_d_nested_buf = NULL;
-        dyn_arr_status_t arr3_d_nested_status = array_to_bytes(&msg->arr3_d_nested, &arr3_d_nested_buf,
-                &arr3_d_nested_len, only_variable_types_msg_t_size, only_variable_types_msg_t_marshal);
+        size_t arr3_d_nested_len              = 0;
+        uint8_t *arr3_d_nested_buf            = NULL;
+        dyn_arr_status_t arr3_d_nested_status = array_to_bytes(&msg->arr3_d_nested,
+                                                               &arr3_d_nested_buf,
+                                                               &arr3_d_nested_len,
+                                                               only_variable_types_msg_t_size,
+                                                               only_variable_types_msg_t_marshal);
         if (arr3_d_nested_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 152, arr3_d_nested_len);
         if (arr3_d_nested_len > 0) {
@@ -4126,13 +4152,16 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_object (offset: 156, size: 4)
     put_u32_be(hdr + 156, 0);
     if (msg->arr3_d_object.data != NULL && msg->arr3_d_object.x > 0) {
-        size_t arr3_d_object_len = 0;
-        uint8_t* arr3_d_object_buf = NULL;
-        dyn_arr_status_t arr3_d_object_status = array_to_bytes(&msg->arr3_d_object, &arr3_d_object_buf,
-                &arr3_d_object_len, only_scalar_types_msg_t_size, only_scalar_types_msg_t_marshal);
+        size_t arr3_d_object_len              = 0;
+        uint8_t *arr3_d_object_buf            = NULL;
+        dyn_arr_status_t arr3_d_object_status = array_to_bytes(&msg->arr3_d_object,
+                                                               &arr3_d_object_buf,
+                                                               &arr3_d_object_len,
+                                                               only_scalar_types_msg_t_size,
+                                                               only_scalar_types_msg_t_marshal);
         if (arr3_d_object_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 156, arr3_d_object_len);
         if (arr3_d_object_len > 0) {
@@ -4145,13 +4174,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_string (offset: 160, size: 4)
     put_u32_be(hdr + 160, 0);
     if (msg->arr3_d_string.data != NULL && msg->arr3_d_string.x > 0) {
-        size_t arr3_d_string_len = 0;
-        uint8_t* arr3_d_string_buf = NULL;
-        dyn_arr_status_t arr3_d_string_status = array_to_bytes(&msg->arr3_d_string, &arr3_d_string_buf,
-                &arr3_d_string_len, NULL, NULL);
+        size_t arr3_d_string_len   = 0;
+        uint8_t *arr3_d_string_buf = NULL;
+        dyn_arr_status_t arr3_d_string_status =
+            array_to_bytes(&msg->arr3_d_string, &arr3_d_string_buf, &arr3_d_string_len, NULL, NULL);
         if (arr3_d_string_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 160, arr3_d_string_len);
         if (arr3_d_string_len > 0) {
@@ -4164,13 +4193,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_uint16 (offset: 164, size: 4)
     put_u32_be(hdr + 164, 0);
     if (msg->arr3_d_uint16.data != NULL && msg->arr3_d_uint16.x > 0) {
-        size_t arr3_d_uint16_len = 0;
-        uint8_t* arr3_d_uint16_buf = NULL;
-        dyn_arr_status_t arr3_d_uint16_status = array_to_bytes(&msg->arr3_d_uint16, &arr3_d_uint16_buf,
-                &arr3_d_uint16_len, NULL, NULL);
+        size_t arr3_d_uint16_len   = 0;
+        uint8_t *arr3_d_uint16_buf = NULL;
+        dyn_arr_status_t arr3_d_uint16_status =
+            array_to_bytes(&msg->arr3_d_uint16, &arr3_d_uint16_buf, &arr3_d_uint16_len, NULL, NULL);
         if (arr3_d_uint16_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 164, arr3_d_uint16_len);
         if (arr3_d_uint16_len > 0) {
@@ -4183,13 +4212,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_uint32 (offset: 168, size: 4)
     put_u32_be(hdr + 168, 0);
     if (msg->arr3_d_uint32.data != NULL && msg->arr3_d_uint32.x > 0) {
-        size_t arr3_d_uint32_len = 0;
-        uint8_t* arr3_d_uint32_buf = NULL;
-        dyn_arr_status_t arr3_d_uint32_status = array_to_bytes(&msg->arr3_d_uint32, &arr3_d_uint32_buf,
-                &arr3_d_uint32_len, NULL, NULL);
+        size_t arr3_d_uint32_len   = 0;
+        uint8_t *arr3_d_uint32_buf = NULL;
+        dyn_arr_status_t arr3_d_uint32_status =
+            array_to_bytes(&msg->arr3_d_uint32, &arr3_d_uint32_buf, &arr3_d_uint32_len, NULL, NULL);
         if (arr3_d_uint32_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 168, arr3_d_uint32_len);
         if (arr3_d_uint32_len > 0) {
@@ -4202,13 +4231,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_uint64 (offset: 172, size: 4)
     put_u32_be(hdr + 172, 0);
     if (msg->arr3_d_uint64.data != NULL && msg->arr3_d_uint64.x > 0) {
-        size_t arr3_d_uint64_len = 0;
-        uint8_t* arr3_d_uint64_buf = NULL;
-        dyn_arr_status_t arr3_d_uint64_status = array_to_bytes(&msg->arr3_d_uint64, &arr3_d_uint64_buf,
-                &arr3_d_uint64_len, NULL, NULL);
+        size_t arr3_d_uint64_len   = 0;
+        uint8_t *arr3_d_uint64_buf = NULL;
+        dyn_arr_status_t arr3_d_uint64_status =
+            array_to_bytes(&msg->arr3_d_uint64, &arr3_d_uint64_buf, &arr3_d_uint64_len, NULL, NULL);
         if (arr3_d_uint64_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 172, arr3_d_uint64_len);
         if (arr3_d_uint64_len > 0) {
@@ -4221,13 +4250,13 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
     // all_types_of_arrays_msg_t -> arr3_d_uint8 (offset: 176, size: 4)
     put_u32_be(hdr + 176, 0);
     if (msg->arr3_d_uint8.data != NULL && msg->arr3_d_uint8.x > 0) {
-        size_t arr3_d_uint8_len = 0;
-        uint8_t* arr3_d_uint8_buf = NULL;
-        dyn_arr_status_t arr3_d_uint8_status = array_to_bytes(&msg->arr3_d_uint8, &arr3_d_uint8_buf,
-                &arr3_d_uint8_len, NULL, NULL);
+        size_t arr3_d_uint8_len   = 0;
+        uint8_t *arr3_d_uint8_buf = NULL;
+        dyn_arr_status_t arr3_d_uint8_status =
+            array_to_bytes(&msg->arr3_d_uint8, &arr3_d_uint8_buf, &arr3_d_uint8_len, NULL, NULL);
         if (arr3_d_uint8_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + 176, arr3_d_uint8_len);
         if (arr3_d_uint8_len > 0) {
@@ -4239,7 +4268,7 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
 
     (void)dyn_off;
     *out_buf = buf;
-    return (int)total_size;
+    return ((int)total_size);
 }
 
 /**
@@ -4250,628 +4279,545 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t** out_buf) {
  * On any error, partial allocations are cleaned up before returning.
  */
 int all_types_of_arrays_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-        uint32_t overall_payload_len, void *out_item) {
-    if (!in_buf || !out_item ||
-        fixed_payload_len < ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE ||
-        overall_payload_len < fixed_payload_len ||
-        overall_payload_len > MAX_ALLOWED_PACKET) {
-        return -1;
+                                        uint32_t overall_payload_len, void *out_item) {
+    if (!in_buf || !out_item || fixed_payload_len < ALL_TYPES_OF_ARRAYS_MSG_FIXED_SIZE ||
+        overall_payload_len < fixed_payload_len || overall_payload_len > MAX_ALLOWED_PACKET) {
+        return (-1);
     }
 
     all_types_of_arrays_msg_t *out_msg = out_item;
     memset(out_msg, 0, sizeof(all_types_of_arrays_msg_t));
 
     const uint8_t *hdr = in_buf;
-    size_t dyn_off = fixed_payload_len;
+    size_t dyn_off     = fixed_payload_len;
 
     /* Decode fixed-size primitives from structural block offsets */
     uint32_t arr1_d_bool_len = get_u32_be(hdr + 0);
-    if (arr1_d_bool_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_bool_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_bytes_len = get_u32_be(hdr + 4);
-    if (arr1_d_bytes_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_bytes_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_double_len = get_u32_be(hdr + 8);
-    if (arr1_d_double_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_double_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_float_len = get_u32_be(hdr + 12);
-    if (arr1_d_float_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_float_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_int16_len = get_u32_be(hdr + 16);
-    if (arr1_d_int16_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_int16_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_int32_len = get_u32_be(hdr + 20);
-    if (arr1_d_int32_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_int32_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_int64_len = get_u32_be(hdr + 24);
-    if (arr1_d_int64_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_int64_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_int8_len = get_u32_be(hdr + 28);
-    if (arr1_d_int8_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_int8_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_nested_len = get_u32_be(hdr + 32);
-    if (arr1_d_nested_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_nested_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_object_len = get_u32_be(hdr + 36);
-    if (arr1_d_object_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_object_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_string_len = get_u32_be(hdr + 40);
-    if (arr1_d_string_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_string_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_uint16_len = get_u32_be(hdr + 44);
-    if (arr1_d_uint16_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_uint16_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_uint32_len = get_u32_be(hdr + 48);
-    if (arr1_d_uint32_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_uint32_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_uint64_len = get_u32_be(hdr + 52);
-    if (arr1_d_uint64_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_uint64_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr1_d_uint8_len = get_u32_be(hdr + 56);
-    if (arr1_d_uint8_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr1_d_uint8_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_bool_len = get_u32_be(hdr + 60);
-    if (arr2_d_bool_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_bool_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_bytes_len = get_u32_be(hdr + 64);
-    if (arr2_d_bytes_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_bytes_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_double_len = get_u32_be(hdr + 68);
-    if (arr2_d_double_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_double_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_float_len = get_u32_be(hdr + 72);
-    if (arr2_d_float_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_float_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_int16_len = get_u32_be(hdr + 76);
-    if (arr2_d_int16_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_int16_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_int32_len = get_u32_be(hdr + 80);
-    if (arr2_d_int32_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_int32_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_int64_len = get_u32_be(hdr + 84);
-    if (arr2_d_int64_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_int64_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_int8_len = get_u32_be(hdr + 88);
-    if (arr2_d_int8_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_int8_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_nested_len = get_u32_be(hdr + 92);
-    if (arr2_d_nested_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_nested_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_object_len = get_u32_be(hdr + 96);
-    if (arr2_d_object_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_object_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_string_len = get_u32_be(hdr + 100);
-    if (arr2_d_string_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_string_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_uint16_len = get_u32_be(hdr + 104);
-    if (arr2_d_uint16_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_uint16_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_uint32_len = get_u32_be(hdr + 108);
-    if (arr2_d_uint32_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_uint32_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_uint64_len = get_u32_be(hdr + 112);
-    if (arr2_d_uint64_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_uint64_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr2_d_uint8_len = get_u32_be(hdr + 116);
-    if (arr2_d_uint8_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr2_d_uint8_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_bool_len = get_u32_be(hdr + 120);
-    if (arr3_d_bool_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_bool_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_bytes_len = get_u32_be(hdr + 124);
-    if (arr3_d_bytes_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_bytes_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_double_len = get_u32_be(hdr + 128);
-    if (arr3_d_double_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_double_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_float_len = get_u32_be(hdr + 132);
-    if (arr3_d_float_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_float_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_int16_len = get_u32_be(hdr + 136);
-    if (arr3_d_int16_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_int16_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_int32_len = get_u32_be(hdr + 140);
-    if (arr3_d_int32_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_int32_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_int64_len = get_u32_be(hdr + 144);
-    if (arr3_d_int64_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_int64_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_int8_len = get_u32_be(hdr + 148);
-    if (arr3_d_int8_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_int8_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_nested_len = get_u32_be(hdr + 152);
-    if (arr3_d_nested_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_nested_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_object_len = get_u32_be(hdr + 156);
-    if (arr3_d_object_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_object_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_string_len = get_u32_be(hdr + 160);
-    if (arr3_d_string_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_string_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_uint16_len = get_u32_be(hdr + 164);
-    if (arr3_d_uint16_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_uint16_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_uint32_len = get_u32_be(hdr + 168);
-    if (arr3_d_uint32_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_uint32_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_uint64_len = get_u32_be(hdr + 172);
-    if (arr3_d_uint64_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_uint64_len > MAX_ALLOWED_PACKET) { return (-1); }
     uint32_t arr3_d_uint8_len = get_u32_be(hdr + 176);
-    if (arr3_d_uint8_len > MAX_ALLOWED_PACKET) {
-        return -1;
-    }
+    if (arr3_d_uint8_len > MAX_ALLOWED_PACKET) { return (-1); }
 
     /* Decode variable-length dynamic fields safely */
     if (arr1_d_bool_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_bool_len,
-            &out_msg->arr1_d_bool, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_bool_len, &out_msg->arr1_d_bool, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_bool_len;
     }
     if (arr1_d_bytes_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_bytes_len,
-            &out_msg->arr1_d_bytes, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_bytes_len, &out_msg->arr1_d_bytes, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_bytes_len;
     }
     if (arr1_d_double_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_double_len,
-            &out_msg->arr1_d_double, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_double_len, &out_msg->arr1_d_double, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_double_len;
     }
     if (arr1_d_float_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_float_len,
-            &out_msg->arr1_d_float, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_float_len, &out_msg->arr1_d_float, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_float_len;
     }
     if (arr1_d_int16_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_int16_len,
-            &out_msg->arr1_d_int16, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_int16_len, &out_msg->arr1_d_int16, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_int16_len;
     }
     if (arr1_d_int32_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_int32_len,
-            &out_msg->arr1_d_int32, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_int32_len, &out_msg->arr1_d_int32, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_int32_len;
     }
     if (arr1_d_int64_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_int64_len,
-            &out_msg->arr1_d_int64, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_int64_len, &out_msg->arr1_d_int64, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_int64_len;
     }
     if (arr1_d_int8_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_int8_len,
-            &out_msg->arr1_d_int8, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_int8_len, &out_msg->arr1_d_int8, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_int8_len;
     }
     if (arr1_d_nested_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_nested_len,
-            &out_msg->arr1_d_nested, only_variable_types_msg_t_unmarshal);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off,
+                                                 arr1_d_nested_len,
+                                                 &out_msg->arr1_d_nested,
+                                                 only_variable_types_msg_t_unmarshal);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_nested_len;
     }
     if (arr1_d_object_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_object_len,
-            &out_msg->arr1_d_object, only_scalar_types_msg_t_unmarshal);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off,
+                                                 arr1_d_object_len,
+                                                 &out_msg->arr1_d_object,
+                                                 only_scalar_types_msg_t_unmarshal);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_object_len;
     }
     if (arr1_d_string_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_string_len,
-            &out_msg->arr1_d_string, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_string_len, &out_msg->arr1_d_string, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_string_len;
     }
     if (arr1_d_uint16_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_uint16_len,
-            &out_msg->arr1_d_uint16, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_uint16_len, &out_msg->arr1_d_uint16, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_uint16_len;
     }
     if (arr1_d_uint32_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_uint32_len,
-            &out_msg->arr1_d_uint32, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_uint32_len, &out_msg->arr1_d_uint32, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_uint32_len;
     }
     if (arr1_d_uint64_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_uint64_len,
-            &out_msg->arr1_d_uint64, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_uint64_len, &out_msg->arr1_d_uint64, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_uint64_len;
     }
     if (arr1_d_uint8_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr1_d_uint8_len,
-            &out_msg->arr1_d_uint8, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr1_d_uint8_len, &out_msg->arr1_d_uint8, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr1_d_uint8_len;
     }
     if (arr2_d_bool_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_bool_len,
-            &out_msg->arr2_d_bool, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_bool_len, &out_msg->arr2_d_bool, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_bool_len;
     }
     if (arr2_d_bytes_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_bytes_len,
-            &out_msg->arr2_d_bytes, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_bytes_len, &out_msg->arr2_d_bytes, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_bytes_len;
     }
     if (arr2_d_double_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_double_len,
-            &out_msg->arr2_d_double, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_double_len, &out_msg->arr2_d_double, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_double_len;
     }
     if (arr2_d_float_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_float_len,
-            &out_msg->arr2_d_float, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_float_len, &out_msg->arr2_d_float, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_float_len;
     }
     if (arr2_d_int16_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_int16_len,
-            &out_msg->arr2_d_int16, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_int16_len, &out_msg->arr2_d_int16, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_int16_len;
     }
     if (arr2_d_int32_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_int32_len,
-            &out_msg->arr2_d_int32, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_int32_len, &out_msg->arr2_d_int32, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_int32_len;
     }
     if (arr2_d_int64_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_int64_len,
-            &out_msg->arr2_d_int64, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_int64_len, &out_msg->arr2_d_int64, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_int64_len;
     }
     if (arr2_d_int8_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_int8_len,
-            &out_msg->arr2_d_int8, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_int8_len, &out_msg->arr2_d_int8, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_int8_len;
     }
     if (arr2_d_nested_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_nested_len,
-            &out_msg->arr2_d_nested, only_variable_types_msg_t_unmarshal);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off,
+                                                 arr2_d_nested_len,
+                                                 &out_msg->arr2_d_nested,
+                                                 only_variable_types_msg_t_unmarshal);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_nested_len;
     }
     if (arr2_d_object_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_object_len,
-            &out_msg->arr2_d_object, only_scalar_types_msg_t_unmarshal);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off,
+                                                 arr2_d_object_len,
+                                                 &out_msg->arr2_d_object,
+                                                 only_scalar_types_msg_t_unmarshal);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_object_len;
     }
     if (arr2_d_string_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_string_len,
-            &out_msg->arr2_d_string, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_string_len, &out_msg->arr2_d_string, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_string_len;
     }
     if (arr2_d_uint16_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_uint16_len,
-            &out_msg->arr2_d_uint16, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_uint16_len, &out_msg->arr2_d_uint16, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_uint16_len;
     }
     if (arr2_d_uint32_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_uint32_len,
-            &out_msg->arr2_d_uint32, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_uint32_len, &out_msg->arr2_d_uint32, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_uint32_len;
     }
     if (arr2_d_uint64_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_uint64_len,
-            &out_msg->arr2_d_uint64, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_uint64_len, &out_msg->arr2_d_uint64, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_uint64_len;
     }
     if (arr2_d_uint8_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr2_d_uint8_len,
-            &out_msg->arr2_d_uint8, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr2_d_uint8_len, &out_msg->arr2_d_uint8, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr2_d_uint8_len;
     }
     if (arr3_d_bool_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_bool_len,
-            &out_msg->arr3_d_bool, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_bool_len, &out_msg->arr3_d_bool, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_bool_len;
     }
     if (arr3_d_bytes_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_bytes_len,
-            &out_msg->arr3_d_bytes, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_bytes_len, &out_msg->arr3_d_bytes, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_bytes_len;
     }
     if (arr3_d_double_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_double_len,
-            &out_msg->arr3_d_double, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_double_len, &out_msg->arr3_d_double, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_double_len;
     }
     if (arr3_d_float_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_float_len,
-            &out_msg->arr3_d_float, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_float_len, &out_msg->arr3_d_float, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_float_len;
     }
     if (arr3_d_int16_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_int16_len,
-            &out_msg->arr3_d_int16, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_int16_len, &out_msg->arr3_d_int16, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_int16_len;
     }
     if (arr3_d_int32_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_int32_len,
-            &out_msg->arr3_d_int32, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_int32_len, &out_msg->arr3_d_int32, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_int32_len;
     }
     if (arr3_d_int64_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_int64_len,
-            &out_msg->arr3_d_int64, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_int64_len, &out_msg->arr3_d_int64, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_int64_len;
     }
     if (arr3_d_int8_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_int8_len,
-            &out_msg->arr3_d_int8, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_int8_len, &out_msg->arr3_d_int8, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_int8_len;
     }
     if (arr3_d_nested_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_nested_len,
-            &out_msg->arr3_d_nested, only_variable_types_msg_t_unmarshal);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off,
+                                                 arr3_d_nested_len,
+                                                 &out_msg->arr3_d_nested,
+                                                 only_variable_types_msg_t_unmarshal);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_nested_len;
     }
     if (arr3_d_object_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_object_len,
-            &out_msg->arr3_d_object, only_scalar_types_msg_t_unmarshal);
+        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off,
+                                                 arr3_d_object_len,
+                                                 &out_msg->arr3_d_object,
+                                                 only_scalar_types_msg_t_unmarshal);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_object_len;
     }
     if (arr3_d_string_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_string_len,
-            &out_msg->arr3_d_string, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_string_len, &out_msg->arr3_d_string, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_string_len;
     }
     if (arr3_d_uint16_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_uint16_len,
-            &out_msg->arr3_d_uint16, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_uint16_len, &out_msg->arr3_d_uint16, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_uint16_len;
     }
     if (arr3_d_uint32_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_uint32_len,
-            &out_msg->arr3_d_uint32, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_uint32_len, &out_msg->arr3_d_uint32, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_uint32_len;
     }
     if (arr3_d_uint64_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_uint64_len,
-            &out_msg->arr3_d_uint64, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_uint64_len, &out_msg->arr3_d_uint64, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_uint64_len;
     }
     if (arr3_d_uint8_len > 0) {
-        dyn_arr_status_t status = bytes_to_array(in_buf + dyn_off, arr3_d_uint8_len,
-            &out_msg->arr3_d_uint8, NULL);
+        dyn_arr_status_t status =
+            bytes_to_array(in_buf + dyn_off, arr3_d_uint8_len, &out_msg->arr3_d_uint8, NULL);
         if (status != DYN_ARR_OK) {
             all_types_of_arrays_msg_t_free(out_msg);
-            return -1;
+            return (-1);
         }
         dyn_off += arr3_d_uint8_len;
     }
 
     (void)dyn_off;
-    return 0;
+    return (0);
 }
 
 /**
  * all_types_of_arrays_msg_t_free - Release heap memory owned by a all_types_of_arrays_msg_t struct.
  */
 void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
-    if (!msg) {
-        return;
-    }
+    if (!msg) { return; }
     dynamic_array_destroy(&msg->arr1_d_bool);
     if (msg->arr1_d_bytes.data) {
         size_t _total = msg->arr1_d_bytes.x * msg->arr1_d_bytes.y * msg->arr1_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data + _i * msg->arr1_d_bytes.elem_size);
-            if (msg->arr1_d_bytes.is_set[_i] && _elem->data) {
-                byte_array_t_free(_elem);
-            }
+            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr1_d_bytes.data +
+                                                   _i * msg->arr1_d_bytes.elem_size);
+            if (msg->arr1_d_bytes.is_set[_i] && _elem->data) { byte_array_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->arr1_d_bytes);
@@ -4884,7 +4830,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr1_d_nested.data) {
         size_t _total = msg->arr1_d_nested.x * msg->arr1_d_nested.y * msg->arr1_d_nested.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            only_variable_types_msg_t *_elem = (only_variable_types_msg_t *)((uint8_t *)msg->arr1_d_nested.data + _i * msg->arr1_d_nested.elem_size);
+            only_variable_types_msg_t *_elem =
+                (only_variable_types_msg_t *)((uint8_t *)msg->arr1_d_nested.data +
+                                              _i * msg->arr1_d_nested.elem_size);
             only_variable_types_msg_t_free(_elem);
         }
     }
@@ -4892,7 +4840,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr1_d_object.data) {
         size_t _total = msg->arr1_d_object.x * msg->arr1_d_object.y * msg->arr1_d_object.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            only_scalar_types_msg_t *_elem = (only_scalar_types_msg_t *)((uint8_t *)msg->arr1_d_object.data + _i * msg->arr1_d_object.elem_size);
+            only_scalar_types_msg_t *_elem =
+                (only_scalar_types_msg_t *)((uint8_t *)msg->arr1_d_object.data +
+                                            _i * msg->arr1_d_object.elem_size);
             only_scalar_types_msg_t_free(_elem);
         }
     }
@@ -4900,10 +4850,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr1_d_string.data) {
         size_t _total = msg->arr1_d_string.x * msg->arr1_d_string.y * msg->arr1_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            string_t *_elem = (string_t *)((uint8_t *)msg->arr1_d_string.data + _i * msg->arr1_d_string.elem_size);
-            if (msg->arr1_d_string.is_set[_i] && _elem->data) {
-                string_t_free(_elem);
-            }
+            string_t *_elem = (string_t *)((uint8_t *)msg->arr1_d_string.data +
+                                           _i * msg->arr1_d_string.elem_size);
+            if (msg->arr1_d_string.is_set[_i] && _elem->data) { string_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->arr1_d_string);
@@ -4915,10 +4864,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr2_d_bytes.data) {
         size_t _total = msg->arr2_d_bytes.x * msg->arr2_d_bytes.y * msg->arr2_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data + _i * msg->arr2_d_bytes.elem_size);
-            if (msg->arr2_d_bytes.is_set[_i] && _elem->data) {
-                byte_array_t_free(_elem);
-            }
+            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr2_d_bytes.data +
+                                                   _i * msg->arr2_d_bytes.elem_size);
+            if (msg->arr2_d_bytes.is_set[_i] && _elem->data) { byte_array_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->arr2_d_bytes);
@@ -4931,7 +4879,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr2_d_nested.data) {
         size_t _total = msg->arr2_d_nested.x * msg->arr2_d_nested.y * msg->arr2_d_nested.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            only_variable_types_msg_t *_elem = (only_variable_types_msg_t *)((uint8_t *)msg->arr2_d_nested.data + _i * msg->arr2_d_nested.elem_size);
+            only_variable_types_msg_t *_elem =
+                (only_variable_types_msg_t *)((uint8_t *)msg->arr2_d_nested.data +
+                                              _i * msg->arr2_d_nested.elem_size);
             only_variable_types_msg_t_free(_elem);
         }
     }
@@ -4939,7 +4889,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr2_d_object.data) {
         size_t _total = msg->arr2_d_object.x * msg->arr2_d_object.y * msg->arr2_d_object.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            only_scalar_types_msg_t *_elem = (only_scalar_types_msg_t *)((uint8_t *)msg->arr2_d_object.data + _i * msg->arr2_d_object.elem_size);
+            only_scalar_types_msg_t *_elem =
+                (only_scalar_types_msg_t *)((uint8_t *)msg->arr2_d_object.data +
+                                            _i * msg->arr2_d_object.elem_size);
             only_scalar_types_msg_t_free(_elem);
         }
     }
@@ -4947,10 +4899,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr2_d_string.data) {
         size_t _total = msg->arr2_d_string.x * msg->arr2_d_string.y * msg->arr2_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            string_t *_elem = (string_t *)((uint8_t *)msg->arr2_d_string.data + _i * msg->arr2_d_string.elem_size);
-            if (msg->arr2_d_string.is_set[_i] && _elem->data) {
-                string_t_free(_elem);
-            }
+            string_t *_elem = (string_t *)((uint8_t *)msg->arr2_d_string.data +
+                                           _i * msg->arr2_d_string.elem_size);
+            if (msg->arr2_d_string.is_set[_i] && _elem->data) { string_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->arr2_d_string);
@@ -4962,10 +4913,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr3_d_bytes.data) {
         size_t _total = msg->arr3_d_bytes.x * msg->arr3_d_bytes.y * msg->arr3_d_bytes.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data + _i * msg->arr3_d_bytes.elem_size);
-            if (msg->arr3_d_bytes.is_set[_i] && _elem->data) {
-                byte_array_t_free(_elem);
-            }
+            byte_array_t *_elem = (byte_array_t *)((uint8_t *)msg->arr3_d_bytes.data +
+                                                   _i * msg->arr3_d_bytes.elem_size);
+            if (msg->arr3_d_bytes.is_set[_i] && _elem->data) { byte_array_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->arr3_d_bytes);
@@ -4978,7 +4928,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr3_d_nested.data) {
         size_t _total = msg->arr3_d_nested.x * msg->arr3_d_nested.y * msg->arr3_d_nested.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            only_variable_types_msg_t *_elem = (only_variable_types_msg_t *)((uint8_t *)msg->arr3_d_nested.data + _i * msg->arr3_d_nested.elem_size);
+            only_variable_types_msg_t *_elem =
+                (only_variable_types_msg_t *)((uint8_t *)msg->arr3_d_nested.data +
+                                              _i * msg->arr3_d_nested.elem_size);
             only_variable_types_msg_t_free(_elem);
         }
     }
@@ -4986,7 +4938,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr3_d_object.data) {
         size_t _total = msg->arr3_d_object.x * msg->arr3_d_object.y * msg->arr3_d_object.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            only_scalar_types_msg_t *_elem = (only_scalar_types_msg_t *)((uint8_t *)msg->arr3_d_object.data + _i * msg->arr3_d_object.elem_size);
+            only_scalar_types_msg_t *_elem =
+                (only_scalar_types_msg_t *)((uint8_t *)msg->arr3_d_object.data +
+                                            _i * msg->arr3_d_object.elem_size);
             only_scalar_types_msg_t_free(_elem);
         }
     }
@@ -4994,10 +4948,9 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     if (msg->arr3_d_string.data) {
         size_t _total = msg->arr3_d_string.x * msg->arr3_d_string.y * msg->arr3_d_string.z;
         for (size_t _i = 0; _i < _total; _i++) {
-            string_t *_elem = (string_t *)((uint8_t *)msg->arr3_d_string.data + _i * msg->arr3_d_string.elem_size);
-            if (msg->arr3_d_string.is_set[_i] && _elem->data) {
-                string_t_free(_elem);
-            }
+            string_t *_elem = (string_t *)((uint8_t *)msg->arr3_d_string.data +
+                                           _i * msg->arr3_d_string.elem_size);
+            if (msg->arr3_d_string.is_set[_i] && _elem->data) { string_t_free(_elem); }
         }
     }
     dynamic_array_destroy(&msg->arr3_d_string);
@@ -5006,5 +4959,3 @@ void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg) {
     dynamic_array_destroy(&msg->arr3_d_uint64);
     dynamic_array_destroy(&msg->arr3_d_uint8);
 }
-
-

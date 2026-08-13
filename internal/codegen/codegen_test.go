@@ -228,9 +228,9 @@ func TestGenerateCHeader(t *testing.T) {
 		assert.Contains(t, cHeaderCode, "_Static_assert(sizeof(heartbeat_message_t) >= 8,", "C header must contain _Static_assert for HeartbeatMessage size")
 
 		// _set_ functions
-		assert.Contains(t, cHeaderCode, "void user_message_t_set_content(", "C header must contain set function for UserMessage content")
+		assert.Contains(t, cHeaderCode, "dyn_arr_status_t user_message_t_set_content(", "C header must contain set function for UserMessage content")
 		assert.Contains(t, cHeaderCode, "void user_message_t_set_timestamp(", "C header must contain set function for UserMessage timestamp")
-		assert.Contains(t, cHeaderCode, "void user_message_t_set_attachment(", "C header must contain set function for UserMessage attachment")
+		assert.Contains(t, cHeaderCode, "dyn_arr_status_t user_message_t_set_attachment(", "C header must contain set function for UserMessage attachment")
 		assert.Contains(t, cHeaderCode, "void heartbeat_message_t_set_timestamp(", "C header must contain set function for HeartbeatMessage timestamp")
 
 		// _dynamic_payload_size functions
@@ -266,9 +266,9 @@ func TestGenerateC(t *testing.T) {
 		cCode := buf.String()
 
 		// _set_ functions
-		assert.Contains(t, cCode, "void user_message_t_set_content(", "C header must contain set function for UserMessage content")
+		assert.Contains(t, cCode, "dyn_arr_status_t user_message_t_set_content(", "C header must contain set function for UserMessage content")
 		assert.Contains(t, cCode, "void user_message_t_set_timestamp(", "C header must contain set function for UserMessage timestamp")
-		assert.Contains(t, cCode, "void user_message_t_set_attachment(", "C header must contain set function for UserMessage attachment")
+		assert.Contains(t, cCode, "dyn_arr_status_t user_message_t_set_attachment(", "C header must contain set function for UserMessage attachment")
 		assert.Contains(t, cCode, "void heartbeat_message_t_set_timestamp(", "C header must contain set function for HeartbeatMessage timestamp")
 
 		// _dynamic_payload_size functions

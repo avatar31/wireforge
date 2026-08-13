@@ -219,9 +219,6 @@ Inside Go templates, `$msg` is used to capture the current message in `{{range .
 
 ## Active TODOs
 
-**P1:**
-- Format C code after code generation (e.g., `clang-format` or `astyle`)
-
 **P2:**
 - Protocol version negotiation in frame header
 - Message registry with dispatch table generation

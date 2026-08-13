@@ -6,8 +6,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,6 +23,19 @@ import (
 
 var (
 	packageRegex = regexp.MustCompile(`^[a-zA-Z_]*$`)
+
+	// https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+	cFormatStyle = `{
+		BasedOnStyle: Google,
+		IndentWidth: 4,
+		ColumnLimit: 100,
+		AlignConsecutiveAssignments: true,
+		AlignConsecutiveMacros: true,
+		AllowShortBlocksOnASingleLine: Always,
+		AllowShortIfStatementsOnASingleLine: Always,
+		AllowShortCaseLabelsOnASingleLine: true,
+		BinPackArguments: false
+	}`
 )
 
 func main() {
@@ -40,6 +55,10 @@ func main() {
 				return fmt.Errorf("invalid package name: %s. Must match regex: %s", packageName, packageRegex.String())
 			}
 
+			if proceed := checkClangFormat(); !proceed {
+				return nil // User chose not to proceed without clang-format
+			}
+
 			return run(inputFile, outputDir, packageName)
 		},
 	}
@@ -52,6 +71,36 @@ func main() {
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+func checkClangFormat() bool {
+	_, err := exec.LookPath("clang-format")
+	if err == nil {
+		return true
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("⚠️  'clang-format' was not found on your system. C Output code will NOT be styled.\n")
+		fmt.Print("Do you want to continue anyway? (y/n): ")
+
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading input. Aborting.")
+			return false
+		}
+
+		// Clean up the text input (remove spaces and line endings)
+		input = strings.TrimSpace(strings.ToLower(input))
+		switch input {
+		case "y", "Y", "YES", "Yes", "yes":
+			return true
+		case "n", "N", "NO", "No", "no":
+			return false
+		default:
+			fmt.Println("Invalid input. Please type 'y' or 'n'.")
+		}
 	}
 }
 
@@ -99,11 +148,20 @@ func run(inputFile, outputDir, packageName string) error {
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", cHeaderPath, err)
 	}
-	defer cHeaderFile.Close()
 
 	if err := codegen.GenerateCHeader(cHeaderFile, cs); err != nil {
+		cHeaderFile.Close()
 		return fmt.Errorf("generating C header: %w", err)
 	}
+	cHeaderFile.Close()
+
+	cHeaderFormatCmd := exec.Command("clang-format", "--style="+cFormatStyle, "-i", cHeaderPath)
+	cHeaderFormatCmd.Stderr = os.Stderr
+	err = cHeaderFormatCmd.Run()
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Failed to run clang-format on C Header file %s: %v\n", cHeaderPath, err)
+	}
+
 	fmt.Printf("  generated: %s\n", cHeaderPath)
 
 	cSourcePath := filepath.Join(cOutputDir, fmt.Sprintf("%s.c", lowerPackageName))
@@ -111,11 +169,19 @@ func run(inputFile, outputDir, packageName string) error {
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", cSourcePath, err)
 	}
-	defer cSourceFile.Close()
 
 	if err := codegen.GenerateC(cSourceFile, cs); err != nil {
+		cSourceFile.Close()
 		return fmt.Errorf("generating C source: %w", err)
 	}
+	cSourceFile.Close()
+	cSourceFormatCmd := exec.Command("clang-format", "--style="+cFormatStyle, "-i", cSourcePath)
+	cSourceFormatCmd.Stderr = os.Stderr
+	err = cSourceFormatCmd.Run()
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Failed to run clang-format on C Source file %s: %v\n", cHeaderPath, err)
+	}
+
 	fmt.Printf("  generated: %s\n", cSourcePath)
 	fmt.Printf("\nwireforge: successfully generated %d message type(s)\n", len(cs.Messages))
 

@@ -92,9 +92,9 @@ const cHeaderTemplateSource = `/*
 #ifndef {{upper .PackageName}}_H
 #define {{upper .PackageName}}_H
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,14 +107,14 @@ extern "C" {
  */
 #define MAX_ALLOWED_PACKET (16 * 1024 * 1024)
 
-#define WIRE_FRAME_MSG_TYPE_SIZE 2
-#define WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE 2
+#define WIRE_FRAME_MSG_TYPE_SIZE            2
+#define WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE   2
 #define WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE 4
-#define TYPE_MARKER_SIZE 2
-#define ARRAY_COUNT_PREFIX_SIZE 2
-#define OBJECT_SET_UNSET_PREFIX_SIZE 1
-#define STRING_OR_BYTE_LEN_PREFIX_SIZE 4
-#define MAX_ARRAY_ELEMENTS 65535
+#define TYPE_MARKER_SIZE                    2
+#define ARRAY_COUNT_PREFIX_SIZE             2
+#define OBJECT_SET_UNSET_PREFIX_SIZE        1
+#define STRING_OR_BYTE_LEN_PREFIX_SIZE      4
+#define MAX_ARRAY_ELEMENTS                  65535
 
 /**
  * Size of the wire frame header:
@@ -161,8 +161,8 @@ typedef struct {
 } base_object_t;
 
 typedef struct {
-	char *data;
-	uint32_t len;
+    char *data;
+    uint32_t len;
 } string_t;
 
 dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size_t len);
@@ -170,8 +170,8 @@ dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size
 void string_t_free(string_t *str);
 
 typedef struct {
-	uint8_t *data;
-	uint32_t len;
+    uint8_t *data;
+    uint32_t len;
 } byte_array_t;
 
 dyn_arr_status_t byte_array_t_set_value(byte_array_t *arr, const uint8_t *value, const size_t len);
@@ -181,33 +181,35 @@ void byte_array_t_free(byte_array_t *arr);
 /**
  * @brief Represents a multi-dimensional dynamic array structure in C.
  *
- * This structure manages dynamically allocated memory for 1D, 2D, or 3D arrays, 
+ * This structure manages dynamically allocated memory for 1D, 2D, or 3D arrays,
  * along with tracking flags to identify which elements have been explicitly set.
  */
 typedef struct {
-    void *data;          /**< Pointer to the contiguous memory buffer holding the array elements. */
-    uint8_t *is_set;     /**< Pointer to a tracking array of flags indicating whether each element is initialized/set (1) or unset (0). */
+    void *data;      /**< Pointer to the contiguous memory buffer holding the array elements. */
+    uint8_t *is_set; /**< Pointer to a tracking array of flags indicating whether each element is
+                        initialized/set (1) or unset (0). */
 
-    uint8_t num_dims;    /**< Number of dimensions in the array (supports 1, 2, or 3). */
-    uint16_t ele_type;   /**< Type identifier tag representing the data type of the elements stored. */
-    size_t elem_size;    /**< Size of a single array element in bytes. */
-    size_t capacity;     /**< The total maximum flat elements the current allocated memory can hold. */
-    size_t x;            /**< Current dimension size along the x-axis. */
-    size_t y;            /**< Current dimension size along the y-axis. */
-    size_t z;            /**< Current dimension size along the z-axis. */
+    uint8_t num_dims; /**< Number of dimensions in the array (supports 1, 2, or 3). */
+    uint16_t
+        ele_type;     /**< Type identifier tag representing the data type of the elements stored. */
+    size_t elem_size; /**< Size of a single array element in bytes. */
+    size_t capacity;  /**< The total maximum flat elements the current allocated memory can hold. */
+    size_t x;         /**< Current dimension size along the x-axis. */
+    size_t y;         /**< Current dimension size along the y-axis. */
+    size_t z;         /**< Current dimension size along the z-axis. */
 } dynamic_array_t;
 
 /**
  * @brief Computes the 1D flat index for a multi-dimensional array coordinate.
  *
- * Translates multi-dimensional indices (i, j, k) into a single flat array index 
+ * Translates multi-dimensional indices (i, j, k) into a single flat array index
  * based on the array's dimension configuration and dimensions size.
  *
  * @param arr Pointer to the dynamic_array_t structure.
  * @param i   Index along the x-dimension (plane/row).
  * @param j   Index along the y-dimension (row/column).
  * @param k   Index along the z-dimension (column/element).
- * 
+ *
  * @return The calculated flat index position as a size_t.
  */
 size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
@@ -215,7 +217,7 @@ size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
 /**
  * @brief Initializes a dynamic array with specified type, element size, and dimensions.
  *
- * Allocates memory buffers for data elements and set-tracking flags based on 
+ * Allocates memory buffers for data elements and set-tracking flags based on
  * the provided dimensional bounds (x, y, z) and dimension count.
  *
  * @param arr       Pointer to the dynamic_array_t structure to initialize.
@@ -225,35 +227,32 @@ size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
  * @param x         Dimension size along the x-axis.
  * @param y         Dimension size along the y-axis.
  * @param z         Dimension size along the z-axis.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or DYN_ARR_ERR_NO_MEMORY) on failure.
  */
-dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
-                                    element_type_t ele_type,
-                                    size_t elem_size, 
-                                    uint8_t num_dims, 
-                                    size_t x, size_t y, size_t z);
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr, element_type_t ele_type, size_t elem_size,
+                                    uint8_t num_dims, size_t x, size_t y, size_t z);
 
 /**
  * @brief Retrieves a direct memory pointer to an element at the specified coordinates.
  *
- * Calculates the flat index and returns a pointer to the element data slot 
+ * Calculates the flat index and returns a pointer to the element data slot
  * within the array's internal memory buffer.
  *
  * @param arr Pointer to the dynamic_array_t structure.
  * @param i   Index along the x-dimension.
  * @param j   Index along the y-dimension.
  * @param k   Index along the z-dimension.
- * 
+ *
  * @return A void pointer to the element data, or NULL if indices are invalid or uninitialized.
  */
-void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
+void *dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
 
 /**
  * @brief Retrieves the value of an element at the specified multi-dimensional coordinates.
  *
- * Copies the element data from the dynamic array into the provided output buffer 
+ * Copies the element data from the dynamic array into the provided output buffer
  * if the element has been marked as set.
  *
  * @param arr     Pointer to the dynamic_array_t structure.
@@ -261,15 +260,17 @@ void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size
  * @param j       Index along the y-dimension.
  * @param k       Index along the z-dimension.
  * @param out_val Pointer to the buffer where the retrieved element value will be stored.
- * 
- * @return DYN_ARR_OK on success, or an appropriate error code (e.g., DYN_ARR_ERR_INVALID_PARAM) on failure.
+ *
+ * @return DYN_ARR_OK on success, or an appropriate error code (e.g., DYN_ARR_ERR_INVALID_PARAM) on
+ * failure.
  */
-dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val);
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   void *out_val);
 
 /**
  * @brief Sets or updates the value of an element at the specified coordinates.
  *
- * Copies the input value into the dynamic array's memory buffer at the target 
+ * Copies the input value into the dynamic array's memory buffer at the target
  * coordinate and marks that element's position as set.
  *
  * @param arr    Pointer to the dynamic_array_t structure.
@@ -277,23 +278,24 @@ dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t 
  * @param j      Index along the y-dimension.
  * @param k      Index along the z-dimension.
  * @param in_val Pointer to the value to be copied into the array.
- * 
+ *
  * @return DYN_ARR_OK on success, or an appropriate error code on failure.
  */
-dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val);
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   const void *in_val);
 
 /**
  * @brief Performs a trimmed deep copy of a 1D dynamic array.
  *
- * This function scans the source 1D array to determine the effective size 
- * by locating the highest index containing a set element. It then initializes 
- * the destination array with the trimmed dimensions and copies both the 
+ * This function scans the source 1D array to determine the effective size
+ * by locating the highest index containing a set element. It then initializes
+ * the destination array with the trimmed dimensions and copies both the
  * element data and tracking flags.
  *
  * @param dest Pointer to the destination dynamic_array_t structure to initialize and populate.
  * @param src  Pointer to the source dynamic_array_t structure to copy from.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or memory allocation errors) on failure.
  */
 dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_array_t *src);
@@ -301,15 +303,15 @@ dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_arra
 /**
  * @brief Performs a trimmed deep copy of a 2D dynamic array.
  *
- * This function scans the source 2D grid to find the maximum active row and 
- * column indices (effective bounds) containing set elements. It allocates 
- * a destination array sized precisely to these trimmed bounds and performs 
+ * This function scans the source 2D grid to find the maximum active row and
+ * column indices (effective bounds) containing set elements. It allocates
+ * a destination array sized precisely to these trimmed bounds and performs
  * a deep copy of all valid elements and their corresponding set states.
  *
  * @param dest Pointer to the destination dynamic_array_t structure to initialize and populate.
  * @param src  Pointer to the source dynamic_array_t structure to copy from.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or memory allocation errors) on failure.
  */
 dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_array_t *src);
@@ -317,15 +319,15 @@ dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_arra
 /**
  * @brief Performs a trimmed deep copy of a 3D dynamic array.
  *
- * This function evaluates the 3D source grid to identify the maximum active 
- * planes, rows, and columns (eff_x, eff_y, eff_z) that contain set elements. 
- * It initializes the destination container with these trimmed dimensions and 
+ * This function evaluates the 3D source grid to identify the maximum active
+ * planes, rows, and columns (eff_x, eff_y, eff_z) that contain set elements.
+ * It initializes the destination container with these trimmed dimensions and
  * securely duplicates the element blocks and tracking maps.
  *
  * @param dest Pointer to the destination dynamic_array_t structure to initialize and populate.
  * @param src  Pointer to the source dynamic_array_t structure to copy from.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or memory allocation errors) on failure.
  */
 dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_array_t *src);
@@ -333,34 +335,12 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
 /**
  * @brief Releases all allocated memory associated with a dynamic array.
  *
- * Frees internal memory blocks allocated for element data and tracking flags, 
+ * Frees internal memory blocks allocated for element data and tracking flags,
  * resetting the array structure fields to safe default states.
  *
  * @param arr Pointer to the dynamic_array_t structure to destroy.
  */
 void dynamic_array_destroy(dynamic_array_t *arr);
-
-#define FOR_EACH_DYNAMIC_ARRAY_ITEM(arr, type, it)                     \
-    for (type *it = (type *)((arr)->data),                              \
-              *it##_end = it + ((arr)->x * (arr)->y * (arr)->z);         \
-         it < it##_end;                                                  \
-         ++it)
-#define FOR_EACH_DYNAMIC_ARRAY_INDEX(arr, type, i, it)                  \
-    for (size_t i = 0,                                                   \
-                _count = (arr)->x * (arr)->y * (arr)->z;                 \
-         i < _count && (((it) = &((type *)(arr)->data)[i]), 1);          \
-         ++i)
-#define FOR_EACH_1D_DYNAMIC_ARRAY(arr, i, out) \
-    for (size_t i = 0; i < (arr)->x; ++i)
-
-#define FOR_EACH_2D_DYNAMIC_ARRAY(arr, i, j) \
-    for (size_t i = 0; i < (arr)->x; ++i) \
-        for (size_t j = 0; j < (arr)->y; ++j)
-
-#define FOR_EACH_3D_DYNAMIC_ARRAY(arr, i, j, k) \
-    for (size_t i = 0; i < (arr)->x; ++i) \
-        for (size_t j = 0; j < (arr)->y; ++j) \
-            for (size_t k = 0; k < (arr)->z; ++k)
 
 uint16_t get_message_type(const uint8_t *buf);
 uint16_t get_message_fixed_payload_length(const uint8_t *buf);
@@ -435,7 +415,8 @@ _Static_assert(sizeof({{snakeLower $msg.Name}}_t) >= {{.TotalFixedSize}},
 
 /**
  * Sets the value of the {{$field.CName}} field in the {{snakeLower $msg.Name}}_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 {{- if isVariable $field.Type}}
 {{- $variableType := cBaseType $field}}
@@ -503,20 +484,10 @@ void {{snakeLower $msg.Name}}_t_free({{snakeLower $msg.Name}}_t *msg);
 
 typedef size_t (*custom_size_fn)(void *item);
 typedef int (*custom_marshal_fn)(void *item, uint8_t **out_buf);
-typedef int (*custom_unmarshal_fn)(uint8_t *buf, uint16_t buf_len,
-	uint32_t overall_payload_len, void *out_item);
-
-size_t calc_type_size(
-    void *item,
-    element_type_t ele_type,
-    custom_size_fn size_fn
-);
-
-size_t calc_array_size(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    custom_size_fn size_fn
-);
+typedef int (*custom_unmarshal_fn)(uint8_t *buf, uint16_t buf_len, uint32_t overall_payload_len,
+                                   void *out_item);
+size_t calc_type_size(void *item, element_type_t ele_type, custom_size_fn size_fn);
+size_t calc_array_size(dynamic_array_t *arr, element_type_t ele_type, custom_size_fn size_fn);
 
 #ifdef __cplusplus
 }

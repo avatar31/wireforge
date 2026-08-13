@@ -42,11 +42,12 @@ const cTemplateSource = `/*
  * memory management functions declared in {{lower .PackageName}}.h.
  */
 
+#include "{{lower .PackageName}}.h"
+
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 
-#include "{{lower .PackageName}}.h"
 
 /* ---------------------------------------------------------------------------
  * Big-Endian encoding/decoding helpers
@@ -77,79 +78,73 @@ static inline void put_u64_be(uint8_t *buf, uint64_t val) {
 }
 
 static inline uint16_t get_u16_be(const uint8_t *buf) {
-    return (uint16_t)((uint16_t)buf[0] << 8 | (uint16_t)buf[1]);
+    return ((uint16_t)((uint16_t)buf[0] << 8 | (uint16_t)buf[1]));
 }
 
 static inline uint32_t get_u32_be(const uint8_t *buf) {
-    return (uint32_t)buf[0] << 24 | (uint32_t)buf[1] << 16 |
-           (uint32_t)buf[2] << 8  | (uint32_t)buf[3];
+    return ((uint32_t)buf[0] << 24 | (uint32_t)buf[1] << 16 | (uint32_t)buf[2] << 8 |
+            (uint32_t)buf[3]);
 }
 
 static inline uint64_t get_u64_be(const uint8_t *buf) {
-    return (uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48 |
-           (uint64_t)buf[2] << 40 | (uint64_t)buf[3] << 32 |
-           (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16 |
-           (uint64_t)buf[6] << 8  | (uint64_t)buf[7];
+    return ((uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48 | (uint64_t)buf[2] << 40 |
+            (uint64_t)buf[3] << 32 | (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16 |
+            (uint64_t)buf[6] << 8 | (uint64_t)buf[7]);
 }
 
-uint16_t get_message_type(const uint8_t *buf) {
-    return get_u16_be(buf);
-}
+uint16_t get_message_type(const uint8_t *buf) { return (get_u16_be(buf)); }
 
 uint16_t get_message_fixed_payload_length(const uint8_t *buf) {
-    return get_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE);
+    return (get_u16_be(buf + WIRE_FRAME_MSG_TYPE_SIZE));
 }
 
 uint32_t get_message_overall_payload_length(const uint8_t *buf) {
-    return get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE);
+    return (get_u32_be(buf + WIRE_FRAME_MSG_TYPE_SIZE + WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE));
 }
 
 dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size_t len) {
-    if (!str) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!str) return (DYN_ARR_ERR_INVALID_PARAM);
 
     str->data = NULL;
-    str->len = 0;
-    if (!value || len == 0) return DYN_ARR_OK;
+    str->len  = 0;
+    if (!value || len == 0) return (DYN_ARR_OK);
 
-    str->data = (char*)malloc(len + 1);
-    if (!str->data) {
-        return DYN_ARR_ERR_NO_MEMORY;
-    }
+    str->data = (char *)malloc(len + 1);
+    if (!str->data) { return (DYN_ARR_ERR_NO_MEMORY); }
     memcpy(str->data, value, len);
     str->data[len] = '\0';
-    str->len = len;
-    return DYN_ARR_OK;
+    str->len       = len;
+    return (DYN_ARR_OK);
 }
 
 void string_t_free(string_t *str) {
     if (str && str->data) {
         free(str->data);
         str->data = NULL;
-        str->len = 0;
+        str->len  = 0;
     }
 }
 
-dyn_arr_status_t byte_array_t_set_value(byte_array_t *byte_arr, const uint8_t *value, const size_t len) {
-    if (!byte_arr) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t byte_array_t_set_value(byte_array_t *byte_arr, const uint8_t *value,
+                                        const size_t len) {
+    if (!byte_arr) return (DYN_ARR_ERR_INVALID_PARAM);
 
     byte_arr->data = NULL;
-    byte_arr->len = 0;
-    if (!value || len == 0) return DYN_ARR_OK;
+    byte_arr->len  = 0;
+    if (!value || len == 0) return (DYN_ARR_OK);
 
-    byte_arr->data = (uint8_t*)malloc(len);
-    if (!byte_arr->data) {
-        return DYN_ARR_ERR_NO_MEMORY;
-    }
+    byte_arr->data = (uint8_t *)malloc(len);
+    if (!byte_arr->data) { return (DYN_ARR_ERR_NO_MEMORY); }
     memcpy(byte_arr->data, value, len);
     byte_arr->len = len;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 void byte_array_t_free(byte_array_t *byte_arr) {
     if (byte_arr && byte_arr->data) {
         free(byte_arr->data);
         byte_arr->data = NULL;
-        byte_arr->len = 0;
+        byte_arr->len  = 0;
     }
 }
 
@@ -157,20 +152,16 @@ void byte_array_t_free(byte_array_t *byte_arr) {
  * HELPER: Calculate flat index from 3D coordinates (Row-Major Order)
  * ========================================================================= */
 size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
-    return (i * arr->y * arr->z) + (j * arr->z) + k;
+    return ((i * arr->y * arr->z) + (j * arr->z) + k);
 }
 
 /* =========================================================================
  * CREATE: Allocate & Initialize Array
  * ========================================================================= */
-dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
-                                    element_type_t ele_type,
-                                    size_t elem_size, 
-                                    uint8_t num_dims, 
-                                    size_t x, size_t y, size_t z) 
-{
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr, element_type_t ele_type, size_t elem_size,
+                                    uint8_t num_dims, size_t x, size_t y, size_t z) {
     if (!arr || elem_size == 0 || num_dims < 1 || num_dims > 3) {
-        return DYN_ARR_ERR_INVALID_PARAM;
+        return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
     // Normalize inactive dimensions to 1
@@ -180,35 +171,29 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
 
     // Check integer overflow for element calculation
     size_t total_elements = dim_x * dim_y * dim_z;
-    if (dim_x != 0 && (total_elements / dim_x / dim_y != dim_z)) {
-        return DYN_ARR_ERR_OVERFLOW;
-    }
+    if (dim_x != 0 && (total_elements / dim_x / dim_y != dim_z)) { return (DYN_ARR_ERR_OVERFLOW); }
 
-    if (dim_x == 0 || dim_y == 0 || dim_z == 0) {
-        return DYN_ARR_ERR_INVALID_PARAM;
-    }
+    if (dim_x == 0 || dim_y == 0 || dim_z == 0) { return (DYN_ARR_ERR_INVALID_PARAM); }
 
     // Allocate and zeroed memory for the flattened array
     arr->data = calloc(total_elements, elem_size);
-    if (!arr->data) {
-        return DYN_ARR_ERR_NO_MEMORY;
-    }
+    if (!arr->data) { return (DYN_ARR_ERR_NO_MEMORY); }
     arr->is_set = calloc(total_elements, sizeof(uint8_t));
     if (!arr->is_set) {
         free(arr->data);
         arr->data = NULL;
-        return DYN_ARR_ERR_NO_MEMORY;
+        return (DYN_ARR_ERR_NO_MEMORY);
     }
 
-    arr->num_dims = num_dims;
-    arr->ele_type = ele_type;
+    arr->num_dims  = num_dims;
+    arr->ele_type  = ele_type;
     arr->elem_size = elem_size;
-    arr->capacity = total_elements;
-    arr->x = dim_x;
-    arr->y = dim_y;
-    arr->z = dim_z;
+    arr->capacity  = total_elements;
+    arr->x         = dim_x;
+    arr->y         = dim_y;
+    arr->z         = dim_z;
 
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /* =========================================================================
@@ -216,58 +201,52 @@ dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
  * ========================================================================= */
 
 // Get a pointer directly to the element at (i, j, k)
-void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
-    if (!arr || !arr->data) return NULL;
+void *dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k) {
+    if (!arr || !arr->data) return (NULL);
 
     // Bounds checking
-    if (i >= arr->x || j >= arr->y || k >= arr->z) {
-        return NULL;
-    }
+    if (i >= arr->x || j >= arr->y || k >= arr->z) { return (NULL); }
 
     size_t flat_index = get_flat_index(arr, i, j, k);
-    return (uint8_t*)arr->data + (flat_index * arr->elem_size);
+    return ((uint8_t *)arr->data + (flat_index * arr->elem_size));
 }
 
 // Copy element data at (i, j, k) safely into out_val buffer
-dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val) {
-    if (!out_val) return DYN_ARR_ERR_INVALID_PARAM;
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   void *out_val) {
+    if (!out_val) return (DYN_ARR_ERR_INVALID_PARAM);
 
     void *elem_ptr = dynamic_array_get_ptr(arr, i, j, k);
-    if (!elem_ptr) {
-        return DYN_ARR_ERR_OUT_OF_BOUNDS;
-    }
+    if (!elem_ptr) { return (DYN_ARR_ERR_OUT_OF_BOUNDS); }
 
     memcpy(out_val, elem_ptr, arr->elem_size);
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /* =========================================================================
  * UPDATE / SET: Set element value at (i, j, k)
  * ========================================================================= */
-dyn_arr_status_t
-dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val)
-{
-    if (!arr || !arr->data || !arr->is_set || !in_val)  return DYN_ARR_ERR_INVALID_PARAM;
-    if (i >= arr->x || j >= arr->y || k >= arr->z)      return DYN_ARR_ERR_OUT_OF_BOUNDS;
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   const void *in_val) {
+    if (!arr || !arr->data || !arr->is_set || !in_val) return (DYN_ARR_ERR_INVALID_PARAM);
+    if (i >= arr->x || j >= arr->y || k >= arr->z) return (DYN_ARR_ERR_OUT_OF_BOUNDS);
 
     // Check for non-contiguous element in row (i, j)
     for (size_t m = 0; m < k; m++) {
         size_t prev_idx = get_flat_index(arr, i, j, m);
-        if (!arr->is_set || !arr->is_set[prev_idx]) {
-            return DYN_ARR_ERR_INVALID_PARAM;
-        }
+        if (!arr->is_set || !arr->is_set[prev_idx]) { return (DYN_ARR_ERR_INVALID_PARAM); }
     }
 
     size_t flat_idx = get_flat_index(arr, i, j, k);
-    void *elem_ptr = (uint8_t*)arr->data + (flat_idx * arr->elem_size);
+    void *elem_ptr  = (uint8_t *)arr->data + (flat_idx * arr->elem_size);
     memcpy(elem_ptr, in_val, arr->elem_size);
     arr->is_set[flat_idx] = 1;
 
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_array_t *src) {
-    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!dest || !src) return (DYN_ARR_ERR_INVALID_PARAM);
 
     size_t eff_x = src->x;
     if (src->data != NULL && src->capacity > 0) {
@@ -282,27 +261,28 @@ dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_arra
         if (has_any) eff_x = max_i;
     }
 
-    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 1, eff_x, 1, 1);
+    dyn_arr_status_t status =
+        dynamic_array_init(dest, src->ele_type, src->elem_size, 1, eff_x, 1, 1);
     if (status != DYN_ARR_OK) {
         dynamic_array_destroy(dest);
-        return status;
+        return (status);
     }
 
     if (src->data != NULL && src->capacity > 0) {
         for (size_t i = 0; i < eff_x; i++) {
             if (src->is_set && src->is_set[i]) {
-                memcpy((uint8_t*)dest->data + (i * src->elem_size),
-                       (const uint8_t*)src->data + (i * src->elem_size),
+                memcpy((uint8_t *)dest->data + (i * src->elem_size),
+                       (const uint8_t *)src->data + (i * src->elem_size),
                        src->elem_size);
                 dest->is_set[i] = 1;
             }
         }
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_array_t *src) {
-    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!dest || !src) return (DYN_ARR_ERR_INVALID_PARAM);
 
     size_t eff_x = src->x;
     size_t eff_y = src->y;
@@ -325,10 +305,11 @@ dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_arra
         }
     }
 
-    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 2, eff_x, eff_y, 1);
+    dyn_arr_status_t status =
+        dynamic_array_init(dest, src->ele_type, src->elem_size, 2, eff_x, eff_y, 1);
     if (status != DYN_ARR_OK) {
         dynamic_array_destroy(dest);
-        return status;
+        return (status);
     }
 
     if (src->data != NULL && src->capacity > 0) {
@@ -337,19 +318,19 @@ dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_arra
                 size_t src_idx = get_flat_index(src, i, j, 0);
                 size_t dst_idx = get_flat_index(dest, i, j, 0);
                 if (src->is_set && src->is_set[src_idx]) {
-                    memcpy((uint8_t*)dest->data + (dst_idx * src->elem_size),
-                           (const uint8_t*)src->data + (src_idx * src->elem_size),
+                    memcpy((uint8_t *)dest->data + (dst_idx * src->elem_size),
+                           (const uint8_t *)src->data + (src_idx * src->elem_size),
                            src->elem_size);
                     dest->is_set[dst_idx] = 1;
                 }
             }
         }
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_array_t *src) {
-    if (!dest || !src) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!dest || !src) return (DYN_ARR_ERR_INVALID_PARAM);
 
     size_t eff_x = src->x;
     size_t eff_y = src->y;
@@ -377,10 +358,11 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
         }
     }
 
-    dyn_arr_status_t status = dynamic_array_init(dest, src->ele_type, src->elem_size, 3, eff_x, eff_y, eff_z);
+    dyn_arr_status_t status =
+        dynamic_array_init(dest, src->ele_type, src->elem_size, 3, eff_x, eff_y, eff_z);
     if (status != DYN_ARR_OK) {
         dynamic_array_destroy(dest);
-        return status;
+        return (status);
     }
 
     if (src->data != NULL && src->capacity > 0) {
@@ -390,8 +372,8 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
                     size_t src_idx = get_flat_index(src, i, j, k);
                     size_t dst_idx = get_flat_index(dest, i, j, k);
                     if (src->is_set && src->is_set[src_idx]) {
-                        memcpy((uint8_t*)dest->data + (dst_idx * src->elem_size),
-                               (const uint8_t*)src->data + (src_idx * src->elem_size),
+                        memcpy((uint8_t *)dest->data + (dst_idx * src->elem_size),
+                               (const uint8_t *)src->data + (src_idx * src->elem_size),
                                src->elem_size);
                         dest->is_set[dst_idx] = 1;
                     }
@@ -399,7 +381,7 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
             }
         }
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 /* =========================================================================
@@ -415,12 +397,12 @@ void dynamic_array_destroy(dynamic_array_t *arr) {
             free(arr->is_set);
             arr->is_set = NULL;
         }
-        arr->x = 0;
-        arr->y = 0;
-        arr->z = 0;
-        arr->capacity = 0;
+        arr->x         = 0;
+        arr->y         = 0;
+        arr->z         = 0;
+        arr->capacity  = 0;
         arr->elem_size = 0;
-        arr->num_dims = 0;
+        arr->num_dims  = 0;
     }
 }
 
@@ -428,12 +410,21 @@ void dynamic_array_destroy(dynamic_array_t *arr) {
  * Serialization helpers with is_set support
  * ========================================================================= */
 
-static void get_array_counts(const dynamic_array_t *arr,
-                             size_t *out_x_count,
-                             size_t *out_y_counts,
-                             size_t *out_z_counts,
-                             size_t *out_total_items)
-{
+static bool isVariableType(element_type_t ele_type) {
+    switch (ele_type) {
+        case TAG_STRING:
+        case TAG_BYTES:
+{{- range $i, $msg := .Messages }}{{$msg := .}}
+        case TAG_{{snakeUpper $msg.Name}}:
+{{- end}}
+            return (true);
+        default:
+            return (false);
+    }
+}
+
+static void get_array_counts(const dynamic_array_t *arr, size_t *out_x_count, size_t *out_y_counts,
+                             size_t *out_z_counts, size_t *out_total_items) {
     if (!arr || !arr->is_set) {
         if (out_x_count) *out_x_count = 0;
         if (out_total_items) *out_total_items = 0;
@@ -443,8 +434,12 @@ static void get_array_counts(const dynamic_array_t *arr,
     if (arr->num_dims == 1) {
         size_t c = 0;
         for (size_t k = 0; k < arr->x; k++) {
-            if (arr->is_set[k]) c++;
-            else break;
+            // TODO: Do we need to consider isVariableType?
+            if (arr->is_set[k]) {
+                c++;
+            } else {
+                break;  // Assuming consecutive set elements
+            }
         }
         if (out_x_count) *out_x_count = c;
         if (out_total_items) *out_total_items = c;
@@ -452,7 +447,7 @@ static void get_array_counts(const dynamic_array_t *arr,
     }
 
     if (arr->num_dims == 2) {
-        size_t x_count = 0;
+        size_t x_count       = 0;
         size_t overall_items = 0;
 
         for (size_t i = 0; i < arr->x; i++) {
@@ -461,23 +456,19 @@ static void get_array_counts(const dynamic_array_t *arr,
 
             for (size_t j = 0; j < arr->y; j++) {
                 size_t idx = get_flat_index(arr, i, j, 0);
+                // TODO: Do we need to consider isVariableType?
                 if (arr->is_set[idx]) {
                     row_has_set = true;
                     row_count++;
                 } else {
-                    // Assuming consecutive set elements from the start of the row
-                    break; 
+                    break;  // Assuming consecutive set elements
                 }
             }
 
             // If this row has any set elements, update our active x_count boundary
-            if (row_has_set) {
-                x_count = i + 1;
-            }
+            if (row_has_set) { x_count = i + 1; }
 
-            if (out_y_counts) {
-                out_y_counts[i] = row_count;
-            }
+            if (out_y_counts) { out_y_counts[i] = row_count; }
             overall_items += row_count;
         }
 
@@ -487,7 +478,7 @@ static void get_array_counts(const dynamic_array_t *arr,
     }
 
     if (arr->num_dims == 3) {
-        size_t x_count = 0;
+        size_t x_count       = 0;
         size_t overall_items = 0;
 
         // First pass: Find x_count (last plane index containing at least one set element)
@@ -503,9 +494,7 @@ static void get_array_counts(const dynamic_array_t *arr,
                 }
                 if (plane_has_set) break;
             }
-            if (plane_has_set) {
-                x_count = i + 1;
-            }
+            if (plane_has_set) { x_count = i + 1; }
         }
 
         // Second pass: Process only up to x_count to compute y counts, z counts, and total items
@@ -517,26 +506,21 @@ static void get_array_counts(const dynamic_array_t *arr,
 
                 for (size_t k = 0; k < arr->z; k++) {
                     size_t idx = get_flat_index(arr, i, j, k);
+                    // TODO: Do we need to consider isVariableType?
                     if (arr->is_set[idx]) {
                         z_cnt++;
                     } else {
-                        break; // Assumes consecutive items from start for z_cnt
+                        break;  // Assuming consecutive set elements
                     }
                 }
 
-                if (z_cnt > 0) {
-                    y_cnt = j + 1;
-                }
+                if (z_cnt > 0) { y_cnt = j + 1; }
 
-                if (out_z_counts) {
-                    out_z_counts[i * arr->y + j] = z_cnt;
-                }
+                if (out_z_counts) { out_z_counts[i * arr->y + j] = z_cnt; }
                 overall_items += z_cnt;
             }
 
-            if (out_y_counts) {
-                out_y_counts[i] = y_cnt;
-            }
+            if (out_y_counts) { out_y_counts[i] = y_cnt; }
         }
 
         if (out_x_count) *out_x_count = x_count;
@@ -545,35 +529,51 @@ static void get_array_counts(const dynamic_array_t *arr,
     }
 }
 
-size_t calc_array_size(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    custom_size_fn size_fn)
-{
-    if (!arr || !arr->data || !arr->is_set || arr->x == 0) {
-        return 0;
+static size_t _get_variable_element_size(uint8_t *item, element_type_t ele_type, bool is_set, custom_size_fn size_fn) {
+    switch (ele_type) {
+        case TAG_STRING: case TAG_BYTES: {
+            byte_array_t *v = (byte_array_t*)item;
+            return (STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0));
+        }
+{{- range $i, $msg := .Messages }}
+        case TAG_{{snakeUpper $msg.Name}}:
+{{- end}}
+            return (OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn && is_set ? size_fn(item) : 0));
+        default:
+            return (0); // For fixed-size types, size is known and handled separately
     }
+}
+
+size_t calc_array_size(dynamic_array_t *arr, element_type_t ele_type, custom_size_fn size_fn) {
+    if (!arr || !arr->data || !arr->is_set || arr->x == 0) { return (0); }
 
     size_t x_count = 0, overall_items = 0;
-    size_t *y_counts = (size_t*)calloc(arr->x, sizeof(size_t));
-    size_t *z_counts = (size_t*)calloc(arr->x * arr->y, sizeof(size_t));
+    size_t *y_counts = (size_t *)calloc(arr->x, sizeof(size_t));
+    size_t *z_counts = (size_t *)calloc(arr->x * arr->y, sizeof(size_t));
 
     get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items);
 
     if (overall_items == 0) {
         free(y_counts);
         free(z_counts);
-        return 0;
+        return (0);
     }
 
-    size_t total_size = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE; // 6 bytes
+    size_t total_size = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE;  // 6 bytes
 
     size_t elem_bytes = 0;
     switch (ele_type) {
-        case TAG_BOOL:   case TAG_UINT8:  case TAG_INT8:   elem_bytes = 1; break;
-        case TAG_UINT16: case TAG_INT16:                   elem_bytes = 2; break;
-        case TAG_UINT32: case TAG_INT32:  case TAG_FLOAT32:elem_bytes = 4; break;
-        case TAG_UINT64: case TAG_INT64:  case TAG_FLOAT64:elem_bytes = 8; break;
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: elem_bytes = 1; break;
+        case TAG_UINT16:
+        case TAG_INT16: elem_bytes = 2; break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: elem_bytes = 4; break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: elem_bytes = 8; break;
         default: elem_bytes = 0; break;
     }
 
@@ -582,25 +582,10 @@ size_t calc_array_size(
         if (elem_bytes > 0) {
             total_size += x_count * elem_bytes;
         } else {
-            uint8_t *src = (uint8_t*)arr->data;
+            uint8_t *src = (uint8_t *)arr->data;
             for (size_t k = 0; k < x_count; k++) {
-                uint8_t *item = (uint8_t*)src + k * arr->elem_size;
-                switch (ele_type) {
-                    case TAG_STRING: case TAG_BYTES: {
-                        byte_array_t *v = (byte_array_t*)item;
-                        total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                        break;
-                    }
-{{- range $i, $msg := .Messages }}
-                    case TAG_{{snakeUpper $msg.Name}}:
-{{- end}}
-                    {
-                        total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
-                        break;
-                    }
-                    default:
-                        break; // For fixed-size types, already accounted for in elem_bytes
-                }
+                uint8_t *item = (uint8_t *)src + k * arr->elem_size;
+                total_size += _get_variable_element_size(item, ele_type, arr->is_set[k], size_fn);
             }
         }
     } else if (arr->num_dims == 2) {
@@ -613,24 +598,10 @@ size_t calc_array_size(
                 total_size += y_cnt * elem_bytes;
             } else {
                 for (size_t j = 0; j < y_cnt; j++) {
-                    size_t idx = get_flat_index(arr, i, j, 0);
-                    uint8_t *item = (uint8_t*)arr->data + (idx * arr->elem_size);
-                    switch (ele_type) {
-                        case TAG_STRING: case TAG_BYTES: {
-                            byte_array_t *v = (byte_array_t*)item;
-                            total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                            break;
-                        }
-{{- range $i, $msg := .Messages }}
-                        case TAG_{{snakeUpper $msg.Name}}:
-{{- end}}
-                        {
-                            total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
-                            break;
-                        }
-                        default:
-                            break; // For fixed-size types, already accounted for in elem_bytes
-                    }
+                    size_t idx    = get_flat_index(arr, i, j, 0);
+                    uint8_t *item = (uint8_t *)arr->data + (idx * arr->elem_size);
+                    total_size +=
+                        _get_variable_element_size(item, ele_type, arr->is_set[idx], size_fn);
                 }
             }
         }
@@ -648,25 +619,10 @@ size_t calc_array_size(
                     total_size += z_cnt * elem_bytes;
                 } else {
                     for (size_t k = 0; k < z_cnt; k++) {
-                        size_t idx = get_flat_index(arr, i, j, k);
-                        uint8_t *item = (uint8_t*)arr->data + (idx * arr->elem_size);
-
-                        switch (ele_type) {
-                            case TAG_STRING: case TAG_BYTES: {
-                                byte_array_t *v = (byte_array_t*)item;
-                                total_size += STRING_OR_BYTE_LEN_PREFIX_SIZE + (v->data ? v->len : 0);
-                                break;
-                            }
-{{- range $i, $msg := .Messages }}
-                            case TAG_{{snakeUpper $msg.Name}}:
-{{- end}}
-                            {
-                                total_size += OBJECT_SET_UNSET_PREFIX_SIZE + (size_fn ? size_fn(item) : 0);
-                                break;
-                            }
-                            default:
-                                break; // For fixed-size types, already accounted for in elem_bytes
-                        }
+                        size_t idx    = get_flat_index(arr, i, j, k);
+                        uint8_t *item = (uint8_t *)arr->data + (idx * arr->elem_size);
+                        total_size +=
+                            _get_variable_element_size(item, ele_type, arr->is_set[idx], size_fn);
                     }
                 }
             }
@@ -675,29 +631,43 @@ size_t calc_array_size(
 
     free(y_counts);
     free(z_counts);
-    return total_size;
+    return (total_size);
 }
 
 // Static utility function to marshal a single element
-static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, custom_marshal_fn marshal_fn) {
+static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type,
+                                custom_marshal_fn marshal_fn) {
     size_t off = 0;
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
-            dest[off++] = *src; break;
-        case TAG_UINT16: case TAG_INT16:
-            put_u16_be(dest + off, *(uint16_t*)src); off += 2; break;
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
-            put_u32_be(dest + off, *(uint32_t*)src); off += 4; break;
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
-            put_u64_be(dest + off, *(uint64_t*)src); off += 8; break;
-        case TAG_STRING: case TAG_BYTES: {
-            byte_array_t *v = (byte_array_t*)src;
-            uint32_t len = v->data ? v->len : 0;
-            put_u32_be(dest + off, len); 
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: dest[off++] = *src; break;
+        case TAG_UINT16:
+        case TAG_INT16:
+            put_u16_be(dest + off, *(uint16_t *)src);
+            off += 2;
+            break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32:
+            put_u32_be(dest + off, *(uint32_t *)src);
             off += 4;
-            if (len > 0) { 
-                memcpy(dest + off, v->data, len); 
-                off += len; 
+            break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64:
+            put_u64_be(dest + off, *(uint64_t *)src);
+            off += 8;
+            break;
+        case TAG_STRING:
+        case TAG_BYTES: {
+            byte_array_t *v = (byte_array_t *)src;
+            uint32_t len    = v->data ? v->len : 0;
+            put_u32_be(dest + off, len);
+            off += 4;
+            if (len > 0) {
+                memcpy(dest + off, v->data, len);
+                off += len;
             }
             break;
         }
@@ -705,23 +675,22 @@ static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, 
         case TAG_{{snakeUpper $msg.Name}}:
 {{- end}}
         {
-            base_object_t *obj = (base_object_t*)src;
-            dest[off++] = obj->_is_set ? 1 : 0;
+            base_object_t *obj = (base_object_t *)src;
+            dest[off++]        = obj->_is_set ? 1 : 0;
             if (obj->_is_set && marshal_fn) {
                 uint8_t *mbuf = NULL;
-                int w = marshal_fn(src, &mbuf);
-                if (w > 0) { 
-                    memcpy(dest + off, mbuf, w); 
-                    off += w; 
-                    free(mbuf); 
+                int w         = marshal_fn(src, &mbuf);
+                if (w > 0) {
+                    memcpy(dest + off, mbuf, w);
+                    off += w;
+                    free(mbuf);
                 }
             }
             break;
         }
-        default: 
-            break;
+        default: break;
     }
-    return off;
+    return (off);
 }
 
 /**
@@ -733,45 +702,38 @@ static size_t serialize_element(uint8_t *dest, uint8_t *src, uint16_t ele_type, 
  *  |                  |                  | item count       |  prefixes & payload items)         |
  *  +------------------+------------------+------------------+------------------------------------+
  */
-dyn_arr_status_t array_to_bytes(
-    dynamic_array_t *arr,
-    uint8_t **out_buf,
-    size_t *out_size,
-    custom_size_fn size_fn,
-    custom_marshal_fn marshal_fn
-)
-{
-    if (!arr || !out_buf || !out_size) {
-        return DYN_ARR_ERR_INVALID_PARAM;
-    }
+dyn_arr_status_t array_to_bytes(dynamic_array_t *arr, uint8_t **out_buf, size_t *out_size,
+                                custom_size_fn size_fn, custom_marshal_fn marshal_fn) {
+    if (!arr || !out_buf || !out_size) { return (DYN_ARR_ERR_INVALID_PARAM); }
 
     size_t x_count = 0, overall_items = 0;
-    size_t *y_counts = arr->data ? (size_t*)calloc(arr->x, sizeof(size_t)) : NULL;
-    size_t *z_counts = arr->data ? (size_t*)calloc(arr->x * arr->y, sizeof(size_t)) : NULL;
+    size_t *y_counts = arr->data ? (size_t *)calloc(arr->x, sizeof(size_t)) : NULL;
+    size_t *z_counts = arr->data ? (size_t *)calloc(arr->x * arr->y, sizeof(size_t)) : NULL;
 
-    if (arr->data) {
-        get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items);
-    }
+    if (arr->data) { get_array_counts(arr, &x_count, y_counts, z_counts, &overall_items); }
 
     size_t total_size = calc_array_size(arr, arr->ele_type, size_fn);
     if (total_size == 0) {
         free(y_counts);
         free(z_counts);
-        *out_buf = NULL;
+        *out_buf  = NULL;
         *out_size = 0;
-        return DYN_ARR_OK;
+        return (DYN_ARR_OK);
     }
 
-    uint8_t *buf = (uint8_t*)malloc(total_size);
+    uint8_t *buf = (uint8_t *)malloc(total_size);
     if (!buf) {
         free(y_counts);
         free(z_counts);
-        return DYN_ARR_ERR_NO_MEMORY;
+        return (DYN_ARR_ERR_NO_MEMORY);
     }
 
     uint16_t wire_tag = TAG_ARRAY;
-    if (arr->num_dims == 2) wire_tag = TAG_2D_ARRAY;
-    else if (arr->num_dims == 3) wire_tag = TAG_3D_ARRAY;
+    if (arr->num_dims == 2) {
+        wire_tag = TAG_2D_ARRAY;
+    } else if (arr->num_dims == 3) {
+        wire_tag = TAG_3D_ARRAY;
+    }
 
     put_u16_be(buf, wire_tag);
     put_u16_be(buf + TYPE_MARKER_SIZE, arr->ele_type);
@@ -784,7 +746,7 @@ dyn_arr_status_t array_to_bytes(
         off += ARRAY_COUNT_PREFIX_SIZE;
 
         for (size_t k = 0; k < x_count; k++) {
-            uint8_t *src = (uint8_t*)arr->data + (k * arr->elem_size);
+            uint8_t *src = (uint8_t *)arr->data + (k * arr->elem_size);
             off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
         }
     } else if (arr->num_dims == 2) {
@@ -797,8 +759,8 @@ dyn_arr_status_t array_to_bytes(
             off += ARRAY_COUNT_PREFIX_SIZE;
 
             for (size_t j = 0; j < y_cnt; j++) {
-                size_t idx = get_flat_index(arr, i, j, 0);
-                uint8_t *src = (uint8_t*)arr->data + (idx * arr->elem_size);
+                size_t idx   = get_flat_index(arr, i, j, 0);
+                uint8_t *src = (uint8_t *)arr->data + (idx * arr->elem_size);
                 off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
             }
         }
@@ -817,8 +779,8 @@ dyn_arr_status_t array_to_bytes(
                 off += ARRAY_COUNT_PREFIX_SIZE;
 
                 for (size_t k = 0; k < z_cnt; k++) {
-                    size_t idx = get_flat_index(arr, i, j, k);
-                    uint8_t *src = (uint8_t*)arr->data + (idx * arr->elem_size);
+                    size_t idx   = get_flat_index(arr, i, j, k);
+                    uint8_t *src = (uint8_t *)arr->data + (idx * arr->elem_size);
                     off += serialize_element(buf + off, src, arr->ele_type, marshal_fn);
                 }
             }
@@ -828,88 +790,101 @@ dyn_arr_status_t array_to_bytes(
     free(y_counts);
     free(z_counts);
 
-    *out_buf = buf;
+    *out_buf  = buf;
     *out_size = total_size;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
-#define CHECK_REMAINING(remaining, expected) do { \
-    if ((remaining) < expected) return DYN_ARR_ERR_EOF; \
-} while(0)
+#define CHECK_REMAINING(remaining, expected)                  \
+    do {                                                      \
+        if ((remaining) < expected) return (DYN_ARR_ERR_EOF); \
+    } while (0)
 
-#define READ_COUNT_PREFIX(stream, remaining, count_out) do { \
-    CHECK_REMAINING(remaining, ARRAY_COUNT_PREFIX_SIZE); \
-    (count_out) = get_u16_be(stream); \
-    (stream) += 2; \
-    (remaining) -= 2; \
-} while(0)
+#define READ_COUNT_PREFIX(stream, remaining, count_out)      \
+    do {                                                     \
+        CHECK_REMAINING(remaining, ARRAY_COUNT_PREFIX_SIZE); \
+        (count_out) = get_u16_be(stream);                    \
+        (stream) += 2;                                       \
+        (remaining) -= 2;                                    \
+    } while (0)
 
-static dyn_arr_status_t read_element_from_stream(
-    uint8_t **stream,
-    size_t *remaining,
-    element_type_t ele_type,
-    void *dst,
-    custom_unmarshal_fn unmarshal_fn)
-{
+static dyn_arr_status_t read_element_from_stream(uint8_t **stream, size_t *remaining,
+                                                 element_type_t ele_type, void *dst,
+                                                 custom_unmarshal_fn unmarshal_fn) {
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8: {
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: {
             CHECK_REMAINING(*remaining, 1);
-            *(uint8_t*)dst = **stream;
-            *stream += 1; *remaining -= 1;
+            *(uint8_t *)dst = **stream;
+            *stream += 1;
+            *remaining -= 1;
             break;
         }
-        case TAG_UINT16: case TAG_INT16: {
+        case TAG_UINT16:
+        case TAG_INT16: {
             CHECK_REMAINING(*remaining, 2);
-            *(uint16_t*)dst = get_u16_be(*stream);
-            *stream += 2; *remaining -= 2;
+            *(uint16_t *)dst = get_u16_be(*stream);
+            *stream += 2;
+            *remaining -= 2;
             break;
         }
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32: {
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: {
             CHECK_REMAINING(*remaining, 4);
-            *(uint32_t*)dst = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
+            *(uint32_t *)dst = get_u32_be(*stream);
+            *stream += 4;
+            *remaining -= 4;
             break;
         }
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64: {
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: {
             CHECK_REMAINING(*remaining, 8);
-            *(uint64_t*)dst = get_u64_be(*stream);
-            *stream += 8; *remaining -= 8;
+            *(uint64_t *)dst = get_u64_be(*stream);
+            *stream += 8;
+            *remaining -= 8;
             break;
         }
         case TAG_STRING: {
             CHECK_REMAINING(*remaining, STRING_OR_BYTE_LEN_PREFIX_SIZE);
             uint32_t len = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
-            string_t *s = (string_t*)dst;
-            s->data = NULL;
-            s->len = len;
+            *stream += 4;
+            *remaining -= 4;
+            string_t *s = (string_t *)dst;
+            s->data     = NULL;
+            s->len      = len;
 
             if (len > 0) {
                 CHECK_REMAINING(*remaining, len);
-                s->data = (char*)malloc(len + 1);
-                if (!s->data) return DYN_ARR_ERR_NO_MEMORY;
+                s->data = (char *)malloc(len + 1);
+                if (!s->data) return (DYN_ARR_ERR_NO_MEMORY);
 
                 memcpy(s->data, *stream, len);
                 s->data[len] = '\0';
-                *stream += len; *remaining -= len;
+                *stream += len;
+                *remaining -= len;
             }
             break;
         }
         case TAG_BYTES: {
             CHECK_REMAINING(*remaining, STRING_OR_BYTE_LEN_PREFIX_SIZE);
             uint32_t len = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
-            byte_array_t *b = (byte_array_t*)dst;
-            b->data = NULL;
-            b->len = len;
+            *stream += 4;
+            *remaining -= 4;
+            byte_array_t *b = (byte_array_t *)dst;
+            b->data         = NULL;
+            b->len          = len;
 
             if (len > 0) {
                 CHECK_REMAINING(*remaining, len);
-                b->data = (uint8_t*)malloc(len);
-                if (!b->data) return DYN_ARR_ERR_NO_MEMORY;
+                b->data = (uint8_t *)malloc(len);
+                if (!b->data) return (DYN_ARR_ERR_NO_MEMORY);
 
                 memcpy(b->data, *stream, len);
-                *stream += len; *remaining -= len;
+                *stream += len;
+                *remaining -= len;
             }
             break;
         }
@@ -919,100 +894,110 @@ static dyn_arr_status_t read_element_from_stream(
         {
             CHECK_REMAINING(*remaining, OBJECT_SET_UNSET_PREFIX_SIZE);
             bool is_set = (**stream == 1);
-            *stream += 1; *remaining -= 1;
+            *stream += 1;
+            *remaining -= 1;
 
             if (is_set) {
                 CHECK_REMAINING(*remaining, WIRE_FRAME_HEADER_SIZE);
-                if (!unmarshal_fn) return DYN_ARR_ERR_INVALID_PARAM;
+                if (!unmarshal_fn) return (DYN_ARR_ERR_INVALID_PARAM);
 
-                uint16_t fixed_len = get_message_fixed_payload_length(*stream);
+                uint16_t fixed_len        = get_message_fixed_payload_length(*stream);
                 uint32_t full_payload_len = get_message_overall_payload_length(*stream);
-                *stream += WIRE_FRAME_HEADER_SIZE; *remaining -= WIRE_FRAME_HEADER_SIZE;
+                *stream += WIRE_FRAME_HEADER_SIZE;
+                *remaining -= WIRE_FRAME_HEADER_SIZE;
                 CHECK_REMAINING(*remaining, full_payload_len);
 
                 int st = unmarshal_fn(*stream, fixed_len, full_payload_len, dst);
-                if (st != 0) return DYN_ARR_ERR_FAIL;
-                *stream += full_payload_len; *remaining -= full_payload_len;
+                if (st != 0) return (DYN_ARR_ERR_FAIL);
+                *stream += full_payload_len;
+                *remaining -= full_payload_len;
             }
             break;
         }
-        default:
-            return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
-static dyn_arr_status_t skip_element_in_stream(
-    uint8_t **stream,
-    size_t *remaining,
-    element_type_t ele_type)
-{
+static dyn_arr_status_t skip_element_in_stream(uint8_t **stream, size_t *remaining,
+                                               element_type_t ele_type) {
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
-            if (*remaining < 1) return DYN_ARR_ERR_EOF;
-            *stream += 1; *remaining -= 1; break;
-        case TAG_UINT16: case TAG_INT16:
-            if (*remaining < 2) return DYN_ARR_ERR_EOF;
-            *stream += 2; *remaining -= 2; break;
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
-            if (*remaining < 4) return DYN_ARR_ERR_EOF;
-            *stream += 4; *remaining -= 4; break;
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
-            if (*remaining < 8) return DYN_ARR_ERR_EOF;
-            *stream += 8; *remaining -= 8; break;
-        case TAG_STRING: case TAG_BYTES: {
-            if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8:
+            if (*remaining < 1) return (DYN_ARR_ERR_EOF);
+            *stream += 1;
+            *remaining -= 1;
+            break;
+        case TAG_UINT16:
+        case TAG_INT16:
+            if (*remaining < 2) return (DYN_ARR_ERR_EOF);
+            *stream += 2;
+            *remaining -= 2;
+            break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32:
+            if (*remaining < 4) return (DYN_ARR_ERR_EOF);
+            *stream += 4;
+            *remaining -= 4;
+            break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64:
+            if (*remaining < 8) return (DYN_ARR_ERR_EOF);
+            *stream += 8;
+            *remaining -= 8;
+            break;
+        case TAG_STRING:
+        case TAG_BYTES: {
+            if (*remaining < STRING_OR_BYTE_LEN_PREFIX_SIZE) return (DYN_ARR_ERR_EOF);
             uint32_t len = get_u32_be(*stream);
-            *stream += 4; *remaining -= 4;
-            if (*remaining < len) return DYN_ARR_ERR_EOF;
-            *stream += len; *remaining -= len; break;
+            *stream += 4;
+            *remaining -= 4;
+            if (*remaining < len) return (DYN_ARR_ERR_EOF);
+            *stream += len;
+            *remaining -= len;
+            break;
         }
 {{range .Messages}}{{$msg := .}}
         case TAG_{{snakeUpper $msg.Name}}:
 {{- end}}
         {
-            if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+            if (*remaining < OBJECT_SET_UNSET_PREFIX_SIZE) return (DYN_ARR_ERR_EOF);
             bool is_set = (**stream == 1);
-            *stream += 1; *remaining -= 1;
+            *stream += 1;
+            *remaining -= 1;
             if (is_set) {
-                if (*remaining < WIRE_FRAME_HEADER_SIZE) return DYN_ARR_ERR_EOF;
+                if (*remaining < WIRE_FRAME_HEADER_SIZE) return (DYN_ARR_ERR_EOF);
                 uint32_t full_payload_len = get_message_overall_payload_length(*stream);
-                *stream += WIRE_FRAME_HEADER_SIZE; *remaining -= WIRE_FRAME_HEADER_SIZE;
-                if (*remaining < full_payload_len) return DYN_ARR_ERR_EOF;
-                *stream += full_payload_len; *remaining -= full_payload_len;
+                *stream += WIRE_FRAME_HEADER_SIZE;
+                *remaining -= WIRE_FRAME_HEADER_SIZE;
+                if (*remaining < full_payload_len) return (DYN_ARR_ERR_EOF);
+                *stream += full_payload_len;
+                *remaining -= full_payload_len;
             }
             break;
         }
-        default: return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
-
-
-dyn_arr_status_t bytes_to_array(
-    uint8_t *in_buf,
-    size_t in_size,
-    dynamic_array_t *out_arr,
-    custom_unmarshal_fn unmarshal_fn
-)
-{
-    if (!in_buf || !out_arr) {
-        return DYN_ARR_ERR_INVALID_PARAM;
-    }
+dyn_arr_status_t bytes_to_array(uint8_t *in_buf, size_t in_size, dynamic_array_t *out_arr,
+                                custom_unmarshal_fn unmarshal_fn) {
+    if (!in_buf || !out_arr) { return (DYN_ARR_ERR_INVALID_PARAM); }
 
     // Header size = [WIRE_TAG (2B)] + [WIRE_ELE_TYPE (2B)] + [TOTAL_ITEMS (2B)]
     size_t header_len = (TYPE_MARKER_SIZE * 2) + ARRAY_COUNT_PREFIX_SIZE;
-    if (in_size < header_len) {
-        return DYN_ARR_ERR_EOF;
-    }
+    if (in_size < header_len) { return (DYN_ARR_ERR_EOF); }
 
-    uint8_t *stream = in_buf;
+    uint8_t *stream  = in_buf;
     size_t remaining = in_size;
 
-    uint16_t array_tag      = get_u16_be(stream);
-    uint16_t ele_type       = get_u16_be(stream + TYPE_MARKER_SIZE);
-    uint16_t total_items    = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
+    uint16_t array_tag   = get_u16_be(stream);
+    uint16_t ele_type    = get_u16_be(stream + TYPE_MARKER_SIZE);
+    uint16_t total_items = get_u16_be(stream + (TYPE_MARKER_SIZE * 2));
 
     stream += header_len;
     remaining -= header_len;
@@ -1020,52 +1005,56 @@ dyn_arr_status_t bytes_to_array(
     if (total_items == 0 || remaining == 0) {
         memset(out_arr, 0, sizeof(dynamic_array_t));
         out_arr->ele_type = ele_type;
-        return DYN_ARR_OK;
+        return (DYN_ARR_OK);
     }
 
     size_t elem_size = 0;
     switch (ele_type) {
-        case TAG_BOOL: case TAG_UINT8: case TAG_INT8:
-            elem_size = 1; break;
-        case TAG_UINT16: case TAG_INT16:
-            elem_size = 2; break;
-        case TAG_UINT32: case TAG_INT32: case TAG_FLOAT32:
-            elem_size = 4; break;
-        case TAG_UINT64: case TAG_INT64: case TAG_FLOAT64:
-            elem_size = 8; break;
-        case TAG_STRING:
-            elem_size = sizeof(string_t); break;
-        case TAG_BYTES:
-            elem_size = sizeof(byte_array_t); break;
+        case TAG_BOOL:
+        case TAG_UINT8:
+        case TAG_INT8: elem_size = 1; break;
+        case TAG_UINT16:
+        case TAG_INT16: elem_size = 2; break;
+        case TAG_UINT32:
+        case TAG_INT32:
+        case TAG_FLOAT32: elem_size = 4; break;
+        case TAG_UINT64:
+        case TAG_INT64:
+        case TAG_FLOAT64: elem_size = 8; break;
+        case TAG_STRING: elem_size = sizeof(string_t); break;
+        case TAG_BYTES: elem_size = sizeof(byte_array_t); break;
 {{range .Messages}}{{$msg := .}}
         case TAG_{{snakeUpper $msg.Name}}:
+            elem_size = sizeof({{snakeLower $msg.Name}} {{snakeLower $msg.Name}}_t);
+            break;
 {{- end}}
-            elem_size = sizeof(all_types_of_arrays_msg_t); break;
-        default: return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
-    if (remaining < ARRAY_COUNT_PREFIX_SIZE) return DYN_ARR_ERR_EOF;
+    if (remaining < ARRAY_COUNT_PREFIX_SIZE) return (DYN_ARR_ERR_EOF);
 
-    uint8_t *scan_stream = stream;
+    uint8_t *scan_stream  = stream;
     size_t scan_remaining = remaining;
 
     size_t dim_x = 0, dim_y = 0, dim_z = 0;
     uint8_t num_dims = 1;
 
     switch (array_tag) {
-        case TAG_ARRAY:
-        {
+        case TAG_ARRAY: {
             uint16_t count;
             READ_COUNT_PREFIX(scan_stream, scan_remaining, count);
-            dim_x = count; dim_y = 1; dim_z = 1;
+            dim_x = count;
+            dim_y = 1;
+            dim_z = 1;
             break;
         }
-        case TAG_2D_ARRAY:
-        {
+        case TAG_2D_ARRAY: {
             num_dims = 2;
             uint16_t x_count;
             READ_COUNT_PREFIX(scan_stream, scan_remaining, x_count);
-            dim_x = x_count; dim_y = 0; dim_z = 1;
+            dim_x = x_count;
+            dim_y = 0;
+            dim_z = 1;
 
             for (size_t i = 0; i < x_count; i++) {
                 uint16_t y_cnt;
@@ -1073,19 +1062,21 @@ dyn_arr_status_t bytes_to_array(
                 if (y_cnt > dim_y) dim_y = y_cnt;
 
                 for (size_t j = 0; j < y_cnt; j++) {
-                    dyn_arr_status_t st = skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
-                    if (st != DYN_ARR_OK) return st;
+                    dyn_arr_status_t st =
+                        skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
+                    if (st != DYN_ARR_OK) return (st);
                 }
             }
             if (dim_y == 0) dim_y = 1;
             break;
         }
-        case TAG_3D_ARRAY:
-        {
+        case TAG_3D_ARRAY: {
             num_dims = 3;
             uint16_t x_count;
             READ_COUNT_PREFIX(scan_stream, scan_remaining, x_count);
-            dim_x = x_count; dim_y = 0; dim_z = 0;
+            dim_x = x_count;
+            dim_y = 0;
+            dim_z = 0;
 
             for (size_t i = 0; i < x_count; i++) {
                 uint16_t y_cnt;
@@ -1098,8 +1089,9 @@ dyn_arr_status_t bytes_to_array(
                     if (z_cnt > dim_z) dim_z = z_cnt;
 
                     for (size_t k = 0; k < z_cnt; k++) {
-                        dyn_arr_status_t st = skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
-                        if (st != DYN_ARR_OK) return st;
+                        dyn_arr_status_t st =
+                            skip_element_in_stream(&scan_stream, &scan_remaining, ele_type);
+                        if (st != DYN_ARR_OK) return (st);
                     }
                 }
             }
@@ -1107,21 +1099,22 @@ dyn_arr_status_t bytes_to_array(
             if (dim_z == 0) dim_z = 1;
             break;
         }
-        default:
-            return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
-    dyn_arr_status_t init_st = dynamic_array_init(out_arr, ele_type, elem_size, num_dims, dim_x, dim_y, dim_z);
-    if (init_st != DYN_ARR_OK) return init_st;
+    dyn_arr_status_t init_st =
+        dynamic_array_init(out_arr, ele_type, elem_size, num_dims, dim_x, dim_y, dim_z);
+    if (init_st != DYN_ARR_OK) return (init_st);
 
     switch (num_dims) {
         case 1: {
             uint16_t count;
             READ_COUNT_PREFIX(stream, remaining, count);
             for (size_t k = 0; k < count; k++) {
-                void *dst = (uint8_t*)out_arr->data + (k * elem_size);
-                dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
-                if (st != DYN_ARR_OK) return st;
+                void *dst = (uint8_t *)out_arr->data + (k * elem_size);
+                dyn_arr_status_t st =
+                    read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                if (st != DYN_ARR_OK) return (st);
                 out_arr->is_set[k] = 1;
             }
             break;
@@ -1135,9 +1128,10 @@ dyn_arr_status_t bytes_to_array(
 
                 for (size_t j = 0; j < y_cnt; j++) {
                     size_t flat_idx = get_flat_index(out_arr, i, j, 0);
-                    void *dst = (uint8_t*)out_arr->data + (flat_idx * elem_size);
-                    dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
-                    if (st != DYN_ARR_OK) return st;
+                    void *dst       = (uint8_t *)out_arr->data + (flat_idx * elem_size);
+                    dyn_arr_status_t st =
+                        read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
+                    if (st != DYN_ARR_OK) return (st);
                     out_arr->is_set[flat_idx] = 1;
                 }
             }
@@ -1155,21 +1149,21 @@ dyn_arr_status_t bytes_to_array(
                     READ_COUNT_PREFIX(stream, remaining, z_cnt);
 
                     for (size_t k = 0; k < z_cnt; k++) {
-                        size_t flat_idx = get_flat_index(out_arr, i, j, k);
-                        void *dst = (uint8_t*)out_arr->data + (flat_idx * elem_size);
-                        dyn_arr_status_t st = read_element_from_stream(&stream, &remaining, ele_type, dst, unmarshal_fn);
-                        if (st != DYN_ARR_OK) return st;
+                        size_t flat_idx     = get_flat_index(out_arr, i, j, k);
+                        void *dst           = (uint8_t *)out_arr->data + (flat_idx * elem_size);
+                        dyn_arr_status_t st = read_element_from_stream(
+                            &stream, &remaining, ele_type, dst, unmarshal_fn);
+                        if (st != DYN_ARR_OK) return (st);
                         out_arr->is_set[flat_idx] = 1;
                     }
                 }
             }
             break;
         }
-        default:
-            return DYN_ARR_ERR_INVALID_PARAM;
+        default: return (DYN_ARR_ERR_INVALID_PARAM);
     }
 
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 
 {{$overallMessages := .Messages}}
@@ -1188,7 +1182,7 @@ dyn_arr_status_t bytes_to_array(
 {{- if eq $variableType "[]any"}}
 {{- $rootElemType := arrayRootBaseType $field "c"}}
 dyn_arr_status_t {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const dynamic_array_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
 {{- if or (eq $rootElemType "string") (eq $rootElemType "[]byte") (eq $rootElemType "struct")}}
     if (msg->{{$field.CName}}.data) {
         size_t _existing = msg->{{$field.CName}}.x * msg->{{$field.CName}}.y * msg->{{$field.CName}}.z;
@@ -1216,45 +1210,45 @@ dyn_arr_status_t {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $m
 {{- else if eq $dimen 3}}
     dyn_arr_status_t status = dynamic_array_copy_3d(&msg->{{$field.CName}}, value);
 {{- end}}
-    if (status != DYN_ARR_OK) return status;
+    if (status != DYN_ARR_OK) return (status);
 
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 {{- else if eq $variableType "struct"}}
 dyn_arr_status_t {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const {{cType $field $overallMessages}}_t *value) {
-    if (!msg || !value) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!msg || !value) return (DYN_ARR_ERR_INVALID_PARAM);
     if (msg->{{$field.CName}}) {
         free(msg->{{$field.CName}});
         msg->{{$field.CName}} = NULL;
     }
 
     msg->{{$field.CName}} = malloc(sizeof({{cType $field $overallMessages}}_t));
-    if (!msg->{{$field.CName}}) return DYN_ARR_ERR_NO_MEMORY;
+    if (!msg->{{$field.CName}}) return (DYN_ARR_ERR_NO_MEMORY);
 
     *msg->{{$field.CName}} = *value;
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 {{- else if eq $variableType "string"}}
 dyn_arr_status_t {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const char *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     string_t_free(&msg->{{$field.CName}});
     msg->{{$field.CName}}.data = NULL;
     string_t_set_value(&msg->{{$field.CName}}, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 {{- else if eq $variableType "[]byte"}}
 dyn_arr_status_t {{snakeLower $msg.Name}}_t_set_{{$field.CName}}({{snakeLower $msg.Name}}_t *msg, const uint8_t *value, const size_t len) {
-    if (!msg || !value || len == 0) return DYN_ARR_ERR_INVALID_PARAM;
+    if (!msg || !value || len == 0) return (DYN_ARR_ERR_INVALID_PARAM);
 
     byte_array_t_free(&msg->{{$field.CName}});
     msg->{{$field.CName}}.data = NULL;
     byte_array_t_set_value(&msg->{{$field.CName}}, value, len);
     msg->_is_set = true;
-    return DYN_ARR_OK;
+    return (DYN_ARR_OK);
 }
 {{- end}}{{/* if eq $variableType */}}
 {{- else}}{{/* not (isVariable $field.Type) */}}
@@ -1309,12 +1303,12 @@ size_t {{snakeLower $msg.Name}}_t_dynamic_payload_size({{snakeLower $msg.Name}}_
 {{- end}}{{/* if eq $fieldType */}}
 {{- end}}{{/* range $msg.VariableFields */}}
     (void)msg;
-    return dyn_size;
+    return (dyn_size);
 }
 
 size_t {{snakeLower $msg.Name}}_t_size(void *in_item) {
     {{snakeLower $msg.Name}}_t *msg = in_item;
-    return WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE + {{snakeLower $msg.Name}}_t_dynamic_payload_size(msg);
+    return (WIRE_FRAME_HEADER_SIZE + {{snakeUpper $msg.Name}}_FIXED_SIZE + {{snakeLower $msg.Name}}_t_dynamic_payload_size(msg));
 }
 
 
@@ -1329,18 +1323,18 @@ size_t {{snakeLower $msg.Name}}_t_size(void *in_item) {
  *   [{{add 8 .TotalFixedSize}}:end]   Dynamic payload (variable-length field data)
  */
 int {{snakeLower $msg.Name}}_t_marshal(void *in_item, uint8_t** out_buf) {
-    if (!in_item || !out_buf) return -1;
+    if (!in_item || !out_buf) return (-1);
 
     {{snakeLower $msg.Name}}_t *msg = in_item;
     size_t payload_size = {{snakeUpper $msg.Name}}_FIXED_SIZE + {{snakeLower $msg.Name}}_t_dynamic_payload_size(msg);
     size_t total_size = WIRE_FRAME_HEADER_SIZE + payload_size;
     if (total_size > MAX_ALLOWED_PACKET) {
-        return -1;
+        return (-1);
     }
 
     uint8_t *buf = (uint8_t *) malloc(total_size);
     if (!buf) {
-        return -1;
+        return (-1);
     }
 
     memset(buf, 0, total_size);
@@ -1372,7 +1366,7 @@ int {{snakeLower $msg.Name}}_t_marshal(void *in_item, uint8_t** out_buf) {
 {{- end}}{{/* if eq (arrayRootBaseType $field) "struct" */}}
         if ({{$field.CName}}_status != DYN_ARR_OK) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + {{$field.Offset}}, {{$field.CName}}_len);
         if ({{$field.CName}}_len > 0) {
@@ -1388,7 +1382,7 @@ int {{snakeLower $msg.Name}}_t_marshal(void *in_item, uint8_t** out_buf) {
         int {{snakeLower (cType $field $overallMessages)}}_t_len = {{snakeLower (cType $field $overallMessages)}}_t_marshal(msg->{{$field.CName}}, &{{snakeLower (cType $field $overallMessages)}}_t_buf);
         if ({{snakeLower (cType $field $overallMessages)}}_t_len < 0) {
             free(buf);
-            return -1;
+            return (-1);
         }
         put_u32_be(hdr + {{$field.Offset}}, {{snakeLower (cType $field $overallMessages)}}_t_len);
         memcpy(buf + dyn_off, {{snakeLower (cType $field $overallMessages)}}_t_buf, {{snakeLower (cType $field $overallMessages)}}_t_len);
@@ -1437,7 +1431,7 @@ int {{snakeLower $msg.Name}}_t_marshal(void *in_item, uint8_t** out_buf) {
 
     (void)dyn_off;
     *out_buf = buf;
-    return (int)total_size;
+    return ((int)total_size);
 }
 
 /**
@@ -1453,7 +1447,7 @@ int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload
         fixed_payload_len < {{snakeUpper $msg.Name}}_FIXED_SIZE ||
         overall_payload_len < fixed_payload_len ||
         overall_payload_len > MAX_ALLOWED_PACKET) {
-        return -1;
+        return (-1);
     }
 
     {{snakeLower $msg.Name}}_t *out_msg = out_item;
@@ -1467,7 +1461,7 @@ int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload
 {{- if isVariable $field.Type}}
     uint32_t {{$field.CName}}_len = get_u32_be(hdr + {{$field.Offset}});
     if ({{$field.CName}}_len > MAX_ALLOWED_PACKET) {
-        return -1;
+        return (-1);
     }
 {{- else}} {{/* not (isVariable $field.Type) */}}
 {{- $fieldType := cBaseType $field}}
@@ -1516,13 +1510,13 @@ int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload
 {{- end}}{{/* if eq (arrayRootBaseType $field) "struct" */}}
         if (status != DYN_ARR_OK) {
             {{snakeLower $msg.Name}}_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 {{- else if eq $fieldType "struct"}}
         out_msg->{{$field.CName}} = malloc(sizeof({{cType $field $overallMessages}}_t));
         if (!out_msg->{{$field.CName}}) {
             {{snakeLower $msg.Name}}_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         uint16_t fixed_len = get_message_fixed_payload_length(in_buf + dyn_off);
@@ -1531,14 +1525,14 @@ int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload
         int status = {{snakeLower (cType $field $overallMessages)}}_t_unmarshal(in_buf + dyn_off + WIRE_FRAME_HEADER_SIZE, fixed_len, full_payload_len, out_msg->{{$field.CName}});
         if (status != 0) {
             {{snakeLower $msg.Name}}_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 {{- else if eq $fieldType "string"}}
         out_msg->{{$field.CName}}.len = {{$field.CName}}_len;
         out_msg->{{$field.CName}}.data = (char *) malloc({{$field.CName}}_len + 1);
         if (!out_msg->{{$field.CName}}.data) {
             {{snakeLower $msg.Name}}_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->{{$field.CName}}.data, in_buf + dyn_off, {{$field.CName}}_len);
@@ -1548,7 +1542,7 @@ int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload
         out_msg->{{$field.CName}}.data = (uint8_t *) malloc({{$field.CName}}_len);
         if (!out_msg->{{$field.CName}}.data) {
             {{snakeLower $msg.Name}}_t_free(out_msg);
-            return -1;
+            return (-1);
         }
 
         memcpy(out_msg->{{$field.CName}}.data, in_buf + dyn_off, {{$field.CName}}_len);
@@ -1558,7 +1552,7 @@ int {{snakeLower $msg.Name}}_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload
 {{- end}}{{/* range $msg.VariableFields */}}
 
     (void)dyn_off;
-    return 0;
+    return (0);
 }
 
 /**

@@ -38,9 +38,9 @@
 #ifndef MESSAGES_H
 #define MESSAGES_H
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,14 +53,14 @@ extern "C" {
  */
 #define MAX_ALLOWED_PACKET (16 * 1024 * 1024)
 
-#define WIRE_FRAME_MSG_TYPE_SIZE 2
-#define WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE 2
+#define WIRE_FRAME_MSG_TYPE_SIZE            2
+#define WIRE_FRAME_MSG_FIXED_PAYLOAD_SIZE   2
 #define WIRE_FRAME_MSG_OVERALL_PAYLOAD_SIZE 4
-#define TYPE_MARKER_SIZE 2
-#define ARRAY_COUNT_PREFIX_SIZE 2
-#define OBJECT_SET_UNSET_PREFIX_SIZE 1
-#define STRING_OR_BYTE_LEN_PREFIX_SIZE 4
-#define MAX_ARRAY_ELEMENTS 65535
+#define TYPE_MARKER_SIZE                    2
+#define ARRAY_COUNT_PREFIX_SIZE             2
+#define OBJECT_SET_UNSET_PREFIX_SIZE        1
+#define STRING_OR_BYTE_LEN_PREFIX_SIZE      4
+#define MAX_ARRAY_ELEMENTS                  65535
 
 /**
  * Size of the wire frame header:
@@ -69,28 +69,28 @@ extern "C" {
 #define WIRE_FRAME_HEADER_SIZE 8
 
 typedef enum {
-    TAG_NONE        = 0x0000,
-    TAG_UINT8       = 0x0001,
-    TAG_INT8        = 0x0002,
-    TAG_BOOL        = 0x0003,
-    TAG_UINT16      = 0x0004,
-    TAG_INT16       = 0x0005,
-    TAG_UINT32      = 0x0006,
-    TAG_INT32       = 0x0007,
-    TAG_FLOAT32     = 0x0008,
-    TAG_UINT64      = 0x0009,
-    TAG_INT64       = 0x000A,
-    TAG_FLOAT64     = 0x000B,
-    TAG_STRING      = 0x000C,
-    TAG_BYTES       = 0x000D,
-    TAG_ARRAY       = 0x000E,
-    TAG_2D_ARRAY    = 0x000F,
-    TAG_3D_ARRAY    = 0x0010,
-    TAG_ONLY_SCALAR_TYPES_MSG       = 0x0020,
-    TAG_ONLY_VARIABLE_TYPES_MSG       = 0x0021,
-    TAG_ALL_TYPES_FIELDS_MSG       = 0x0022,
-    TAG_RECURSIVE_NESTED_MSG       = 0x0023,
-    TAG_ALL_TYPES_OF_ARRAYS_MSG       = 0x0024,
+    TAG_NONE                    = 0x0000,
+    TAG_UINT8                   = 0x0001,
+    TAG_INT8                    = 0x0002,
+    TAG_BOOL                    = 0x0003,
+    TAG_UINT16                  = 0x0004,
+    TAG_INT16                   = 0x0005,
+    TAG_UINT32                  = 0x0006,
+    TAG_INT32                   = 0x0007,
+    TAG_FLOAT32                 = 0x0008,
+    TAG_UINT64                  = 0x0009,
+    TAG_INT64                   = 0x000A,
+    TAG_FLOAT64                 = 0x000B,
+    TAG_STRING                  = 0x000C,
+    TAG_BYTES                   = 0x000D,
+    TAG_ARRAY                   = 0x000E,
+    TAG_2D_ARRAY                = 0x000F,
+    TAG_3D_ARRAY                = 0x0010,
+    TAG_ONLY_SCALAR_TYPES_MSG   = 0x0020,
+    TAG_ONLY_VARIABLE_TYPES_MSG = 0x0021,
+    TAG_ALL_TYPES_FIELDS_MSG    = 0x0022,
+    TAG_RECURSIVE_NESTED_MSG    = 0x0023,
+    TAG_ALL_TYPES_OF_ARRAYS_MSG = 0x0024,
 } element_type_t;
 
 // Standard status codes for error handling
@@ -109,8 +109,8 @@ typedef struct {
 } base_object_t;
 
 typedef struct {
-	char *data;
-	uint32_t len;
+    char *data;
+    uint32_t len;
 } string_t;
 
 dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size_t len);
@@ -118,8 +118,8 @@ dyn_arr_status_t string_t_set_value(string_t *str, const char *value, const size
 void string_t_free(string_t *str);
 
 typedef struct {
-	uint8_t *data;
-	uint32_t len;
+    uint8_t *data;
+    uint32_t len;
 } byte_array_t;
 
 dyn_arr_status_t byte_array_t_set_value(byte_array_t *arr, const uint8_t *value, const size_t len);
@@ -129,33 +129,35 @@ void byte_array_t_free(byte_array_t *arr);
 /**
  * @brief Represents a multi-dimensional dynamic array structure in C.
  *
- * This structure manages dynamically allocated memory for 1D, 2D, or 3D arrays, 
+ * This structure manages dynamically allocated memory for 1D, 2D, or 3D arrays,
  * along with tracking flags to identify which elements have been explicitly set.
  */
 typedef struct {
-    void *data;          /**< Pointer to the contiguous memory buffer holding the array elements. */
-    uint8_t *is_set;     /**< Pointer to a tracking array of flags indicating whether each element is initialized/set (1) or unset (0). */
+    void *data;      /**< Pointer to the contiguous memory buffer holding the array elements. */
+    uint8_t *is_set; /**< Pointer to a tracking array of flags indicating whether each element is
+                        initialized/set (1) or unset (0). */
 
-    uint8_t num_dims;    /**< Number of dimensions in the array (supports 1, 2, or 3). */
-    uint16_t ele_type;   /**< Type identifier tag representing the data type of the elements stored. */
-    size_t elem_size;    /**< Size of a single array element in bytes. */
-    size_t capacity;     /**< The total maximum flat elements the current allocated memory can hold. */
-    size_t x;            /**< Current dimension size along the x-axis. */
-    size_t y;            /**< Current dimension size along the y-axis. */
-    size_t z;            /**< Current dimension size along the z-axis. */
+    uint8_t num_dims; /**< Number of dimensions in the array (supports 1, 2, or 3). */
+    uint16_t
+        ele_type;     /**< Type identifier tag representing the data type of the elements stored. */
+    size_t elem_size; /**< Size of a single array element in bytes. */
+    size_t capacity;  /**< The total maximum flat elements the current allocated memory can hold. */
+    size_t x;         /**< Current dimension size along the x-axis. */
+    size_t y;         /**< Current dimension size along the y-axis. */
+    size_t z;         /**< Current dimension size along the z-axis. */
 } dynamic_array_t;
 
 /**
  * @brief Computes the 1D flat index for a multi-dimensional array coordinate.
  *
- * Translates multi-dimensional indices (i, j, k) into a single flat array index 
+ * Translates multi-dimensional indices (i, j, k) into a single flat array index
  * based on the array's dimension configuration and dimensions size.
  *
  * @param arr Pointer to the dynamic_array_t structure.
  * @param i   Index along the x-dimension (plane/row).
  * @param j   Index along the y-dimension (row/column).
  * @param k   Index along the z-dimension (column/element).
- * 
+ *
  * @return The calculated flat index position as a size_t.
  */
 size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
@@ -163,7 +165,7 @@ size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
 /**
  * @brief Initializes a dynamic array with specified type, element size, and dimensions.
  *
- * Allocates memory buffers for data elements and set-tracking flags based on 
+ * Allocates memory buffers for data elements and set-tracking flags based on
  * the provided dimensional bounds (x, y, z) and dimension count.
  *
  * @param arr       Pointer to the dynamic_array_t structure to initialize.
@@ -173,35 +175,32 @@ size_t get_flat_index(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
  * @param x         Dimension size along the x-axis.
  * @param y         Dimension size along the y-axis.
  * @param z         Dimension size along the z-axis.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or DYN_ARR_ERR_NO_MEMORY) on failure.
  */
-dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr,
-                                    element_type_t ele_type,
-                                    size_t elem_size, 
-                                    uint8_t num_dims, 
-                                    size_t x, size_t y, size_t z);
+dyn_arr_status_t dynamic_array_init(dynamic_array_t *arr, element_type_t ele_type, size_t elem_size,
+                                    uint8_t num_dims, size_t x, size_t y, size_t z);
 
 /**
  * @brief Retrieves a direct memory pointer to an element at the specified coordinates.
  *
- * Calculates the flat index and returns a pointer to the element data slot 
+ * Calculates the flat index and returns a pointer to the element data slot
  * within the array's internal memory buffer.
  *
  * @param arr Pointer to the dynamic_array_t structure.
  * @param i   Index along the x-dimension.
  * @param j   Index along the y-dimension.
  * @param k   Index along the z-dimension.
- * 
+ *
  * @return A void pointer to the element data, or NULL if indices are invalid or uninitialized.
  */
-void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
+void *dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size_t k);
 
 /**
  * @brief Retrieves the value of an element at the specified multi-dimensional coordinates.
  *
- * Copies the element data from the dynamic array into the provided output buffer 
+ * Copies the element data from the dynamic array into the provided output buffer
  * if the element has been marked as set.
  *
  * @param arr     Pointer to the dynamic_array_t structure.
@@ -209,15 +208,17 @@ void* dynamic_array_get_ptr(const dynamic_array_t *arr, size_t i, size_t j, size
  * @param j       Index along the y-dimension.
  * @param k       Index along the z-dimension.
  * @param out_val Pointer to the buffer where the retrieved element value will be stored.
- * 
- * @return DYN_ARR_OK on success, or an appropriate error code (e.g., DYN_ARR_ERR_INVALID_PARAM) on failure.
+ *
+ * @return DYN_ARR_OK on success, or an appropriate error code (e.g., DYN_ARR_ERR_INVALID_PARAM) on
+ * failure.
  */
-dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k, void *out_val);
+dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   void *out_val);
 
 /**
  * @brief Sets or updates the value of an element at the specified coordinates.
  *
- * Copies the input value into the dynamic array's memory buffer at the target 
+ * Copies the input value into the dynamic array's memory buffer at the target
  * coordinate and marks that element's position as set.
  *
  * @param arr    Pointer to the dynamic_array_t structure.
@@ -225,23 +226,24 @@ dyn_arr_status_t dynamic_array_get(const dynamic_array_t *arr, size_t i, size_t 
  * @param j      Index along the y-dimension.
  * @param k      Index along the z-dimension.
  * @param in_val Pointer to the value to be copied into the array.
- * 
+ *
  * @return DYN_ARR_OK on success, or an appropriate error code on failure.
  */
-dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k, const void *in_val);
+dyn_arr_status_t dynamic_array_set(dynamic_array_t *arr, size_t i, size_t j, size_t k,
+                                   const void *in_val);
 
 /**
  * @brief Performs a trimmed deep copy of a 1D dynamic array.
  *
- * This function scans the source 1D array to determine the effective size 
- * by locating the highest index containing a set element. It then initializes 
- * the destination array with the trimmed dimensions and copies both the 
+ * This function scans the source 1D array to determine the effective size
+ * by locating the highest index containing a set element. It then initializes
+ * the destination array with the trimmed dimensions and copies both the
  * element data and tracking flags.
  *
  * @param dest Pointer to the destination dynamic_array_t structure to initialize and populate.
  * @param src  Pointer to the source dynamic_array_t structure to copy from.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or memory allocation errors) on failure.
  */
 dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_array_t *src);
@@ -249,15 +251,15 @@ dyn_arr_status_t dynamic_array_copy_1d(dynamic_array_t *dest, const dynamic_arra
 /**
  * @brief Performs a trimmed deep copy of a 2D dynamic array.
  *
- * This function scans the source 2D grid to find the maximum active row and 
- * column indices (effective bounds) containing set elements. It allocates 
- * a destination array sized precisely to these trimmed bounds and performs 
+ * This function scans the source 2D grid to find the maximum active row and
+ * column indices (effective bounds) containing set elements. It allocates
+ * a destination array sized precisely to these trimmed bounds and performs
  * a deep copy of all valid elements and their corresponding set states.
  *
  * @param dest Pointer to the destination dynamic_array_t structure to initialize and populate.
  * @param src  Pointer to the source dynamic_array_t structure to copy from.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or memory allocation errors) on failure.
  */
 dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_array_t *src);
@@ -265,15 +267,15 @@ dyn_arr_status_t dynamic_array_copy_2d(dynamic_array_t *dest, const dynamic_arra
 /**
  * @brief Performs a trimmed deep copy of a 3D dynamic array.
  *
- * This function evaluates the 3D source grid to identify the maximum active 
- * planes, rows, and columns (eff_x, eff_y, eff_z) that contain set elements. 
- * It initializes the destination container with these trimmed dimensions and 
+ * This function evaluates the 3D source grid to identify the maximum active
+ * planes, rows, and columns (eff_x, eff_y, eff_z) that contain set elements.
+ * It initializes the destination container with these trimmed dimensions and
  * securely duplicates the element blocks and tracking maps.
  *
  * @param dest Pointer to the destination dynamic_array_t structure to initialize and populate.
  * @param src  Pointer to the source dynamic_array_t structure to copy from.
- * 
- * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code 
+ *
+ * @return DYN_ARR_OK on success, or an appropriate dyn_arr_status_t error code
  *         (e.g., DYN_ARR_ERR_INVALID_PARAM or memory allocation errors) on failure.
  */
 dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_array_t *src);
@@ -281,40 +283,16 @@ dyn_arr_status_t dynamic_array_copy_3d(dynamic_array_t *dest, const dynamic_arra
 /**
  * @brief Releases all allocated memory associated with a dynamic array.
  *
- * Frees internal memory blocks allocated for element data and tracking flags, 
+ * Frees internal memory blocks allocated for element data and tracking flags,
  * resetting the array structure fields to safe default states.
  *
  * @param arr Pointer to the dynamic_array_t structure to destroy.
  */
 void dynamic_array_destroy(dynamic_array_t *arr);
 
-#define FOR_EACH_DYNAMIC_ARRAY_ITEM(arr, type, it)                     \
-    for (type *it = (type *)((arr)->data),                              \
-              *it##_end = it + ((arr)->x * (arr)->y * (arr)->z);         \
-         it < it##_end;                                                  \
-         ++it)
-#define FOR_EACH_DYNAMIC_ARRAY_INDEX(arr, type, i, it)                  \
-    for (size_t i = 0,                                                   \
-                _count = (arr)->x * (arr)->y * (arr)->z;                 \
-         i < _count && (((it) = &((type *)(arr)->data)[i]), 1);          \
-         ++i)
-#define FOR_EACH_1D_DYNAMIC_ARRAY(arr, i, out) \
-    for (size_t i = 0; i < (arr)->x; ++i)
-
-#define FOR_EACH_2D_DYNAMIC_ARRAY(arr, i, j) \
-    for (size_t i = 0; i < (arr)->x; ++i) \
-        for (size_t j = 0; j < (arr)->y; ++j)
-
-#define FOR_EACH_3D_DYNAMIC_ARRAY(arr, i, j, k) \
-    for (size_t i = 0; i < (arr)->x; ++i) \
-        for (size_t j = 0; j < (arr)->y; ++j) \
-            for (size_t k = 0; k < (arr)->z; ++k)
-
 uint16_t get_message_type(const uint8_t *buf);
 uint16_t get_message_fixed_payload_length(const uint8_t *buf);
 uint32_t get_message_overall_payload_length(const uint8_t *buf);
-
-
 
 typedef struct only_scalar_types_msg only_scalar_types_msg_t;
 
@@ -325,8 +303,6 @@ typedef struct all_types_fields_msg all_types_fields_msg_t;
 typedef struct recursive_nested_msg recursive_nested_msg_t;
 
 typedef struct all_types_of_arrays_msg all_types_of_arrays_msg_t;
-
-
 
 /* ===========================================================================
  * OnlyScalarTypesMsg
@@ -352,99 +328,110 @@ typedef struct all_types_of_arrays_msg all_types_of_arrays_msg_t;
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
 struct only_scalar_types_msg {
-    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */  
-    /** Unsigned 64-bit integer. */ 
-    uint64_t val_uint64;    
-    /** Signed 64-bit integer. */ 
-    int64_t val_int64;    
-    /** 64-bit IEEE 754 float. */ 
-    double val_double;    
-    /** Unsigned 32-bit integer. */ 
-    uint32_t val_uint32;    
-    /** Signed 32-bit integer. */ 
-    int32_t val_int32;    
-    /** 32-bit IEEE 754 float. */ 
-    float val_float;    
-    /** Unsigned 16-bit integer. */ 
-    uint16_t val_uint16;    
-    /** Signed 16-bit integer. */ 
-    int16_t val_int16;    
-    /** Unsigned 8-bit integer. */ 
-    uint8_t val_uint8;    
-    /** Signed 8-bit integer. */ 
-    int8_t val_int8;    
-    /** Boolean field. */ 
-    uint8_t val_bool;   
-    uint8_t _pad0[5]; /**< Explicit alignment padding. */  
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */
+    /** Unsigned 64-bit integer. */
+    uint64_t val_uint64;
+    /** Signed 64-bit integer. */
+    int64_t val_int64;
+    /** 64-bit IEEE 754 float. */
+    double val_double;
+    /** Unsigned 32-bit integer. */
+    uint32_t val_uint32;
+    /** Signed 32-bit integer. */
+    int32_t val_int32;
+    /** 32-bit IEEE 754 float. */
+    float val_float;
+    /** Unsigned 16-bit integer. */
+    uint16_t val_uint16;
+    /** Signed 16-bit integer. */
+    int16_t val_int16;
+    /** Unsigned 8-bit integer. */
+    uint8_t val_uint8;
+    /** Signed 8-bit integer. */
+    int8_t val_int8;
+    /** Boolean field. */
+    uint8_t val_bool;
+    uint8_t _pad0[5]; /**< Explicit alignment padding. */
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
 _Static_assert(sizeof(only_scalar_types_msg_t) >= 48,
-    "wireforge: only_scalar_types_msg_t fixed layout size mismatch");
+               "wireforge: only_scalar_types_msg_t fixed layout size mismatch");
 
 /**
  * Sets the value of the val_uint64 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_uint64(only_scalar_types_msg_t *msg, const uint64_t value);
 
 /**
  * Sets the value of the val_int64 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_int64(only_scalar_types_msg_t *msg, const int64_t value);
 
 /**
  * Sets the value of the val_double field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_double(only_scalar_types_msg_t *msg, const double value);
 
 /**
  * Sets the value of the val_uint32 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_uint32(only_scalar_types_msg_t *msg, const uint32_t value);
 
 /**
  * Sets the value of the val_int32 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_int32(only_scalar_types_msg_t *msg, const int32_t value);
 
 /**
  * Sets the value of the val_float field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_float(only_scalar_types_msg_t *msg, const float value);
 
 /**
  * Sets the value of the val_uint16 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_uint16(only_scalar_types_msg_t *msg, const uint16_t value);
 
 /**
  * Sets the value of the val_int16 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_int16(only_scalar_types_msg_t *msg, const int16_t value);
 
 /**
  * Sets the value of the val_uint8 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_uint8(only_scalar_types_msg_t *msg, const uint8_t value);
 
 /**
  * Sets the value of the val_int8 field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_int8(only_scalar_types_msg_t *msg, const int8_t value);
 
 /**
  * Sets the value of the val_bool field in the only_scalar_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void only_scalar_types_msg_t_set_val_bool(only_scalar_types_msg_t *msg, const uint8_t value);
 
@@ -457,8 +444,8 @@ size_t only_scalar_types_msg_t_size(void *in_item);
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
- * 					will write the serialized message stream into the buffer referenced
- * 					by this address.
+ * 					will write the serialized message stream into the buffer
+ * referenced by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
@@ -467,18 +454,20 @@ int only_scalar_types_msg_t_marshal(void *in_item, uint8_t **out_buf);
 /**
  * Deserialize a OnlyScalarTypesMsg message from a contiguous buffer.
  *
- * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
+ * @param in_buf				Input buffer starting at the fixed payload (after
+ * 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
  * @param overall_payload_len	Total available bytes in in_buf (fixed + dynamic payload).
- * @param out_msg				Output struct (zeroed on entry; fields populated on success).
- * @return						0 on success, -1 on error (truncated data, allocation failure,
- *                          		length exceeds MAX_ALLOWED_PACKET).
+ * @param out_msg				Output struct (zeroed on entry; fields populated on
+ * success).
+ * @return						0 on success, -1 on error (truncated data,
+ * allocation failure, length exceeds MAX_ALLOWED_PACKET).
  *
  * On success, caller MUST call only_scalar_types_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
 int only_scalar_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, void *out_item);
+                                      uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a only_scalar_types_msg_t struct.
@@ -489,7 +478,6 @@ int only_scalar_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_le
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
 void only_scalar_types_msg_t_free(only_scalar_types_msg_t *msg);
-
 
 /* ===========================================================================
  * OnlyVariableTypesMsg
@@ -515,61 +503,73 @@ void only_scalar_types_msg_t_free(only_scalar_types_msg_t *msg);
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
 struct only_variable_types_msg {
-    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */ 
-    /** UTF-8 string. */ 
-	string_t name;   
-    /** Raw binary blob. */ 
-	byte_array_t data;
-   
-    /** Nested reference to OnlyScalarTypesMsg. */ 
-	only_scalar_types_msg_t *nested;   
-    /** 1-D array of bytes. */ 
-	dynamic_array_t byte_array;   
-    /** 2-D array of int32 values. */ 
-	dynamic_array_t matrix;   
-    /** 1-D array of strings. */ 
-	dynamic_array_t tags;   
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */
+                  /** UTF-8 string. */
+    string_t name;
+    /** Raw binary blob. */
+    byte_array_t data;
+
+    /** Nested reference to OnlyScalarTypesMsg. */
+    only_scalar_types_msg_t *nested;
+    /** 1-D array of bytes. */
+    dynamic_array_t byte_array;
+    /** 2-D array of int32 values. */
+    dynamic_array_t matrix;
+    /** 1-D array of strings. */
+    dynamic_array_t tags;
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
 _Static_assert(sizeof(only_variable_types_msg_t) >= 24,
-    "wireforge: only_variable_types_msg_t fixed layout size mismatch");
+               "wireforge: only_variable_types_msg_t fixed layout size mismatch");
 
 /**
  * Sets the value of the name field in the only_variable_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg, const char *value, const size_t len);
+dyn_arr_status_t only_variable_types_msg_t_set_name(only_variable_types_msg_t *msg,
+                                                    const char *value, const size_t len);
 
 /**
  * Sets the value of the data field in the only_variable_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg, const uint8_t *value, const size_t len);
+dyn_arr_status_t only_variable_types_msg_t_set_data(only_variable_types_msg_t *msg,
+                                                    const uint8_t *value, const size_t len);
 
 /**
  * Sets the value of the nested field in the only_variable_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg, const only_scalar_types_msg_t *value);
+dyn_arr_status_t only_variable_types_msg_t_set_nested(only_variable_types_msg_t *msg,
+                                                      const only_scalar_types_msg_t *value);
 
 /**
  * Sets the value of the byte_array field in the only_variable_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t only_variable_types_msg_t_set_byte_array(only_variable_types_msg_t *msg,
+                                                          const dynamic_array_t *value);
 
 /**
  * Sets the value of the matrix field in the only_variable_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t only_variable_types_msg_t_set_matrix(only_variable_types_msg_t *msg,
+                                                      const dynamic_array_t *value);
 
 /**
  * Sets the value of the tags field in the only_variable_types_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t only_variable_types_msg_t_set_tags(only_variable_types_msg_t *msg,
+                                                    const dynamic_array_t *value);
 
 size_t only_variable_types_msg_t_dynamic_payload_size(only_variable_types_msg_t *msg);
 
@@ -580,8 +580,8 @@ size_t only_variable_types_msg_t_size(void *in_item);
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
- * 					will write the serialized message stream into the buffer referenced
- * 					by this address.
+ * 					will write the serialized message stream into the buffer
+ * referenced by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
@@ -590,18 +590,20 @@ int only_variable_types_msg_t_marshal(void *in_item, uint8_t **out_buf);
 /**
  * Deserialize a OnlyVariableTypesMsg message from a contiguous buffer.
  *
- * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
+ * @param in_buf				Input buffer starting at the fixed payload (after
+ * 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
  * @param overall_payload_len	Total available bytes in in_buf (fixed + dynamic payload).
- * @param out_msg				Output struct (zeroed on entry; fields populated on success).
- * @return						0 on success, -1 on error (truncated data, allocation failure,
- *                          		length exceeds MAX_ALLOWED_PACKET).
+ * @param out_msg				Output struct (zeroed on entry; fields populated on
+ * success).
+ * @return						0 on success, -1 on error (truncated data,
+ * allocation failure, length exceeds MAX_ALLOWED_PACKET).
  *
  * On success, caller MUST call only_variable_types_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
 int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, void *out_item);
+                                        uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a only_variable_types_msg_t struct.
@@ -612,7 +614,6 @@ int only_variable_types_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
 void only_variable_types_msg_t_free(only_variable_types_msg_t *msg);
-
 
 /* ===========================================================================
  * AllTypesFieldsMsg
@@ -638,148 +639,171 @@ void only_variable_types_msg_t_free(only_variable_types_msg_t *msg);
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
 struct all_types_fields_msg {
-    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */  
-    /** Unsigned 64-bit integer. */ 
-    uint64_t val_uint64;    
-    /** Signed 64-bit integer. */ 
-    int64_t val_int64;    
-    /** 64-bit IEEE 754 float. */ 
-    double val_double;    
-    /** Unsigned 32-bit integer. */ 
-    uint32_t val_uint32;    
-    /** Signed 32-bit integer. */ 
-    int32_t val_int32;    
-    /** 32-bit IEEE 754 float. */ 
-    float val_float;   
-    /** UTF-8 string. */ 
-	string_t name;   
-    /** Raw binary blob. */ 
-	byte_array_t data;
-   
-    /** Nested reference to OnlyScalarTypesMsg. */ 
-	only_scalar_types_msg_t *nested;   
-    /** 1-D array of bytes. */ 
-	dynamic_array_t byte_array;   
-    /** 2-D array of int32 values. */ 
-	dynamic_array_t matrix;   
-    /** 1-D array of strings. */ 
-	dynamic_array_t tags;    
-    /** Unsigned 16-bit integer. */ 
-    uint16_t val_uint16;    
-    /** Signed 16-bit integer. */ 
-    int16_t val_int16;    
-    /** Unsigned 8-bit integer. */ 
-    uint8_t val_uint8;    
-    /** Signed 8-bit integer. */ 
-    int8_t val_int8;    
-    /** Boolean field. */ 
-    uint8_t val_bool;   
-    uint8_t _pad0[5]; /**< Explicit alignment padding. */  
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */
+    /** Unsigned 64-bit integer. */
+    uint64_t val_uint64;
+    /** Signed 64-bit integer. */
+    int64_t val_int64;
+    /** 64-bit IEEE 754 float. */
+    double val_double;
+    /** Unsigned 32-bit integer. */
+    uint32_t val_uint32;
+    /** Signed 32-bit integer. */
+    int32_t val_int32;
+    /** 32-bit IEEE 754 float. */
+    float val_float;
+    /** UTF-8 string. */
+    string_t name;
+    /** Raw binary blob. */
+    byte_array_t data;
+
+    /** Nested reference to OnlyScalarTypesMsg. */
+    only_scalar_types_msg_t *nested;
+    /** 1-D array of bytes. */
+    dynamic_array_t byte_array;
+    /** 2-D array of int32 values. */
+    dynamic_array_t matrix;
+    /** 1-D array of strings. */
+    dynamic_array_t tags;
+    /** Unsigned 16-bit integer. */
+    uint16_t val_uint16;
+    /** Signed 16-bit integer. */
+    int16_t val_int16;
+    /** Unsigned 8-bit integer. */
+    uint8_t val_uint8;
+    /** Signed 8-bit integer. */
+    int8_t val_int8;
+    /** Boolean field. */
+    uint8_t val_bool;
+    uint8_t _pad0[5]; /**< Explicit alignment padding. */
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
 _Static_assert(sizeof(all_types_fields_msg_t) >= 72,
-    "wireforge: all_types_fields_msg_t fixed layout size mismatch");
+               "wireforge: all_types_fields_msg_t fixed layout size mismatch");
 
 /**
  * Sets the value of the val_uint64 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_uint64(all_types_fields_msg_t *msg, const uint64_t value);
 
 /**
  * Sets the value of the val_int64 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_int64(all_types_fields_msg_t *msg, const int64_t value);
 
 /**
  * Sets the value of the val_double field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_double(all_types_fields_msg_t *msg, const double value);
 
 /**
  * Sets the value of the val_uint32 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_uint32(all_types_fields_msg_t *msg, const uint32_t value);
 
 /**
  * Sets the value of the val_int32 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_int32(all_types_fields_msg_t *msg, const int32_t value);
 
 /**
  * Sets the value of the val_float field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_float(all_types_fields_msg_t *msg, const float value);
 
 /**
  * Sets the value of the name field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value, const size_t len);
+dyn_arr_status_t all_types_fields_msg_t_set_name(all_types_fields_msg_t *msg, const char *value,
+                                                 const size_t len);
 
 /**
  * Sets the value of the data field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t *value, const size_t len);
+dyn_arr_status_t all_types_fields_msg_t_set_data(all_types_fields_msg_t *msg, const uint8_t *value,
+                                                 const size_t len);
 
 /**
  * Sets the value of the nested field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg, const only_scalar_types_msg_t *value);
+dyn_arr_status_t all_types_fields_msg_t_set_nested(all_types_fields_msg_t *msg,
+                                                   const only_scalar_types_msg_t *value);
 
 /**
  * Sets the value of the byte_array field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_fields_msg_t_set_byte_array(all_types_fields_msg_t *msg,
+                                                       const dynamic_array_t *value);
 
 /**
  * Sets the value of the matrix field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_fields_msg_t_set_matrix(all_types_fields_msg_t *msg,
+                                                   const dynamic_array_t *value);
 
 /**
  * Sets the value of the tags field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_fields_msg_t_set_tags(all_types_fields_msg_t *msg,
+                                                 const dynamic_array_t *value);
 
 /**
  * Sets the value of the val_uint16 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_uint16(all_types_fields_msg_t *msg, const uint16_t value);
 
 /**
  * Sets the value of the val_int16 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_int16(all_types_fields_msg_t *msg, const int16_t value);
 
 /**
  * Sets the value of the val_uint8 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_uint8(all_types_fields_msg_t *msg, const uint8_t value);
 
 /**
  * Sets the value of the val_int8 field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_int8(all_types_fields_msg_t *msg, const int8_t value);
 
 /**
  * Sets the value of the val_bool field in the all_types_fields_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
 void all_types_fields_msg_t_set_val_bool(all_types_fields_msg_t *msg, const uint8_t value);
 
@@ -792,8 +816,8 @@ size_t all_types_fields_msg_t_size(void *in_item);
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
- * 					will write the serialized message stream into the buffer referenced
- * 					by this address.
+ * 					will write the serialized message stream into the buffer
+ * referenced by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
@@ -802,18 +826,20 @@ int all_types_fields_msg_t_marshal(void *in_item, uint8_t **out_buf);
 /**
  * Deserialize a AllTypesFieldsMsg message from a contiguous buffer.
  *
- * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
+ * @param in_buf				Input buffer starting at the fixed payload (after
+ * 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
  * @param overall_payload_len	Total available bytes in in_buf (fixed + dynamic payload).
- * @param out_msg				Output struct (zeroed on entry; fields populated on success).
- * @return						0 on success, -1 on error (truncated data, allocation failure,
- *                          		length exceeds MAX_ALLOWED_PACKET).
+ * @param out_msg				Output struct (zeroed on entry; fields populated on
+ * success).
+ * @return						0 on success, -1 on error (truncated data,
+ * allocation failure, length exceeds MAX_ALLOWED_PACKET).
  *
  * On success, caller MUST call all_types_fields_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
 int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, void *out_item);
+                                     uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a all_types_fields_msg_t struct.
@@ -824,7 +850,6 @@ int all_types_fields_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
 void all_types_fields_msg_t_free(all_types_fields_msg_t *msg);
-
 
 /* ===========================================================================
  * RecursiveNestedMsg
@@ -850,27 +875,31 @@ void all_types_fields_msg_t_free(all_types_fields_msg_t *msg);
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
 struct recursive_nested_msg {
-    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */ 
-    /** UTF-8 string. */ 
-	string_t name;    
-	recursive_nested_msg_t *nested;   
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */
+                  /** UTF-8 string. */
+    string_t name;
+    recursive_nested_msg_t *nested;
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
 _Static_assert(sizeof(recursive_nested_msg_t) >= 8,
-    "wireforge: recursive_nested_msg_t fixed layout size mismatch");
+               "wireforge: recursive_nested_msg_t fixed layout size mismatch");
 
 /**
  * Sets the value of the name field in the recursive_nested_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *value, const size_t len);
+dyn_arr_status_t recursive_nested_msg_t_set_name(recursive_nested_msg_t *msg, const char *value,
+                                                 const size_t len);
 
 /**
  * Sets the value of the nested field in the recursive_nested_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg, const recursive_nested_msg_t *value);
+dyn_arr_status_t recursive_nested_msg_t_set_nested(recursive_nested_msg_t *msg,
+                                                   const recursive_nested_msg_t *value);
 
 size_t recursive_nested_msg_t_dynamic_payload_size(recursive_nested_msg_t *msg);
 
@@ -881,8 +910,8 @@ size_t recursive_nested_msg_t_size(void *in_item);
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
- * 					will write the serialized message stream into the buffer referenced
- * 					by this address.
+ * 					will write the serialized message stream into the buffer
+ * referenced by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
@@ -891,18 +920,20 @@ int recursive_nested_msg_t_marshal(void *in_item, uint8_t **out_buf);
 /**
  * Deserialize a RecursiveNestedMsg message from a contiguous buffer.
  *
- * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
+ * @param in_buf				Input buffer starting at the fixed payload (after
+ * 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
  * @param overall_payload_len	Total available bytes in in_buf (fixed + dynamic payload).
- * @param out_msg				Output struct (zeroed on entry; fields populated on success).
- * @return						0 on success, -1 on error (truncated data, allocation failure,
- *                          		length exceeds MAX_ALLOWED_PACKET).
+ * @param out_msg				Output struct (zeroed on entry; fields populated on
+ * success).
+ * @return						0 on success, -1 on error (truncated data,
+ * allocation failure, length exceeds MAX_ALLOWED_PACKET).
  *
  * On success, caller MUST call recursive_nested_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
 int recursive_nested_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, void *out_item);
+                                     uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a recursive_nested_msg_t struct.
@@ -913,7 +944,6 @@ int recursive_nested_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len
  * @param msg  Pointer to the struct to clean up (NULL is a safe no-op).
  */
 void recursive_nested_msg_t_free(recursive_nested_msg_t *msg);
-
 
 /* ===========================================================================
  * AllTypesOfArraysMsg
@@ -939,372 +969,462 @@ void recursive_nested_msg_t_free(recursive_nested_msg_t *msg);
  * IMPORTANT: Do not reorder fields. The layout must match the wire format.
  */
 struct all_types_of_arrays_msg {
-    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */ 
-    /** 1-D array of booleans. */ 
-	dynamic_array_t arr1_d_bool;   
-    /** 1-D array of binary blobs. */ 
-	dynamic_array_t arr1_d_bytes;   
-    /** 1-D array of 64-bit IEEE 754 floats. */ 
-	dynamic_array_t arr1_d_double;   
-    /** 1-D array of 32-bit IEEE 754 floats. */ 
-	dynamic_array_t arr1_d_float;   
-    /** 1-D array of signed 16-bit integers. */ 
-	dynamic_array_t arr1_d_int16;   
-    /** 1-D array of signed 32-bit integers. */ 
-	dynamic_array_t arr1_d_int32;   
-    /** 1-D array of signed 64-bit integers. */ 
-	dynamic_array_t arr1_d_int64;   
-    /** 1-D array of signed 8-bit integers. */ 
-	dynamic_array_t arr1_d_int8;   
-    /** 1-D array of OnlyVariableTypesMsg objects. */ 
-	dynamic_array_t arr1_d_nested;   
-    /** 1-D array of OnlyScalarTypesMsg objects. */ 
-	dynamic_array_t arr1_d_object;   
-    /** 1-D array of strings. */ 
-	dynamic_array_t arr1_d_string;   
-    /** 1-D array of unsigned 16-bit integers. */ 
-	dynamic_array_t arr1_d_uint16;   
-    /** 1-D array of unsigned 32-bit integers. */ 
-	dynamic_array_t arr1_d_uint32;   
-    /** 1-D array of unsigned 64-bit integers. */ 
-	dynamic_array_t arr1_d_uint64;   
-    /** 1-D array of unsigned 8-bit integers. */ 
-	dynamic_array_t arr1_d_uint8;   
-    /** 2-D array of booleans. */ 
-	dynamic_array_t arr2_d_bool;   
-    /** 2-D array of binary blobs. */ 
-	dynamic_array_t arr2_d_bytes;   
-    /** 2-D array of 64-bit IEEE 754 floats. */ 
-	dynamic_array_t arr2_d_double;   
-    /** 2-D array of 32-bit IEEE 754 floats. */ 
-	dynamic_array_t arr2_d_float;   
-    /** 2-D array of signed 16-bit integers. */ 
-	dynamic_array_t arr2_d_int16;   
-    /** 2-D array of signed 32-bit integers. */ 
-	dynamic_array_t arr2_d_int32;   
-    /** 2-D array of signed 64-bit integers. */ 
-	dynamic_array_t arr2_d_int64;   
-    /** 2-D array of signed 8-bit integers. */ 
-	dynamic_array_t arr2_d_int8;   
-    /** 2-D array of OnlyVariableTypesMsg objects. */ 
-	dynamic_array_t arr2_d_nested;   
-    /** 2-D array of OnlyScalarTypesMsg objects. */ 
-	dynamic_array_t arr2_d_object;   
-    /** 2-D array of strings. */ 
-	dynamic_array_t arr2_d_string;   
-    /** 2-D array of unsigned 16-bit integers. */ 
-	dynamic_array_t arr2_d_uint16;   
-    /** 2-D array of unsigned 32-bit integers. */ 
-	dynamic_array_t arr2_d_uint32;   
-    /** 2-D array of unsigned 64-bit integers. */ 
-	dynamic_array_t arr2_d_uint64;   
-    /** 2-D array of unsigned 8-bit integers. */ 
-	dynamic_array_t arr2_d_uint8;   
-    /** 3-D array of booleans. */ 
-	dynamic_array_t arr3_d_bool;   
-    /** 3-D array of binary blobs. */ 
-	dynamic_array_t arr3_d_bytes;   
-    /** 3-D array of 64-bit IEEE 754 floats. */ 
-	dynamic_array_t arr3_d_double;   
-    /** 3-D array of 32-bit IEEE 754 floats. */ 
-	dynamic_array_t arr3_d_float;   
-    /** 3-D array of signed 16-bit integers. */ 
-	dynamic_array_t arr3_d_int16;   
-    /** 3-D array of signed 32-bit integers. */ 
-	dynamic_array_t arr3_d_int32;   
-    /** 3-D array of signed 64-bit integers. */ 
-	dynamic_array_t arr3_d_int64;   
-    /** 3-D array of signed 8-bit integers. */ 
-	dynamic_array_t arr3_d_int8;   
-    /** 3-D array of OnlyVariableTypesMsg objects. */ 
-	dynamic_array_t arr3_d_nested;   
-    /** 3-D array of OnlyScalarTypesMsg objects. */ 
-	dynamic_array_t arr3_d_object;   
-    /** 3-D array of strings. */ 
-	dynamic_array_t arr3_d_string;   
-    /** 3-D array of unsigned 16-bit integers. */ 
-	dynamic_array_t arr3_d_uint16;   
-    /** 3-D array of unsigned 32-bit integers. */ 
-	dynamic_array_t arr3_d_uint32;   
-    /** 3-D array of unsigned 64-bit integers. */ 
-	dynamic_array_t arr3_d_uint64;   
-    /** 3-D array of unsigned 8-bit integers. */ 
-	dynamic_array_t arr3_d_uint8;   
+    bool _is_set; /**< Indicates if the message has been populated (true) or is empty (false). */
+                  /** 1-D array of booleans. */
+    dynamic_array_t arr1_d_bool;
+    /** 1-D array of binary blobs. */
+    dynamic_array_t arr1_d_bytes;
+    /** 1-D array of 64-bit IEEE 754 floats. */
+    dynamic_array_t arr1_d_double;
+    /** 1-D array of 32-bit IEEE 754 floats. */
+    dynamic_array_t arr1_d_float;
+    /** 1-D array of signed 16-bit integers. */
+    dynamic_array_t arr1_d_int16;
+    /** 1-D array of signed 32-bit integers. */
+    dynamic_array_t arr1_d_int32;
+    /** 1-D array of signed 64-bit integers. */
+    dynamic_array_t arr1_d_int64;
+    /** 1-D array of signed 8-bit integers. */
+    dynamic_array_t arr1_d_int8;
+    /** 1-D array of OnlyVariableTypesMsg objects. */
+    dynamic_array_t arr1_d_nested;
+    /** 1-D array of OnlyScalarTypesMsg objects. */
+    dynamic_array_t arr1_d_object;
+    /** 1-D array of strings. */
+    dynamic_array_t arr1_d_string;
+    /** 1-D array of unsigned 16-bit integers. */
+    dynamic_array_t arr1_d_uint16;
+    /** 1-D array of unsigned 32-bit integers. */
+    dynamic_array_t arr1_d_uint32;
+    /** 1-D array of unsigned 64-bit integers. */
+    dynamic_array_t arr1_d_uint64;
+    /** 1-D array of unsigned 8-bit integers. */
+    dynamic_array_t arr1_d_uint8;
+    /** 2-D array of booleans. */
+    dynamic_array_t arr2_d_bool;
+    /** 2-D array of binary blobs. */
+    dynamic_array_t arr2_d_bytes;
+    /** 2-D array of 64-bit IEEE 754 floats. */
+    dynamic_array_t arr2_d_double;
+    /** 2-D array of 32-bit IEEE 754 floats. */
+    dynamic_array_t arr2_d_float;
+    /** 2-D array of signed 16-bit integers. */
+    dynamic_array_t arr2_d_int16;
+    /** 2-D array of signed 32-bit integers. */
+    dynamic_array_t arr2_d_int32;
+    /** 2-D array of signed 64-bit integers. */
+    dynamic_array_t arr2_d_int64;
+    /** 2-D array of signed 8-bit integers. */
+    dynamic_array_t arr2_d_int8;
+    /** 2-D array of OnlyVariableTypesMsg objects. */
+    dynamic_array_t arr2_d_nested;
+    /** 2-D array of OnlyScalarTypesMsg objects. */
+    dynamic_array_t arr2_d_object;
+    /** 2-D array of strings. */
+    dynamic_array_t arr2_d_string;
+    /** 2-D array of unsigned 16-bit integers. */
+    dynamic_array_t arr2_d_uint16;
+    /** 2-D array of unsigned 32-bit integers. */
+    dynamic_array_t arr2_d_uint32;
+    /** 2-D array of unsigned 64-bit integers. */
+    dynamic_array_t arr2_d_uint64;
+    /** 2-D array of unsigned 8-bit integers. */
+    dynamic_array_t arr2_d_uint8;
+    /** 3-D array of booleans. */
+    dynamic_array_t arr3_d_bool;
+    /** 3-D array of binary blobs. */
+    dynamic_array_t arr3_d_bytes;
+    /** 3-D array of 64-bit IEEE 754 floats. */
+    dynamic_array_t arr3_d_double;
+    /** 3-D array of 32-bit IEEE 754 floats. */
+    dynamic_array_t arr3_d_float;
+    /** 3-D array of signed 16-bit integers. */
+    dynamic_array_t arr3_d_int16;
+    /** 3-D array of signed 32-bit integers. */
+    dynamic_array_t arr3_d_int32;
+    /** 3-D array of signed 64-bit integers. */
+    dynamic_array_t arr3_d_int64;
+    /** 3-D array of signed 8-bit integers. */
+    dynamic_array_t arr3_d_int8;
+    /** 3-D array of OnlyVariableTypesMsg objects. */
+    dynamic_array_t arr3_d_nested;
+    /** 3-D array of OnlyScalarTypesMsg objects. */
+    dynamic_array_t arr3_d_object;
+    /** 3-D array of strings. */
+    dynamic_array_t arr3_d_string;
+    /** 3-D array of unsigned 16-bit integers. */
+    dynamic_array_t arr3_d_uint16;
+    /** 3-D array of unsigned 32-bit integers. */
+    dynamic_array_t arr3_d_uint32;
+    /** 3-D array of unsigned 64-bit integers. */
+    dynamic_array_t arr3_d_uint64;
+    /** 3-D array of unsigned 8-bit integers. */
+    dynamic_array_t arr3_d_uint8;
 };
 
 /* Compile-time size check: catch layout mismatches before runtime. */
 _Static_assert(sizeof(all_types_of_arrays_msg_t) >= 180,
-    "wireforge: all_types_of_arrays_msg_t fixed layout size mismatch");
+               "wireforge: all_types_of_arrays_msg_t fixed layout size mismatch");
 
 /**
  * Sets the value of the arr1_d_bool field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bool(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_bytes field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_bytes(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_double field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_double(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_float field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_float(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_int16 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int16(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_int32 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int32(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_int64 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int64(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_int8 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_int8(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_nested field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_nested(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_object field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_object(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_string field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_string(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_uint16 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint16(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_uint32 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint32(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_uint64 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint64(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr1_d_uint8 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr1_d_uint8(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_bool field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bool(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_bytes field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_bytes(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_double field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_double(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_float field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_float(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_int16 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int16(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_int32 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int32(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_int64 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int64(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_int8 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_int8(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_nested field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_nested(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_object field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_object(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_string field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_string(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_uint16 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint16(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_uint32 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint32(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_uint64 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint64(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr2_d_uint8 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr2_d_uint8(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_bool field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bool(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_bytes field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_bytes(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_double field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_double(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_float field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_float(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_int16 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int16(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_int32 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int32(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_int64 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int64(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_int8 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_int8(all_types_of_arrays_msg_t *msg,
+                                                           const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_nested field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_nested(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_object field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_object(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_string field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_string(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_uint16 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint16(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_uint32 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint32(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_uint64 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint64(all_types_of_arrays_msg_t *msg,
+                                                             const dynamic_array_t *value);
 
 /**
  * Sets the value of the arr3_d_uint8 field in the all_types_of_arrays_msg_t struct.
- * Note: Setting a dynamic field updates references safely; verify clean states before re-assignment.
+ * Note: Setting a dynamic field updates references safely; verify clean states before
+ * re-assignment.
  */
-dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg, const dynamic_array_t *value);
+dyn_arr_status_t all_types_of_arrays_msg_t_set_arr3_d_uint8(all_types_of_arrays_msg_t *msg,
+                                                            const dynamic_array_t *value);
 
 size_t all_types_of_arrays_msg_t_dynamic_payload_size(all_types_of_arrays_msg_t *msg);
 
@@ -1315,8 +1435,8 @@ size_t all_types_of_arrays_msg_t_size(void *in_item);
  *
  * @param msg       Pointer to the message to serialize (must not be NULL).
  * @param out_buf   Pointer to the destination byte buffer pointer. The function
- * 					will write the serialized message stream into the buffer referenced
- * 					by this address.
+ * 					will write the serialized message stream into the buffer
+ * referenced by this address.
  * @return          Total bytes written on success, or -1 on error
  *                  (NULL pointer, buffer too small, exceeds MAX_ALLOWED_PACKET).
  */
@@ -1325,18 +1445,20 @@ int all_types_of_arrays_msg_t_marshal(void *in_item, uint8_t **out_buf);
 /**
  * Deserialize a AllTypesOfArraysMsg message from a contiguous buffer.
  *
- * @param in_buf				Input buffer starting at the fixed payload (after 8-bytes frame header).
+ * @param in_buf				Input buffer starting at the fixed payload (after
+ * 8-bytes frame header).
  * @param fixed_payload_len		Fixed payload length as read from the wire frame header.
  * @param overall_payload_len	Total available bytes in in_buf (fixed + dynamic payload).
- * @param out_msg				Output struct (zeroed on entry; fields populated on success).
- * @return						0 on success, -1 on error (truncated data, allocation failure,
- *                          		length exceeds MAX_ALLOWED_PACKET).
+ * @param out_msg				Output struct (zeroed on entry; fields populated on
+ * success).
+ * @return						0 on success, -1 on error (truncated data,
+ * allocation failure, length exceeds MAX_ALLOWED_PACKET).
  *
  * On success, caller MUST call all_types_of_arrays_msg_t_free(out_msg) when done to release
  * any heap-allocated variable-length fields.
  */
 int all_types_of_arrays_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_len,
-		uint32_t overall_payload_len, void *out_item);
+                                        uint32_t overall_payload_len, void *out_item);
 
 /**
  * Free all dynamically allocated fields in a all_types_of_arrays_msg_t struct.
@@ -1348,28 +1470,16 @@ int all_types_of_arrays_msg_t_unmarshal(uint8_t *in_buf, uint16_t fixed_payload_
  */
 void all_types_of_arrays_msg_t_free(all_types_of_arrays_msg_t *msg);
 
-
-
 /**
  * Internal Helpers
  */
 
 typedef size_t (*custom_size_fn)(void *item);
 typedef int (*custom_marshal_fn)(void *item, uint8_t **out_buf);
-typedef int (*custom_unmarshal_fn)(uint8_t *buf, uint16_t buf_len,
-	uint32_t overall_payload_len, void *out_item);
-
-size_t calc_type_size(
-    void *item,
-    element_type_t ele_type,
-    custom_size_fn size_fn
-);
-
-size_t calc_array_size(
-    dynamic_array_t *arr,
-    element_type_t ele_type,
-    custom_size_fn size_fn
-);
+typedef int (*custom_unmarshal_fn)(uint8_t *buf, uint16_t buf_len, uint32_t overall_payload_len,
+                                   void *out_item);
+size_t calc_type_size(void *item, element_type_t ele_type, custom_size_fn size_fn);
+size_t calc_array_size(dynamic_array_t *arr, element_type_t ele_type, custom_size_fn size_fn);
 
 #ifdef __cplusplus
 }

@@ -3561,15 +3561,7 @@ func calc1DArraySize[T any](eleType uint16, arr []T) int {
 	getSizableSize := func(innerArr []T) int {
 		size := 0
 		for _, item := range innerArr {
-			sizableItem, ok := any(item).(Sizable)
-			if !ok {
-				panic("item does not implement Sizable interface")
-			}
-			size += ObjectSetUnsetPrefixSize
-			if sizableItem == nil {
-				continue
-			}
-			size += sizableItem.Size()
+			size += ObjectSetUnsetPrefixSize + calcTypeSize(item)
 		}
 		return size
 	}
@@ -3577,24 +3569,10 @@ func calc1DArraySize[T any](eleType uint16, arr []T) int {
 	switch eleType {
 	case TagBool, TagInt8, TagUint8, TagInt16, TagUint16, TagInt32, TagUint32, TagFloat32, TagInt64, TagUint64, TagFloat64:
 		return len(arr) * eleBytes
-	case TagString:
+	case TagString, TagBytes:
 		size := 0
 		for _, item := range arr {
-			str, ok := any(item).(string)
-			if !ok {
-				panic("item is not a string")
-			}
-			size += StrOrByteLenPrefixSize + len(str)
-		}
-		return size
-	case TagBytes:
-		size := 0
-		for _, item := range arr {
-			bytes, ok := any(item).([]byte)
-			if !ok {
-				panic("item is not a []byte")
-			}
-			size += StrOrByteLenPrefixSize + len(bytes)
+			size += StrOrByteLenPrefixSize + calcTypeSize(item)
 		}
 		return size
 
